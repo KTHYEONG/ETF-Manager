@@ -2,5 +2,9 @@
   "src/etf_manager/data/pit.py": {
     "architecture": "docs/architecture/01_data_contracts.md",
     "testing": "tests/unit/etf_manager/data/test_pit.py"
+  },
+  "src/etf_manager/data/quality.py": {
+    "architecture": "docs/architecture/01_data_contracts.md",
+    "testing": "tests/unit/etf_manager/data/test_quality.py"
   }
 }
