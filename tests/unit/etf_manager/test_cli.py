@@ -8,6 +8,9 @@ import pytest
 
 from src.etf_manager import cli
 from src.etf_manager.cli import main
+from src.etf_manager.data.providers.base import ProviderError
+from src.etf_manager.data.schema import Dataset
+from src.etf_manager.sim.baseline import BaselineConfig, BaselineId, BaselineResult
 
 
 @pytest.fixture(autouse=True)
@@ -44,3 +47,118 @@ def test_cli_d07_ingest_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
     invalid_exit = main(["ingest", "fx", "--start", "2024-01-01", "--end", "2024-02-01"])
     assert invalid_exit == 2
     assert fx_calls == []
+
+
+class _FakeManifest:
+    def __init__(self, row_count: int) -> None:
+        self.row_count = row_count
+
+
+class _FakeArtifact:
+    def __init__(self, row_count: int) -> None:
+        self.manifest = _FakeManifest(row_count)
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-E02-ingest-smoke-required-ok"])
+def test_cli_e02_ingest_smoke_required_ok(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-E02-ingest-smoke-required-ok"""
+    calls = {"fx": 0, "prices": 0, "cpi": 0}
+    seen_datasets: list[Dataset] = []
+
+    def fake_fx(**kwargs: object) -> _FakeArtifact:
+        calls["fx"] += 1
+        return _FakeArtifact(4)
+
+    def fake_prices(tickers: tuple[str, ...], start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        calls["prices"] += 1
+        return _FakeArtifact(4)
+
+    def fake_cpi(start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        calls["cpi"] += 1
+        raise ProviderError("ecos cpi rejected")
+
+    def fake_latest(settings: object, dataset: Dataset) -> _FakeArtifact:
+        seen_datasets.append(dataset)
+        return _FakeArtifact(4)
+
+    monkeypatch.setattr(cli, "fetch_and_persist_fx", fake_fx)
+    monkeypatch.setattr(cli, "fetch_and_persist_prices", fake_prices)
+    monkeypatch.setattr(cli, "fetch_and_persist_cpi", fake_cpi)
+    monkeypatch.setattr(cli, "latest_artifact", fake_latest)
+
+    exit_code = main(["ingest", "smoke"])
+
+    assert exit_code == 0
+    assert calls == {"fx": 1, "prices": 1, "cpi": 1}
+    assert set(seen_datasets) == {Dataset.PRICES, Dataset.FX}
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-E03-ingest-smoke-prices-fail"])
+def test_cli_e03_ingest_smoke_prices_fail(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-E03-ingest-smoke-prices-fail"""
+    fx_calls: list[int] = []
+    prices_calls: list[int] = []
+
+    def fake_fx(**kwargs: object) -> _FakeArtifact:
+        fx_calls.append(1)
+        return _FakeArtifact(4)
+
+    def fake_prices(tickers: tuple[str, ...], start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        prices_calls.append(1)
+        raise ProviderError("tiingo request failed")
+
+    monkeypatch.setattr(cli, "fetch_and_persist_fx", fake_fx)
+    monkeypatch.setattr(cli, "fetch_and_persist_prices", fake_prices)
+    monkeypatch.setattr(
+        cli,
+        "latest_artifact",
+        lambda settings, dataset: pytest.fail("catalog must not be consulted after required fetch failure"),
+    )
+
+    exit_code = main(["ingest", "smoke"])
+
+    assert exit_code == 1
+    assert len(fx_calls) == 1
+    assert len(prices_calls) == 1
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-E04-run-baseline"])
+def test_cli_e04_run_baseline(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-E04-run-baseline"""
+    captured: list[BaselineConfig] = []
+
+    def fake_run(config: BaselineConfig, settings: object) -> BaselineResult:
+        captured.append(config)
+        return BaselineResult(config=config, snapshots=(), terminal_wealth_krw=1.0, xirr=0.0, max_drawdown=0.0)
+
+    monkeypatch.setattr(cli, "run_baseline_from_store", fake_run)
+
+    argv = [
+        "run",
+        "baseline",
+        "--id",
+        "b0_global",
+        "--ticker",
+        "VT",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-01-31",
+        "--contribution-krw",
+        "1000000",
+    ]
+    exit_code = main(argv)
+
+    assert exit_code == 0
+    assert len(captured) == 1
+    assert captured[0] == BaselineConfig(
+        baseline=BaselineId.B0_GLOBAL,
+        ticker="VT",
+        start=date(2024, 1, 1),
+        end=date(2024, 1, 31),
+        monthly_contribution_krw=1000000.0,
+    )
+
+    missing_ticker_argv = ["run", "baseline", "--id", "b0_global", "--start", "2024-01-01",
+                           "--end", "2024-01-31", "--contribution-krw", "1000000"]
+    assert main(missing_ticker_argv) == 2

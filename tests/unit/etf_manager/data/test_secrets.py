@@ -59,10 +59,30 @@ def test_sops_stdout_resolves_missing_names(
     assert secrets == ProviderSecrets(tiingo_api="sops-tiingo", fred_api="sops-fred", ecos_api="sops-ecos")
     assert len(calls) == 1
     argv, kwargs = calls[0]
-    assert argv == ["sops", "-d", str(env_enc)]
+    assert argv == ["sops", "-d", "--input-type", "dotenv", "--output-type", "dotenv", str(env_enc)]
     timeout = kwargs.get("timeout")
     assert isinstance(timeout, (int, float))
     assert 0 < timeout <= 30
+
+
+@pytest.mark.parametrize("scenario_id", ["SEC-E01-sops-dotenv-flags"])
+def test_sops_decrypt_argv_carries_dotenv_flags(
+    scenario_id: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SEC-E01-sops-dotenv-flags"""
+    for name in _NAMES:
+        monkeypatch.delenv(name, raising=False)
+    stdout = b"TIINGO_API=sops-tiingo\nFRED_API=sops-fred\nECOS_API=sops-ecos\n"
+    calls = _patch_sops(monkeypatch, stdout)
+    env_enc = tmp_path / ".env.enc"
+
+    secrets = load_provider_secrets(env_enc=env_enc, env_file=tmp_path / "absent.env")
+
+    assert secrets == ProviderSecrets(tiingo_api="sops-tiingo", fred_api="sops-fred", ecos_api="sops-ecos")
+    assert len(calls) == 1
+    argv, kwargs = calls[0]
+    assert argv == ["sops", "-d", "--input-type", "dotenv", "--output-type", "dotenv", str(env_enc)]
+    assert kwargs.get("timeout") == 30
 
 
 def test_dotenv_file_layer_fills_partial_gaps(
