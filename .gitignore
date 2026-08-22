@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Repository-local dataset artifacts (raw payloads, normalized Parquet, manifests)
+/data/*
+!/data/.gitkeep

@@ -59,7 +59,7 @@ class AvailabilityRule:
 
 @dataclass(frozen=True, slots=True)
 class DatasetSpec:
-    """Immutable contract of one dataset: columns, key, and PIT semantics."""
+    """Immutable contract of one dataset: columns, key, PIT semantics."""
 
     dataset: Dataset
     columns: Mapping[str, pl.DataType]
@@ -70,13 +70,28 @@ class DatasetSpec:
     revisable: bool
     total_return_source: TotalReturnSource
     schema_version: str
+    # Only value fields of EXPLICIT_GAP datasets may be declared nullable.
+    nullable_columns: frozenset[str] = frozenset()
 
 
 def _build_specs() -> dict[Dataset, DatasetSpec]:
     prices = DatasetSpec(
         dataset=Dataset.PRICES,
-        columns={"date": pl.Date(), "close": pl.Float64()},
-        key=("date",),
+        columns={
+            "ticker": pl.String(),
+            "date": pl.Date(),
+            "open": pl.Float64(),
+            "high": pl.Float64(),
+            "low": pl.Float64(),
+            "close": pl.Float64(),
+            "volume": pl.Int64(),
+            "adjusted_close": pl.Float64(),
+            "dividend": pl.Float64(),
+            "split_factor": pl.Float64(),
+            "source": pl.String(),
+            "retrieved_at": TS_DTYPE,
+        },
+        key=("ticker", "date"),
         observation_column="date",
         availability=AvailabilityRule(kind=AvailabilityKind.SESSION_CLOSE, calendar_name="XNYS"),
         missing_policy=MissingPolicy.FAIL,
@@ -86,7 +101,12 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
     )
     fx = DatasetSpec(
         dataset=Dataset.FX,
-        columns={"date": pl.Date(), "usdkrw": pl.Float64()},
+        columns={
+            "date": pl.Date(),
+            "usdkrw": pl.Float64(),
+            "source": pl.String(),
+            "retrieved_at": TS_DTYPE,
+        },
         key=("date",),
         observation_column="date",
         availability=AvailabilityRule(kind=AvailabilityKind.SESSION_CLOSE, calendar_name="XNYS"),
@@ -105,6 +125,7 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         revisable=True,
         total_return_source=TotalReturnSource.NOT_APPLICABLE,
         schema_version="1",
+        nullable_columns=frozenset({"value"}),
     )
     factors = DatasetSpec(
         dataset=Dataset.FACTORS,
@@ -118,6 +139,7 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         revisable=False,
         total_return_source=TotalReturnSource.NOT_APPLICABLE,
         schema_version="1",
+        nullable_columns=frozenset({"mkt_rf"}),
     )
     etf_metadata = DatasetSpec(
         dataset=Dataset.ETF_METADATA,
