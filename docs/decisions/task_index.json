@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P1C_PROVIDER_CLIENTS",
+      "date": "2026-08-22",
+      "adr_id": "ADR_20260822_P1C_PROVIDER_CLIENTS",
+      "domain": "data",
+      "title": "Phase 1-C: Provider Clients (Tiingo, FRED, ECOS)",
+      "why": "P1-B could persist frames but had no vendor HTTP layer; encrypted API keys in .env.enc required SOPS-aware loading without leaking credentials into manifests or tests.",
+      "resolution": "Implemented ProviderSecrets with env/.env/sops loading, Tiingo/FRED/ECOS clients with MockTransport tests, Dataset.CPI and MACRO schema deltas, fetch_and_persist orchestration, and 9 contract scenarios.",
+      "impact": "Enables manifest-bound live ingest for prices, FX, VIX vintages, and CPI; unblocks P1-D catalog and baseline data pulls."
+    },
+    {
       "task_id": "TASK_P1B_QUALITY_LINEAGE",
       "date": "2026-08-22",
       "adr_id": "ADR_20260822_P1B_QUALITY_LINEAGE",

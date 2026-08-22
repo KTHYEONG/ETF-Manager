@@ -161,6 +161,7 @@ def test_session_and_gap_policy(scenario_id: str) -> None:
     macro_spec = spec_for(Dataset.MACRO)
     macro_frame = pl.DataFrame(
         {
+            "series_id": ["VIXCLS"],
             "observation_date": [date(2024, 1, 1)],
             "release_date": [datetime(2024, 2, 14, tzinfo=UTC)],
             "value": [None],

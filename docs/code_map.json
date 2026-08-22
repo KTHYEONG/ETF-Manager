@@ -6,5 +6,9 @@
   "src/etf_manager/data/quality.py": {
     "architecture": "docs/architecture/01_data_contracts.md",
     "testing": "tests/unit/etf_manager/data/test_quality.py"
+  },
+  "src/etf_manager/data/providers/tiingo.py": {
+    "architecture": "docs/architecture/01_data_contracts.md",
+    "testing": "tests/unit/etf_manager/data/test_tiingo.py"
   }
 }
