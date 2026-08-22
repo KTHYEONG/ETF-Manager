@@ -129,7 +129,15 @@ def test_cli_e04_run_baseline(scenario_id: str, monkeypatch: pytest.MonkeyPatch)
 
     def fake_run(config: BaselineConfig, settings: object) -> BaselineResult:
         captured.append(config)
-        return BaselineResult(config=config, snapshots=(), terminal_wealth_krw=1.0, xirr=0.0, max_drawdown=0.0)
+        return BaselineResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=1.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=0.8,
+            xirr_real=-0.1,
+        )
 
     monkeypatch.setattr(cli, "run_baseline_from_store", fake_run)
 
@@ -162,3 +170,95 @@ def test_cli_e04_run_baseline(scenario_id: str, monkeypatch: pytest.MonkeyPatch)
     missing_ticker_argv = ["run", "baseline", "--id", "b0_global", "--start", "2024-01-01",
                            "--end", "2024-01-31", "--contribution-krw", "1000000"]
     assert main(missing_ticker_argv) == 2
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-F03-ingest-history"])
+def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-F03-ingest-history"""
+    calls = {"fx": 0, "prices": 0, "cpi": 0}
+    seen_tickers: tuple[str, ...] = ()
+
+    def fake_fx(**kwargs: object) -> _FakeArtifact:
+        calls["fx"] += 1
+        return _FakeArtifact(8)
+
+    def fake_prices(tickers: tuple[str, ...], start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        nonlocal seen_tickers
+        calls["prices"] += 1
+        seen_tickers = tickers
+        return _FakeArtifact(8)
+
+    def fake_cpi(start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        calls["cpi"] += 1
+        return _FakeArtifact(8)
+
+    def fake_latest(settings: object, dataset: Dataset) -> _FakeArtifact:
+        return _FakeArtifact(8)
+
+    monkeypatch.setattr(cli, "fetch_and_persist_fx", fake_fx)
+    monkeypatch.setattr(cli, "fetch_and_persist_prices", fake_prices)
+    monkeypatch.setattr(cli, "fetch_and_persist_cpi", fake_cpi)
+    monkeypatch.setattr(cli, "latest_artifact", fake_latest)
+
+    exit_code = main(["ingest", "history", "--start", "2020-01-01", "--end", "2020-12-31"])
+
+    assert exit_code == 0
+    assert calls == {"fx": 1, "prices": 1, "cpi": 1}
+    assert seen_tickers == ("VT", "VTI")
+
+    assert main(["ingest", "history"]) == 2
+
+
+def test_cli_f03_ingest_history_cpi_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-F03-ingest-history"""
+
+    def fake_fx(**kwargs: object) -> _FakeArtifact:
+        return _FakeArtifact(8)
+
+    def fake_prices(tickers: tuple[str, ...], start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        return _FakeArtifact(8)
+
+    def fake_cpi(start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        raise ProviderError("ecos cpi rejected")
+
+    monkeypatch.setattr(cli, "fetch_and_persist_fx", fake_fx)
+    monkeypatch.setattr(cli, "fetch_and_persist_prices", fake_prices)
+    monkeypatch.setattr(cli, "fetch_and_persist_cpi", fake_cpi)
+
+    exit_code = main(["ingest", "history", "--start", "2020-01-01", "--end", "2020-12-31"])
+
+    assert exit_code == 1
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-F04-baseline-real-log"])
+def test_cli_f04_baseline_real_log(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-F04-baseline-real-log"""
+
+    def fake_run(config: BaselineConfig, settings: object) -> BaselineResult:
+        return BaselineResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=1.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=0.8,
+            xirr_real=-0.1,
+        )
+
+    monkeypatch.setattr(cli, "run_baseline_from_store", fake_run)
+
+    argv = [
+        "run",
+        "baseline",
+        "--id",
+        "b0_global",
+        "--ticker",
+        "VT",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-01-31",
+        "--contribution-krw",
+        "1000000",
+    ]
+    assert main(argv) == 0

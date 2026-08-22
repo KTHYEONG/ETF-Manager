@@ -69,6 +69,19 @@ def max_drawdown(equity_krw: Sequence[float]) -> float:
     return max(drawdown, -1.0)
 
 
+def real_krw(nominal_krw: float, *, cpi_index: float, cpi_base: float) -> float:
+    """Deflate nominal KRW into base-period purchasing power via ``cpi_base / cpi_index``.
+
+    Raises:
+        ValueError: When any argument is non-finite or either CPI level is non-positive.
+    """
+    if any(not math.isfinite(value) for value in (nominal_krw, cpi_index, cpi_base)):
+        raise ValueError("real_krw arguments must be finite")
+    if cpi_index <= 0.0 or cpi_base <= 0.0:
+        raise ValueError("cpi_index and cpi_base must be positive")
+    return nominal_krw * cpi_base / cpi_index
+
+
 def _net_present_value(amounts: tuple[float, ...], times: tuple[float, ...], rate: float) -> float:
     total = 0.0
     for step, amount in zip(times, amounts, strict=True):

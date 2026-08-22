@@ -38,6 +38,8 @@ _SMOKE_START: Final[date] = date(2024, 1, 2)
 _SMOKE_END: Final[date] = date(2024, 1, 5)
 _SMOKE_TICKER: Final[str] = "VT"
 _SMOKE_FX_PROVIDER: Final[str] = "fred"
+_HISTORY_TICKERS: Final[tuple[str, ...]] = ("VT", "VTI")
+_HISTORY_FX_PROVIDER: Final[str] = "fred"
 
 
 class _UsageError(Exception):
@@ -60,7 +62,7 @@ def _build_parser() -> _Parser:
     parser = _Parser(prog="etf-manager", description="ETF research ingest CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
     ingest = subparsers.add_parser("ingest", help="Fetch and persist one vendor dataset")
-    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "smoke"))
+    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "smoke", "history"))
     ingest.add_argument("--tickers", nargs="+", default=None, help="Price tickers (prices/smoke only)")
     ingest.add_argument("--provider", choices=("fred", "ecos"), default=None, help="FX vendor (fx/smoke only)")
     ingest.add_argument("--series-id", default=None, help="FRED series identifier (macro only)")
@@ -102,6 +104,18 @@ def _dispatch(args: argparse.Namespace) -> int:
     dataset: str = args.dataset
     if dataset == "smoke":
         return _dispatch_smoke(args)
+    if dataset == "history":
+        if args.start is None or args.end is None:
+            raise _UsageError("ingest history requires --start and --end")
+        tickers = tuple(args.tickers) if args.tickers else _HISTORY_TICKERS
+        return run_ingest_history(
+            start=args.start,
+            end=args.end,
+            tickers=tickers,
+            fx_provider=str(args.provider) if args.provider is not None else _HISTORY_FX_PROVIDER,
+            settings=DataSettings(),
+            secrets=load_provider_secrets(),
+        )
     if dataset == "prices" and not args.tickers:
         raise _UsageError("ingest prices requires --tickers")
     if dataset == "fx" and args.provider is None:
@@ -205,6 +219,49 @@ def run_ingest_smoke(
     return 0
 
 
+def run_ingest_history(
+    *,
+    start: date,
+    end: date,
+    tickers: tuple[str, ...],
+    fx_provider: str,
+    settings: DataSettings,
+    secrets: ProviderSecrets,
+    client: httpx.Client | None = None,
+) -> int:
+    """Persist FX, prices, and CPI over a long window; all three datasets are required.
+
+    Returns 0 only when every fetch persists and each latest catalog partition
+    holds row_count >= 1; vendor/catalog messages never reach the log.
+    """
+    try:
+        fx = fetch_and_persist_fx(
+            provider=fx_provider, start=start, end=end, secrets=secrets, settings=settings, client=client
+        )
+        prices = fetch_and_persist_prices(tickers, start, end, secrets=secrets, settings=settings, client=client)
+        cpi = fetch_and_persist_cpi(start, end, secrets=secrets, settings=settings, client=client)
+        row_counts = {
+            str(dataset): latest_artifact(settings, dataset).manifest.row_count
+            for dataset in (Dataset.PRICES, Dataset.FX, Dataset.CPI)
+        }
+    except (ProviderError, ValueError, UntrustedDatasetError, OSError) as exc:
+        # Vendor/catalog messages may echo api_key query strings; expose the failure class only.
+        logger.error("[DATA] event=history_failed reason_type=%s", type(exc).__name__)
+        return 1
+    underfilled = sorted(name for name, count in row_counts.items() if count < 1)
+    if underfilled:
+        logger.error("[DATA] event=history_failed reason=empty_catalog dataset=%s", ",".join(underfilled))
+        return 1
+    logger.info(
+        "[DATA] event=history_ok tickers=%s price_rows=%d fx_rows=%d cpi_rows=%d",
+        ",".join(tickers),
+        prices.manifest.row_count,
+        fx.manifest.row_count,
+        cpi.manifest.row_count,
+    )
+    return 0
+
+
 def run_baseline_command(
     *,
     baseline_id: str,
@@ -230,10 +287,12 @@ def run_baseline_command(
         logger.error("[DATA] event=baseline_cli_failed reason=%s", exc)
         return 1
     logger.info(
-        "[DATA] event=baseline_cli_done terminal_krw=%.3f xirr=%.6f mdd=%.4f ticker=%s steps=%d",
+        "[DATA] event=baseline_cli_done terminal_krw=%.3f xirr=%.6f mdd=%.4f terminal_real_krw=%.3f xirr_real=%.6f ticker=%s steps=%d",
         result.terminal_wealth_krw,
         result.xirr,
         result.max_drawdown,
+        result.terminal_wealth_real_krw,
+        result.xirr_real,
         ticker,
         len(result.snapshots),
     )
