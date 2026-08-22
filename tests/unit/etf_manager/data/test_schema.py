@@ -5,11 +5,13 @@ from __future__ import annotations
 from datetime import timedelta
 
 import polars as pl
+import pytest
 
 from src.etf_manager.data.schema import (
     DATASET_SPECS,
     AvailabilityKind,
     Dataset,
+    MissingPolicy,
     TotalReturnSource,
     spec_for,
 )
@@ -38,3 +40,28 @@ def test_spec_a01_registry_completeness() -> None:
     prices = spec_for(Dataset.PRICES)
     assert prices.total_return_source is not TotalReturnSource.NOT_APPLICABLE
     assert all(isinstance(dtype, pl.DataType) for dtype in prices.columns.values())
+
+
+@pytest.mark.parametrize("scenario_id", ["SPEC-C09-registry-cpi-macro-key"])
+def test_spec_c09_registry_cpi_macro_key(scenario_id: str) -> None:
+    """SPEC-C09-registry-cpi-macro-key"""
+    assert set(DATASET_SPECS) == set(Dataset)
+    assert Dataset.CPI in DATASET_SPECS
+
+    macro = spec_for(Dataset.MACRO)
+    assert macro.key == ("series_id", "observation_date")
+    assert "series_id" in macro.columns
+    assert macro.revisable is True
+
+    cpi = spec_for(Dataset.CPI)
+    assert cpi.availability.kind is AvailabilityKind.FIXED_LAG
+    assert cpi.availability.lag == timedelta(days=45)
+    assert cpi.key == ("period_end",)
+    assert cpi.missing_policy is MissingPolicy.EXPLICIT_GAP
+    assert cpi.revisable is False
+    assert cpi.nullable_columns == frozenset({"value"})
+    assert set(cpi.columns) == {"period_end", "value", "source", "retrieved_at"}
+
+    fx = spec_for(Dataset.FX)
+    assert fx.missing_policy is MissingPolicy.EXPLICIT_GAP
+    assert "usdkrw" in fx.nullable_columns

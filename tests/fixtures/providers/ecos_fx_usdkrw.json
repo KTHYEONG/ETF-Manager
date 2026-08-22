@@ -1,0 +1,13 @@
+{
+  "StatisticSearch": {
+    "list_total_count": 1,
+    "row": [
+      {
+        "STAT_CODE": "731Y001",
+        "ITEM_CODE1": "0000001",
+        "TIME": "20240116",
+        "DATA_VALUE": "1350.1"
+      }
+    ]
+  }
+}
