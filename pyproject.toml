@@ -3,7 +3,12 @@ name = "etf-manager"
 version = "0.1.0"
 description = "ETF 적립식 매수 최적화 매니저"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "exchange-calendars>=4.13.2",
+    "polars>=1.43.2",
+    "pyarrow>=25.0.1",
+    "pydantic>=2.13.4",
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -93,6 +98,7 @@ pythonpath = ["."]
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.165.10",
     "mypy>=1.10.0",
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
