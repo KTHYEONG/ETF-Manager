@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P2B_RUN_CLI_SMOKE",
+      "date": "2026-08-22",
+      "adr_id": "ADR_20260822_P2B_RUN_CLI_SMOKE",
+      "domain": "simulation",
+      "title": "Phase 2-B: Run CLI, SOPS dotenv, Live Ingest Smoke",
+      "why": "P2-A had ingest CLI but no run baseline command; SOPS decrypt lacked dotenv flags; operators could not verify live API pulls end-to-end.",
+      "resolution": "Fixed load_provider_secrets sops argv; added ingest smoke (FRED FX + Tiingo prices required, ECOS CPI optional) and run baseline CLI wiring run_baseline_from_store; ECOS date-format fix for CPI requests.",
+      "impact": "First operator workflow: ingest smoke then run baseline from catalog; unblocks extended historical ingest and P2-C multi-sleeve/tax extensions."
+    },
+    {
       "task_id": "TASK_P2A_BASELINE_FAST",
       "date": "2026-08-22",
       "adr_id": "ADR_20260822_P2A_BASELINE_FAST",
