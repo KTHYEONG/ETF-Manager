@@ -217,6 +217,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Project-only temp (pytest, tempfile, TMPDIR — see tests/conftest.py)
+/tmp/
+
 # Repository-local dataset artifacts (raw payloads, normalized Parquet, manifests)
 /data/*
 !/data/.gitkeep

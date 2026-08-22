@@ -5,10 +5,12 @@ description = "ETF 적립식 매수 최적화 매니저"
 requires-python = ">=3.11"
 dependencies = [
     "exchange-calendars>=4.13.2",
+    "httpx>=0.28.1",
     "polars>=1.43.2",
     "pyarrow>=25.0.1",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.15.0",
+    "tenacity>=9.1.4",
 ]
 
 [build-system]

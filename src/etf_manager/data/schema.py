@@ -19,6 +19,7 @@ class Dataset(StrEnum):
     PRICES = "prices"
     FX = "fx"
     MACRO = "macro"
+    CPI = "cpi"
     FACTORS = "factors"
     ETF_METADATA = "etf_metadata"
 
@@ -110,19 +111,43 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         key=("date",),
         observation_column="date",
         availability=AvailabilityRule(kind=AvailabilityKind.SESSION_CLOSE, calendar_name="XNYS"),
-        missing_policy=MissingPolicy.FAIL,
+        # Vendor FX calendars differ from XNYS; published gap days stay as null rows.
+        missing_policy=MissingPolicy.EXPLICIT_GAP,
         revisable=False,
         total_return_source=TotalReturnSource.NOT_APPLICABLE,
         schema_version="1",
+        nullable_columns=frozenset({"usdkrw"}),
     )
     macro = DatasetSpec(
         dataset=Dataset.MACRO,
-        columns={"observation_date": pl.Date(), "release_date": TS_DTYPE, "value": pl.Float64()},
-        key=("observation_date",),
+        columns={
+            "series_id": pl.String(),
+            "observation_date": pl.Date(),
+            "release_date": TS_DTYPE,
+            "value": pl.Float64(),
+        },
+        key=("series_id", "observation_date"),
         observation_column="observation_date",
         availability=AvailabilityRule(kind=AvailabilityKind.RELEASE_COLUMN, release_column="release_date"),
         missing_policy=MissingPolicy.EXPLICIT_GAP,
         revisable=True,
+        total_return_source=TotalReturnSource.NOT_APPLICABLE,
+        schema_version="1",
+        nullable_columns=frozenset({"value"}),
+    )
+    cpi = DatasetSpec(
+        dataset=Dataset.CPI,
+        columns={
+            "period_end": pl.Date(),
+            "value": pl.Float64(),
+            "source": pl.String(),
+            "retrieved_at": TS_DTYPE,
+        },
+        key=("period_end",),
+        observation_column="period_end",
+        availability=AvailabilityRule(kind=AvailabilityKind.FIXED_LAG, lag=timedelta(days=45)),
+        missing_policy=MissingPolicy.EXPLICIT_GAP,
+        revisable=False,
         total_return_source=TotalReturnSource.NOT_APPLICABLE,
         schema_version="1",
         nullable_columns=frozenset({"value"}),
@@ -160,6 +185,7 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         Dataset.PRICES: prices,
         Dataset.FX: fx,
         Dataset.MACRO: macro,
+        Dataset.CPI: cpi,
         Dataset.FACTORS: factors,
         Dataset.ETF_METADATA: etf_metadata,
     }
