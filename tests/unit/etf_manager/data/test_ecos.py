@@ -63,6 +63,7 @@ def test_cpi_monthly_row_maps_to_period_end() -> None:
     assert frame.get_column("value").to_list() == [112.49]
     assert frame.get_column("source").unique().to_list() == ["ecos"]
     assert captured[0].url.path.count("901Y009") == 1
+    assert "/901Y009/M/202401/202401/0" in captured[0].url.path
     assert _TOKEN not in json.dumps(payload.request_params)
 
 
