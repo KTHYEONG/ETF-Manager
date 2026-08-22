@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P1B_QUALITY_LINEAGE",
+      "date": "2026-08-22",
+      "adr_id": "ADR_20260822_P1B_QUALITY_LINEAGE",
+      "domain": "data",
+      "title": "Phase 1-B: Data Quality, Immutable Storage, Runtime Settings",
+      "why": "P1-A stamped availability but lacked fail-closed validation, immutable raw archive, manifest-bound Parquet reads, and a repository-local data-root boundary before any provider ingest.",
+      "resolution": "Implemented expanded price schema, pure quality gate, DataSettings, content-addressed raw storage, manifest-bound normalized Parquet I/O, and composed persist_ingest orchestration with 10 contract scenarios.",
+      "impact": "Enforces invariant I4 at the data boundary; unblocks P1-C provider clients and recorded-fixture ingest."
+    },
+    {
       "task_id": "TASK_P1A_PIT_CORE",
       "date": "2026-08-22",
       "adr_id": "ADR_20260822_P1A_PIT_CORE",
