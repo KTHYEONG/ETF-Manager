@@ -87,7 +87,15 @@ def _decrypt_dotenv(env_enc: Path) -> dict[str, str]:
     """Decrypt via ``sops -d`` stdout only; nothing is ever written to disk."""
     try:
         completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
-            ["sops", "-d", str(env_enc)],  # noqa: S607 - pinned vendor executable
+            [  # noqa: S607 - pinned vendor executable
+                "sops",
+                "-d",
+                "--input-type",
+                "dotenv",
+                "--output-type",
+                "dotenv",
+                str(env_enc),
+            ],
             capture_output=True,
             check=False,
             timeout=_SOPS_TIMEOUT_S,

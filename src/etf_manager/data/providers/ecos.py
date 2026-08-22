@@ -76,7 +76,7 @@ class EcosClient:
     ) -> tuple[ProviderResponse, list[JSONValue]]:
         url = (
             f"{_API_URL}/{self._api_key}/json/kr/{_REQUEST_BEGIN}/{_REQUEST_COUNT}"
-            f"/{stat_code}/{cycle}/{_compact(start)}/{_compact(end)}/{item}"
+            f"/{stat_code}/{cycle}/{_format_date(start, cycle)}/{_format_date(end, cycle)}/{item}"
         )
         response = get_json(self._client, url)
         body = response.body
@@ -132,8 +132,13 @@ def _payload(
     )
 
 
-def _compact(day: date) -> str:
-    return f"{day.year:04d}{day.month:02d}{day.day:02d}"
+def _format_date(day: date, cycle: str) -> str:
+    """Format date matching ECOS cycle requirement ('YYYYMM' for 'M', 'YYYYMMDD' for 'D')."""
+    if cycle == "M":
+        return f"{day.year:04d}{day.month:02d}"
+    if cycle == "D":
+        return f"{day.year:04d}{day.month:02d}{day.day:02d}"
+    raise ProviderError(f"unsupported ecos cycle {cycle!r}")
 
 
 def _period(row: JSONValue) -> date:
