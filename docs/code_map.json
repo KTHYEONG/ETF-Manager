@@ -14,5 +14,9 @@
   "src/etf_manager/sim/baseline.py": {
     "architecture": "docs/architecture/00_system_overview.md",
     "testing": "tests/unit/etf_manager/sim/test_baseline.py"
+  },
+  "src/etf_manager/cli.py": {
+    "architecture": "docs/architecture/00_system_overview.md",
+    "testing": "tests/unit/etf_manager/test_cli.py"
   }
 }
