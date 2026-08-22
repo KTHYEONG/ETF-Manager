@@ -1,0 +1,29 @@
+"""Unit tests for the exchange-calendar wrapper and fill-delay rule."""
+
+from __future__ import annotations
+
+from datetime import date
+
+import pytest
+
+from src.etf_manager.data.calendar import load_calendar, next_execution_session
+
+
+def test_cal_a08_holiday_fill_delay() -> None:
+    """CAL-A08-holiday-fill-delay"""
+    calendar = load_calendar("XNYS")
+    assert next_execution_session(calendar, date(2024, 12, 24), 1) == date(2024, 12, 26)
+    assert next_execution_session(calendar, date(2024, 7, 3), 1) == date(2024, 7, 5)
+    assert calendar.is_session(date(2024, 12, 25)) is False
+    # Early close means an earlier close time-of-day (13:00 ET vs 16:00 ET); absolute instants span different days.
+    assert calendar.close_ts(date(2024, 12, 24)).time() < calendar.close_ts(date(2024, 12, 23)).time()
+
+
+def test_cal_a09_fill_delay_lower_bound() -> None:
+    """CAL-A09-fill-delay-lower-bound"""
+    calendar = load_calendar("XNYS")
+    for invalid_delay in (0, -1):
+        with pytest.raises(ValueError, match="fill_delay_sessions"):
+            next_execution_session(calendar, date(2024, 1, 31), invalid_delay)
+    assert next_execution_session(calendar, date(2024, 1, 31), 2) == date(2024, 2, 2)
+    assert load_calendar("XNYS") is load_calendar("XNYS")
