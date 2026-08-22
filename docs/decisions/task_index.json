@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    {
+      "task_id": "TASK_P1A_PIT_CORE",
+      "date": "2026-08-22",
+      "adr_id": "ADR_20260822_P1A_PIT_CORE",
+      "domain": "data",
+      "title": "Phase 1-A: Point-in-Time Data Temporal Core",
+      "why": "Greenfield repo required a fail-closed PIT layer before strategy, simulation, or provider ingest could safely proceed.",
+      "resolution": "Implemented dataset spec registry, NYSE calendar wrapper, availability stamping, as_of vintage resolution, look-ahead guard, ingest/load_as_of/schedule seams, and 12 contract scenarios with hypothesis property coverage.",
+      "impact": "Establishes invariant I1-I2 enforcement at the data boundary; unblocks P1-B quality gate and P1-C provider clients."
+    }
+  ]
+}
