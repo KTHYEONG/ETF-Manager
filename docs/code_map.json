@@ -10,5 +10,9 @@
   "src/etf_manager/data/providers/tiingo.py": {
     "architecture": "docs/architecture/01_data_contracts.md",
     "testing": "tests/unit/etf_manager/data/test_tiingo.py"
+  },
+  "src/etf_manager/sim/baseline.py": {
+    "architecture": "docs/architecture/00_system_overview.md",
+    "testing": "tests/unit/etf_manager/sim/test_baseline.py"
   }
 }

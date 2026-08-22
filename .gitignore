@@ -219,6 +219,8 @@ __marimo__/
 
 # Project-only temp (pytest, tempfile, TMPDIR — see tests/conftest.py)
 /tmp/
+scratch/
+tmp/
 
 # Repository-local dataset artifacts (raw payloads, normalized Parquet, manifests)
 /data/*

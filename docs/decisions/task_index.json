@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P2A_BASELINE_FAST",
+      "date": "2026-08-22",
+      "adr_id": "ADR_20260822_P2A_BASELINE_FAST",
+      "domain": "simulation",
+      "title": "Phase 2-A: Fast Baseline (B0/B1), Catalog, Ingest CLI",
+      "why": "P1-C could persist vendor data but there was no catalog read path, no cashflow-aware KRW DCA simulator, and no CLI to trigger ingest.",
+      "resolution": "Implemented manifest catalog with PIT load_visible, single-sleeve fast baseline (B0/B1) with delayed fills, FX conversion, integer lots, XIRR/MDD metrics, and ingest CLI dispatching fetch_and_persist_*.",
+      "impact": "Delivers the first runnable accumulation baseline on stored data; unblocks live data pull and P2-B multi-sleeve/tax extensions."
+    },
+    {
       "task_id": "TASK_P1C_PROVIDER_CLIENTS",
       "date": "2026-08-22",
       "adr_id": "ADR_20260822_P1C_PROVIDER_CLIENTS",
