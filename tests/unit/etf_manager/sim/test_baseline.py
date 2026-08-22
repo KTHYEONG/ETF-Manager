@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, date, datetime
 from collections.abc import Mapping
 
@@ -91,6 +92,25 @@ def _fx_panel(
     )
 
 
+def _cpi_panel(observations: Mapping[date, float]) -> pl.DataFrame:
+    spec = spec_for(Dataset.CPI)
+    ordered = sorted(observations)
+    return pl.DataFrame(
+        {
+            "period_end": ordered,
+            "value": [float(observations[day]) for day in ordered],
+            "source": ["synthetic"] * len(ordered),
+            "retrieved_at": [_RETRIEVED_AT] * len(ordered),
+        },
+        schema=dict(spec.columns),
+    )
+
+
+def _constant_cpi() -> pl.DataFrame:
+    """FIXED_LAG 45d stamping makes the level visible at every 2024 execution close."""
+    return ingest(_cpi_panel({date(2023, 12, 1): 100.0}), Dataset.CPI)
+
+
 def _config(ticker: str, start: date, end: date, **overrides: object) -> BaselineConfig:
     values: dict[str, object] = {
         "baseline": BaselineId.B0_GLOBAL,
@@ -111,7 +131,7 @@ def test_sim_d02_delayed_fill_not_signal_close() -> None:
 
     prices = ingest(_prices_panel(window, {"AAA": {signal_day: 100.0, execution_day: 110.0}}), Dataset.PRICES)
     fx = ingest(_fx_panel(window, {}), Dataset.FX)
-    result = run_baseline(_config("AAA", _CONFIG_START, _CONFIG_END), prices, fx)
+    result = run_baseline(_config("AAA", _CONFIG_START, _CONFIG_END), prices, fx, _constant_cpi())
 
     first = result.snapshots[0]
     assert first.session == execution_day
@@ -129,7 +149,7 @@ def test_sim_d03_cash_conservation() -> None:
 
     prices = ingest(_prices_panel(window, {"AAA": {}}), Dataset.PRICES)
     fx = ingest(_fx_panel(window, {}), Dataset.FX)
-    result = run_baseline(_config("AAA", _CONFIG_START, _CONFIG_END), prices, fx)
+    result = run_baseline(_config("AAA", _CONFIG_START, _CONFIG_END), prices, fx, _constant_cpi())
 
     last = result.snapshots[-1]
     last_price = 100.0
@@ -157,17 +177,17 @@ def test_sim_d04_fail_closed_missing_px() -> None:
     )
     fx = ingest(_fx_panel(window, {}), Dataset.FX)
     with pytest.raises(BaselineDataError):
-        run_baseline(_config("BBB", _CONFIG_START, _CONFIG_END), absent_on_execution, fx)
+        run_baseline(_config("BBB", _CONFIG_START, _CONFIG_END), absent_on_execution, fx, _constant_cpi())
 
     null_fx = _fx_frame_with_nulls(window, date(2024, 2, 1))
     prices = ingest(_prices_panel(window, {"AAA": {}}), Dataset.PRICES)
     stamped_null_fx = ingest(null_fx, Dataset.FX)
     with pytest.raises(BaselineDataError):
-        run_baseline(_config("AAA", _CONFIG_START, _CONFIG_END), prices, stamped_null_fx)
+        run_baseline(_config("AAA", _CONFIG_START, _CONFIG_END), prices, stamped_null_fx, _constant_cpi())
 
     zero_contribution = _config("AAA", _CONFIG_START, _CONFIG_END, monthly_contribution_krw=0.0)
     with pytest.raises(ValueError, match="monthly_contribution_krw"):
-        run_baseline(zero_contribution, prices, fx)
+        run_baseline(zero_contribution, prices, fx, _constant_cpi())
 
 
 def _panel_with_dates(series: Mapping[str, tuple[date, ...]]) -> pl.DataFrame:
@@ -229,9 +249,9 @@ def test_sim_d05_b0_b1_same_cashflow() -> None:
     )
     fx = ingest(_fx_panel(window, {}), Dataset.FX)
 
-    global_result = run_baseline(_config("AAA", _CONFIG_START, _CONFIG_END), prices, fx)
+    global_result = run_baseline(_config("AAA", _CONFIG_START, _CONFIG_END), prices, fx, _constant_cpi())
     us_config = _config("BBB", _CONFIG_START, _CONFIG_END, baseline=BaselineId.B1_US)
-    us_result = run_baseline(us_config, prices, fx)
+    us_result = run_baseline(us_config, prices, fx, _constant_cpi())
 
     contributions_global = tuple(snapshot.contribution_krw for snapshot in global_result.snapshots)
     contributions_us = tuple(snapshot.contribution_krw for snapshot in us_result.snapshots)
@@ -241,3 +261,26 @@ def test_sim_d05_b0_b1_same_cashflow() -> None:
     shares_us = tuple(snapshot.shares for snapshot in us_result.snapshots)
     assert shares_global != shares_us
     assert global_result.terminal_wealth_krw != us_result.terminal_wealth_krw
+
+
+def test_sim_f02_real_deflator() -> None:
+    """SIM-F02-real-deflator"""
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, {"AAA": {}}), Dataset.PRICES)
+    fx = ingest(_fx_panel(window, {}), Dataset.FX)
+    # FIXED_LAG 45d: 100 visible from Feb 1 close; 125 only from the Feb 26 close.
+    rising_cpi = ingest(
+        _cpi_panel({date(2023, 12, 18): 100.0, date(2024, 1, 10): 125.0}),
+        Dataset.CPI,
+    )
+
+    result = run_baseline(_config("AAA", _CONFIG_START, _CONFIG_END), prices, fx, rising_cpi)
+
+    assert result.terminal_wealth_real_krw == pytest.approx(result.terminal_wealth_krw * 100.0 / 125.0, rel=1e-9)
+    assert isinstance(result.xirr_real, float)
+    assert math.isfinite(result.xirr_real)
+    assert result.xirr_real != pytest.approx(result.xirr)
+
+    not_yet_published = ingest(_cpi_panel({date(2024, 2, 20): 125.0}), Dataset.CPI)
+    with pytest.raises(BaselineDataError):
+        run_baseline(_config("AAA", _CONFIG_START, _CONFIG_END), prices, fx, not_yet_published)

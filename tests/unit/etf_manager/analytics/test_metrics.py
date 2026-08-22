@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.etf_manager.analytics.metrics import XirrError, max_drawdown, xirr
+from src.etf_manager.analytics.metrics import XirrError, max_drawdown, real_krw, xirr
 
 
 def test_met_d06_xirr_and_mdd() -> None:
@@ -22,3 +22,14 @@ def test_met_d06_xirr_and_mdd() -> None:
         max_drawdown([])
     with pytest.raises(XirrError):
         xirr([(t0, 100.0), (one_year, 150.0)])
+
+
+def test_met_f01_real_krw() -> None:
+    """MET-F01-real-krw"""
+    assert real_krw(1300.0, cpi_index=130.0, cpi_base=100.0) == pytest.approx(1000.0)
+    assert real_krw(50.0, cpi_index=100.0, cpi_base=100.0) == 50.0
+
+    with pytest.raises(ValueError, match="positive"):
+        real_krw(50.0, cpi_index=0.0, cpi_base=100.0)
+    with pytest.raises(ValueError, match="positive"):
+        real_krw(50.0, cpi_index=130.0, cpi_base=-1.0)

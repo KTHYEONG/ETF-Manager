@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Final
 
 import polars as pl
 
-from src.etf_manager.analytics.metrics import max_drawdown, xirr
+from src.etf_manager.analytics.metrics import max_drawdown, real_krw, xirr
 from src.etf_manager.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
 from src.etf_manager.data.catalog import latest_artifact, load_visible
 from src.etf_manager.data.query import load_as_of
@@ -81,6 +81,8 @@ class BaselineResult:
     terminal_wealth_krw: float
     xirr: float
     max_drawdown: float
+    terminal_wealth_real_krw: float
+    xirr_real: float
 
 
 class BaselineDataError(RuntimeError):
@@ -91,16 +93,19 @@ def run_baseline(
     config: BaselineConfig,
     prices: pl.DataFrame,
     fx: pl.DataFrame,
+    cpi: pl.DataFrame,
 ) -> BaselineResult:
     """Simulate buy-only monthly DCA with delayed fills on in-memory PIT frames.
 
     Contributions are credited and fills occur only on the execution session of
     each decision point; the signal-session close is never used as a fill price.
+    Nominal marks drive the equity path; CPI levels only deflate terminal wealth
+    and the money-weighted rate into first-snapshot purchasing power.
 
     Raises:
         ValueError: When ``monthly_contribution_krw`` is not positive.
-        BaselineDataError: When the schedule is empty or a required price/FX
-            observation is missing, non-positive, or null at an execution close.
+        BaselineDataError: When the schedule is empty or a required price, FX,
+            or CPI observation is missing, non-positive, or null at an execution close.
         XirrError: When the money-weighted rate cannot be identified.
     """
     if config.monthly_contribution_krw <= 0:
@@ -114,10 +119,12 @@ def run_baseline(
     cash_usd = 0.0
     shares = 0
     snapshots: list[LedgerSnapshot] = []
+    cpi_levels: list[float] = []
     for point in schedule:
         close_ts = calendar.close_ts(point.execution_session)
         price = _visible_close(prices, config.ticker, point.execution_session, close_ts)
         usdkrw = _visible_fx(fx, point.execution_session, close_ts)
+        cpi_level = _visible_cpi(cpi, point.execution_session, close_ts)
 
         contribution = config.monthly_contribution_krw
         cash_krw += contribution
@@ -141,17 +148,29 @@ def run_baseline(
                 fees_krw=fees_krw,
             )
         )
+        cpi_levels.append(cpi_level)
 
     terminal_wealth_krw = snapshots[-1].mark_krw
     cashflows = [(calendar.close_ts(snapshot.session), -snapshot.contribution_krw) for snapshot in snapshots]
     cashflows.append((cashflows[-1][0], terminal_wealth_krw))
     money_weighted_rate = xirr(cashflows)
+
+    # Real KRW deflates to first-snapshot purchasing power; nominal legs stay untouched.
+    base_cpi = cpi_levels[0]
+    terminal_wealth_real_krw = real_krw(terminal_wealth_krw, cpi_index=cpi_levels[-1], cpi_base=base_cpi)
+    real_cashflows = [
+        (calendar.close_ts(snapshot.session), -snapshot.contribution_krw * base_cpi / level)
+        for snapshot, level in zip(snapshots, cpi_levels, strict=True)
+    ]
+    real_cashflows.append((real_cashflows[-1][0], terminal_wealth_real_krw))
     result = BaselineResult(
         config=config,
         snapshots=tuple(snapshots),
         terminal_wealth_krw=terminal_wealth_krw,
         xirr=money_weighted_rate,
         max_drawdown=max_drawdown([snapshot.mark_krw for snapshot in snapshots]),
+        terminal_wealth_real_krw=terminal_wealth_real_krw,
+        xirr_real=xirr(real_cashflows),
     )
     logger.info(
         "[DATA] event=baseline_done baseline=%s ticker=%s steps=%d terminal_krw=%.2f xirr=%.6f mdd=%.4f",
@@ -166,14 +185,14 @@ def run_baseline(
 
 
 def run_baseline_from_store(config: BaselineConfig, settings: DataSettings) -> BaselineResult:
-    """Load latest PRICES and FX partitions, then run :func:`run_baseline`.
+    """Load latest PRICES, FX, and CPI partitions, then run :func:`run_baseline`.
 
     Raises:
-        UntrustedDatasetError: When either dataset lacks a manifest-verified partition.
+        UntrustedDatasetError: When any dataset lacks a manifest-verified partition.
         BaselineDataError: When the schedule is empty or fills lack data.
     """
     # Pre-flight trust gate: fail closed before simulating on untrusted partitions.
-    for dataset in (Dataset.PRICES, Dataset.FX):
+    for dataset in (Dataset.PRICES, Dataset.FX, Dataset.CPI):
         latest_artifact(settings, dataset)
     schedule = build_decision_schedule(config.start, config.end, fill_delay_sessions=config.fill_delay_sessions)
     if not schedule:
@@ -181,7 +200,8 @@ def run_baseline_from_store(config: BaselineConfig, settings: DataSettings) -> B
     cutoff = load_calendar(DEFAULT_CALENDAR_NAME).close_ts(schedule[-1].execution_session)
     prices = load_visible(settings, Dataset.PRICES, cutoff)
     fx = load_visible(settings, Dataset.FX, cutoff)
-    return run_baseline(config, prices, fx)
+    cpi = load_visible(settings, Dataset.CPI, cutoff)
+    return run_baseline(config, prices, fx, cpi)
 
 
 def _visible_close(prices: pl.DataFrame, ticker: str, session: date, close_ts: datetime) -> float:
@@ -206,3 +226,12 @@ def _visible_fx(fx: pl.DataFrame, session: date, close_ts: datetime) -> float:
     if value is None or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0.0:
         raise BaselineDataError(f"null or non-positive usdkrw on {session.isoformat()}")
     return float(value)
+
+
+def _visible_cpi(cpi: pl.DataFrame, session: date, close_ts: datetime) -> float:
+    """Latest positive CPI level by period_end visible at the execution close; fail-closed."""
+    visible = load_as_of(cpi, Dataset.CPI, close_ts)
+    rows = visible.filter(pl.col("value").is_finite() & (pl.col("value") > 0.0)).sort("period_end")
+    if rows.is_empty():
+        raise BaselineDataError(f"missing positive CPI row on {session.isoformat()} at its execution close")
+    return float(rows.item(rows.height - 1, "value"))

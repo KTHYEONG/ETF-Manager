@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P2C_PHASE2_COMPLETE",
+      "date": "2026-08-22",
+      "adr_id": "ADR_20260822_P2C_PHASE2_COMPLETE",
+      "domain": "simulation",
+      "title": "Phase 2-C: History Ingest + Real KRW (Phase 2 close-out)",
+      "why": "Phase 2 required long-window ingest and CPI-deflated KRW performance; P2-B only covered smoke window and nominal terminal wealth.",
+      "resolution": "Added ingest history CLI (VT/VTI + FRED FX + ECOS CPI), real_krw deflator, run_baseline CPI consumption with terminal_wealth_real_krw and xirr_real, and CLI real metrics logging.",
+      "impact": "Phase 2 complete: B0/B1 DCA, FX conversion, history ingest, and PIT real KRW reporting; unblocks Phase 3 strategic allocation and feature layer."
+    },
+    {
       "task_id": "TASK_P2B_RUN_CLI_SMOKE",
       "date": "2026-08-22",
       "adr_id": "ADR_20260822_P2B_RUN_CLI_SMOKE",
