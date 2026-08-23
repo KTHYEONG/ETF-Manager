@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from src.etf_manager.analytics.us_vehicles import history_price_tickers
 from src.etf_manager import cli
 from src.etf_manager.cli import main
 from src.etf_manager.data.providers.base import ProviderError
@@ -23,6 +24,42 @@ from src.etf_manager.sim.allocation import (
     AllocationSnapshot,
 )
 from src.etf_manager.sim.baseline import BaselineConfig, BaselineId, BaselineResult
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-E-diagnose-dispatch"])
+def test_cli_e_diagnose_dispatch(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-E-diagnose-dispatch"""
+    assert main(["run", "diagnose-us-vehicles"]) == 2
+
+    captured: dict[str, object] = {}
+
+    def fake_diagnose(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    def forbidden_ablation(*args: object, **kwargs: object) -> int:
+        raise AssertionError("diagnostics must never invoke the adoption ablation")
+
+    monkeypatch.setattr(cli, "run_diagnose_us_vehicles_command", fake_diagnose)
+    monkeypatch.setattr(cli, "run_ablation", forbidden_ablation)
+
+    argv = [
+        "run",
+        "diagnose-us-vehicles",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-12-31",
+        "--contribution-krw",
+        "1000000",
+    ]
+    assert main(argv) == 0
+    assert captured["start"] == date(2024, 1, 1)
+    assert captured["end"] == date(2024, 12, 31)
+    assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
+
+    assert main(["run", "diagnose-us-vehicles", "--end", "2024-12-31"]) == 2
+    assert main(["run", "diagnose-us-vehicles", "--start", "2024-01-01"]) == 2
 
 
 @pytest.fixture(autouse=True)
@@ -236,7 +273,9 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
 
     assert exit_code == 0
     assert calls == {"fx": 1, "prices": 1, "cpi": 1, "factors": 1, "macro": 1, "research": 1}
-    assert seen_tickers == all_policy_tickers()
+    assert seen_tickers == history_price_tickers()
+    assert "QQQ" in seen_tickers
+    assert set(seen_tickers) - set(all_policy_tickers()) == {"QQQ"}
     assert seen_series_ids == ["VIXCLS"]
     expected_datasets = {Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.FACTORS, Dataset.MACRO, Dataset.RESEARCH_RETURNS}
     assert set(seen_datasets) == expected_datasets
