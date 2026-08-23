@@ -33,6 +33,7 @@ _SIGNAL_AT = datetime(2024, 1, 31, 21, 0, tzinfo=UTC)
         ("POL-G03-static-sum-one", "s2_regional"),
         ("POL-G03-static-sum-one", "s3_global_bond"),
         ("POL-G03-static-sum-one", "s4_defensive"),
+        ("POL-G03-static-sum-one", "s6_us_core_value"),
     ],
 )
 def test_pol_g03_static_sum_one(scenario_id: str, policy_value: str) -> None:
@@ -44,16 +45,29 @@ def test_pol_g03_static_sum_one(scenario_id: str, policy_value: str) -> None:
     assert min(weights) >= 0.0
     if policy_value == "s2_regional":
         assert targets == {"VTI": 0.5, "VEA": 0.3, "VWO": 0.2}
+    if policy_value == "s6_us_core_value":
+        assert targets == {"VTI": 0.8, "VTV": 0.2}
 
 
 @pytest.mark.parametrize("scenario_id", ["TGT-W1-sleeve-universe"])
 def test_tgt_w1_sleeve_universe(scenario_id: str) -> None:
     """TGT-W1-sleeve-universe"""
-    assert all_policy_tickers() == ("BND", "IEF", "TLT", "VEA", "VT", "VTI", "VWO")
+    assert all_policy_tickers() == ("BND", "IEF", "TLT", "VEA", "VT", "VTI", "VTV", "VWO")
     union: set[str] = set()
     for member in PolicyId:
         union.update(policy_sleeves(member))
     assert all_policy_tickers() == tuple(sorted(union))
+
+
+@pytest.mark.parametrize("scenario_id", ["POL-M2-s6-weights"])
+def test_pol_m2_s6_weights(scenario_id: str) -> None:
+    """POL-M2-s6-weights"""
+    targets = resolve_targets(PolicyId.S6_US_CORE_VALUE, pl.DataFrame(), _SIGNAL_AT)
+
+    assert targets == {"VTI": 0.8, "VTV": 0.2}
+    weights = list(targets.values())
+    assert min(weights) >= 0.0
+    assert abs(sum(weights) - 1.0) <= 1e-6
 
 
 @pytest.mark.parametrize("scenario_id", ["POL-G03-static-sum-one"])
