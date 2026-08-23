@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_M2_US_CORE_VALUE",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_M2_US_CORE_VALUE",
+      "domain": "policy",
+      "title": "M2: S6 US core+value (VTI 80% / VTV 20%) + 36m validate default",
+      "why": "M1 adopted S1 only; factor tilt cannot apply to single-sleeve VTI; Wave 1b showed 36m CE is the right accumulation gate.",
+      "resolution": "Added PolicyId.S6_US_CORE_VALUE static 80/20 VTI/VTV, all_policy_tickers includes VTV, configs/experiments/m1_m2.json with horizon_months=36 baseline s1_us, CLI validate default horizon 36, and contract tests POL-M2/EXP-M2/CLI-horizon.",
+      "impact": "Enables buy-only M2 ablation vs S1 under identical cashflows; if gate fails keep S1; unblocks operator ingest+run ablation after VTV price pull."
+    },
+    {
       "task_id": "TASK_W1_RESEARCH_LAB",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_W1_RESEARCH_LAB",
