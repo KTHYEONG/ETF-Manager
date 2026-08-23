@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import date
+from pathlib import Path
 
 import pytest
 
 from src.etf_manager import cli
 from src.etf_manager.cli import main
 from src.etf_manager.data.providers.base import ProviderError
-from src.etf_manager.etf.mapping import MappingConfig
 from src.etf_manager.data.schema import Dataset
-from src.etf_manager.policy.targets import PolicyId
+from src.etf_manager.etf.mapping import MappingConfig
+from src.etf_manager.policy.targets import PolicyId, all_policy_tickers
 from src.etf_manager.sim.allocation import (
     AllocationConfig,
     AllocationDataError,
@@ -185,8 +187,10 @@ def test_cli_e04_run_baseline(scenario_id: str, monkeypatch: pytest.MonkeyPatch)
 @pytest.mark.parametrize("scenario_id", ["CLI-F03-ingest-history"])
 def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """CLI-F03-ingest-history"""
-    calls = {"fx": 0, "prices": 0, "cpi": 0}
+    calls = {"fx": 0, "prices": 0, "cpi": 0, "factors": 0, "macro": 0}
     seen_tickers: tuple[str, ...] = ()
+    seen_series_ids: list[str] = []
+    seen_datasets: list[Dataset] = []
 
     def fake_fx(**kwargs: object) -> _FakeArtifact:
         calls["fx"] += 1
@@ -202,19 +206,33 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
         calls["cpi"] += 1
         return _FakeArtifact(8)
 
+    def fake_factors(start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        calls["factors"] += 1
+        return _FakeArtifact(8)
+
+    def fake_macro(series_id: str, start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        calls["macro"] += 1
+        seen_series_ids.append(series_id)
+        return _FakeArtifact(8)
+
     def fake_latest(settings: object, dataset: Dataset) -> _FakeArtifact:
+        seen_datasets.append(dataset)
         return _FakeArtifact(8)
 
     monkeypatch.setattr(cli, "fetch_and_persist_fx", fake_fx)
     monkeypatch.setattr(cli, "fetch_and_persist_prices", fake_prices)
     monkeypatch.setattr(cli, "fetch_and_persist_cpi", fake_cpi)
+    monkeypatch.setattr(cli, "fetch_and_persist_factors", fake_factors)
+    monkeypatch.setattr(cli, "fetch_and_persist_macro", fake_macro)
     monkeypatch.setattr(cli, "latest_artifact", fake_latest)
 
     exit_code = main(["ingest", "history", "--start", "2020-01-01", "--end", "2020-12-31"])
 
     assert exit_code == 0
-    assert calls == {"fx": 1, "prices": 1, "cpi": 1}
-    assert seen_tickers == ("VT", "VTI")
+    assert calls == {"fx": 1, "prices": 1, "cpi": 1, "factors": 1, "macro": 1}
+    assert seen_tickers == all_policy_tickers()
+    assert seen_series_ids == ["VIXCLS"]
+    assert set(seen_datasets) == {Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.FACTORS, Dataset.MACRO}
 
     assert main(["ingest", "history"]) == 2
 
@@ -698,3 +716,60 @@ def test_cli_x04_paper_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch) 
                        "--contribution-krw", "1000000"]
     assert main(missing_id_argv) == 2
     assert len(captured) == 1
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-W1-ablation-dispatch"])
+def test_cli_w1_ablation_dispatch(
+    scenario_id: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI-W1-ablation-dispatch"""
+    wealth_by_policy = {PolicyId.S0_GLOBAL: 100.0, PolicyId.S1_US: 110.0, PolicyId.S4_DEFENSIVE: 120.0}
+    captured: list[AllocationConfig] = []
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        captured.append(config)
+        wealth = float(wealth_by_policy[config.policy])
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "latest_artifact", lambda settings, dataset: _FakeArtifact(8))
+
+    payload = {
+        "name": "m0_m1_strategic",
+        "start": "2012-01-03",
+        "end": "2024-12-31",
+        "contribution_krw": 1_000_000,
+        "delta0": 0.02,
+        "horizon_months": 0,
+        "baseline": {"id": "m0_global", "policy": "s0_global", "modules": 0},
+        "candidates": [
+            {"id": "s1_us", "policy": "s1_us", "modules": 1},
+            {"id": "s4_defensive", "policy": "s4_defensive", "modules": 1},
+        ],
+    }
+    config_path = tmp_path / "m0_m1.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    exit_code = main(["run", "ablation", "--config", str(config_path)])
+
+    assert exit_code == 0
+    assert len(captured) == 1 + len(payload["candidates"])
+    assert [config.policy for config in captured] == [
+        PolicyId.S0_GLOBAL,
+        PolicyId.S1_US,
+        PolicyId.S4_DEFENSIVE,
+    ]
+    assert len({config.monthly_contribution_krw for config in captured}) == 1
+    assert captured[0].monthly_contribution_krw == pytest.approx(1_000_000.0)
+
+    assert main(["run", "ablation"]) == 2
