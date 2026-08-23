@@ -1,0 +1,22 @@
+{
+  "name": "wf_s1_s7",
+  "start": "2012-04-01",
+  "end": "2024-11-30",
+  "contribution_krw": 1000000,
+  "delta0": 0.02,
+  "horizon_months": 0,
+  "train_months": 60,
+  "test_months": 36,
+  "baseline": {
+    "id": "s1_us",
+    "policy": "s1_us",
+    "modules": 0
+  },
+  "candidates": [
+    {
+      "id": "s7_us_large_cap",
+      "policy": "s7_us_large_cap",
+      "modules": 1
+    }
+  ]
+}
