@@ -77,6 +77,20 @@ def test_pol_g03_rejects_naive_signal_at(scenario_id: str) -> None:
         resolve_targets(PolicyId.S2_REGIONAL, pl.DataFrame(), _SIGNAL_AT.replace(tzinfo=None))
 
 
+@pytest.mark.parametrize("scenario_id", ["I9-C-resolve-targets-rejects-r1"])
+def test_i9_c_resolve_targets_rejects_r1(scenario_id: str) -> None:
+    """I9-C-resolve-targets-rejects-r1"""
+    with pytest.raises(PolicyError, match=r"R1_US_MKT_FF|research_proxy"):
+        resolve_targets(PolicyId.R1_US_MKT_FF, pl.DataFrame(), _SIGNAL_AT)
+
+    # R1 is a campaign identity, not a sleeve map: the ingest universe stays frozen.
+    union: set[str] = set()
+    for member in PolicyId:
+        union.update(policy_sleeves(member))
+    expected = ("BND", "IEF", "TLT", "VEA", "VT", "VTI", "VTV", "VWO")
+    assert all_policy_tickers() == tuple(sorted(union)) == expected
+
+
 _INVVOL_BARS: Final = 64
 
 

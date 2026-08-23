@@ -188,7 +188,7 @@ def test_cli_e04_run_baseline(scenario_id: str, monkeypatch: pytest.MonkeyPatch)
 @pytest.mark.parametrize("scenario_id", ["CLI-F03-ingest-history"])
 def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """CLI-F03-ingest-history"""
-    calls = {"fx": 0, "prices": 0, "cpi": 0, "factors": 0, "macro": 0}
+    calls = {"fx": 0, "prices": 0, "cpi": 0, "factors": 0, "macro": 0, "research": 0}
     seen_tickers: tuple[str, ...] = ()
     seen_series_ids: list[str] = []
     seen_datasets: list[Dataset] = []
@@ -216,6 +216,10 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
         seen_series_ids.append(series_id)
         return _FakeArtifact(8)
 
+    def fake_research(start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        calls["research"] += 1
+        return _FakeArtifact(8)
+
     def fake_latest(settings: object, dataset: Dataset) -> _FakeArtifact:
         seen_datasets.append(dataset)
         return _FakeArtifact(8)
@@ -225,15 +229,17 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(cli, "fetch_and_persist_cpi", fake_cpi)
     monkeypatch.setattr(cli, "fetch_and_persist_factors", fake_factors)
     monkeypatch.setattr(cli, "fetch_and_persist_macro", fake_macro)
+    monkeypatch.setattr(cli, "fetch_and_persist_research_returns", fake_research)
     monkeypatch.setattr(cli, "latest_artifact", fake_latest)
 
     exit_code = main(["ingest", "history", "--start", "2020-01-01", "--end", "2020-12-31"])
 
     assert exit_code == 0
-    assert calls == {"fx": 1, "prices": 1, "cpi": 1, "factors": 1, "macro": 1}
+    assert calls == {"fx": 1, "prices": 1, "cpi": 1, "factors": 1, "macro": 1, "research": 1}
     assert seen_tickers == all_policy_tickers()
     assert seen_series_ids == ["VIXCLS"]
-    assert set(seen_datasets) == {Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.FACTORS, Dataset.MACRO}
+    expected_datasets = {Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.FACTORS, Dataset.MACRO, Dataset.RESEARCH_RETURNS}
+    assert set(seen_datasets) == expected_datasets
 
     assert main(["ingest", "history"]) == 2
 
@@ -914,3 +920,102 @@ def test_cli_walk_forward_costs(
     assert len(written["scenarios"]) == 4
 
     assert main(["run", "walk-forward-costs", "--config", "configs/experiments/m0_m1.json"]) == 1
+
+
+def test_cli_c_ingest_research_returns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ingest research-returns persists the Ken French daily market series."""
+    calls: list[tuple[date, date]] = []
+
+    def fake_research(start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        calls.append((start, end))
+        return _FakeArtifact(8)
+
+    monkeypatch.setattr(cli, "fetch_and_persist_research_returns", fake_research)
+
+    exit_code = main(["ingest", "research-returns", "--start", "2010-01-01", "--end", "2010-12-31"])
+
+    assert exit_code == 0
+    assert calls == [(date(2010, 1, 1), date(2010, 12, 31))]
+
+    assert main(["ingest", "research-returns"]) == 2
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-walk-forward-proxy"])
+def test_cli_walk_forward_proxy(
+    scenario_id: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI-walk-forward-proxy"""
+
+    def fake_etf_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=100.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=100.0,
+            xirr_real=0.0,
+        )
+
+    def fake_proxy_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=110.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=110.0,
+            xirr_real=0.0,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_etf_run)
+    monkeypatch.setattr(cli, "run_research_proxy_from_store", fake_proxy_run)
+    monkeypatch.setattr(cli, "latest_artifact", lambda settings, dataset: _FakeArtifact(8))
+
+    assert main(["run", "walk-forward-proxy"]) == 2
+
+    payload = {
+        "name": "wf_s0_r1",
+        "start": "2012-04-01",
+        "end": "2024-11-30",
+        "contribution_krw": 1_000_000,
+        "delta0": 0.02,
+        "horizon_months": 0,
+        "train_months": 60,
+        "test_months": 36,
+        "baseline": {"id": "s0_global", "policy": "s0_global", "modules": 0},
+        "candidates": [{"id": "r1_us_mkt_ff", "policy": "r1_us_mkt_ff", "modules": 1}],
+    }
+    wf_path = tmp_path / "wf_s0_r1.json"
+    wf_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    data_root = tmp_path / "data"
+    monkeypatch.setattr(cli, "DataSettings", lambda: DataSettings(data_root=data_root))
+
+    exit_code = main(["run", "walk-forward-proxy", "--config", str(wf_path)])
+
+    assert exit_code == 0
+    reports = list((data_root / "experiments").glob("*.json"))
+    assert len(reports) == 1
+    written = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert "process_adopted_vs_baseline" in written
+
+    multi_payload = {
+        "name": "m0_m1_strategic",
+        "start": "2012-01-03",
+        "end": "2024-12-31",
+        "contribution_krw": 1_000_000,
+        "delta0": 0.02,
+        "horizon_months": 0,
+        "baseline": {"id": "m0_global", "policy": "s0_global", "modules": 0},
+        "candidates": [
+            {"id": "s1_us", "policy": "s1_us", "modules": 1},
+            {"id": "s4_defensive", "policy": "s4_defensive", "modules": 1},
+        ],
+    }
+    m0_m1_path = tmp_path / "m0_m1.json"
+    m0_m1_path.write_text(json.dumps(multi_payload), encoding="utf-8")
+    assert main(["run", "walk-forward-proxy", "--config", str(m0_m1_path)]) == 1

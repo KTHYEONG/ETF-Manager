@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_C_RESEARCH_PROXY",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_WAVE_C_RESEARCH_PROXY",
+      "domain": "validation",
+      "title": "Wave C: US Market Research-Proxy Walk-Forward (I9)",
+      "why": "S1 locked under A+B; need I9-separated FF daily market path vs S0 on same walk-forward CE gate.",
+      "resolution": "Added Dataset.RESEARCH_RETURNS, French daily ingest, run_research_proxy, R1 policy, run_walk_forward_proxy_adoption, CLI walk-forward-proxy.",
+      "impact": "Separates ETF implementation luck from US market exposure; honest policy if proxy beats S0 OOS."
+    },
+    {
       "task_id": "WAVE_B_COST_WALKFORWARD",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_WAVE_B_COST_WALKFORWARD",
