@@ -25,6 +25,7 @@ class PolicyId(StrEnum):
     S3_GLOBAL_BOND = "s3_global_bond"
     S4_DEFENSIVE = "s4_defensive"
     S5_INVVOL = "s5_invvol"
+    S6_US_CORE_VALUE = "s6_us_core_value"
 
 
 class PolicyError(RuntimeError):
@@ -37,6 +38,7 @@ _STATIC_TARGETS: Final[dict[PolicyId, dict[str, float]]] = {
     PolicyId.S2_REGIONAL: {"VTI": 0.5, "VEA": 0.3, "VWO": 0.2},
     PolicyId.S3_GLOBAL_BOND: {"VT": 0.7, "BND": 0.3},
     PolicyId.S4_DEFENSIVE: {"VT": 0.6, "IEF": 0.2, "TLT": 0.2},
+    PolicyId.S6_US_CORE_VALUE: {"VTI": 0.8, "VTV": 0.2},
 }
 _INVVOL_SLEEVES: Final[tuple[str, ...]] = ("VTI", "VEA", "VWO")
 _WEIGHT_SUM_TOLERANCE: Final[float] = 1e-6
