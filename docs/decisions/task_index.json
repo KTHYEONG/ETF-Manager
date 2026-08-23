@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_B_COST_WALKFORWARD",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_WAVE_B_COST_WALKFORWARD",
+      "domain": "validation",
+      "title": "Wave B: Cost-Grid Walk-Forward (Ideal→Stress)",
+      "why": "Campaign A locked S1 at zero cost; need same folds under Ideal/Low/Base/Stress commission and FX spread.",
+      "resolution": "Added ExperimentSpec cost fields, COST_SCENARIOS grid, run_walk_forward_cost_grid, write_cost_grid_report, CLI run walk-forward-costs.",
+      "impact": "S1 operational lock now conditional on all four cost scenarios passing process CE; Stress failure downgrades to cost-conditional S0."
+    },
+    {
       "task_id": "WALKFORWARD_CAMPAIGN_A",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_WALKFORWARD_CAMPAIGN_A",
