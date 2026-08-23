@@ -28,6 +28,7 @@ __all__ = [
     "FoldOutcome",
     "run_walk_forward_adoption",
     "run_walk_forward_cost_grid",
+    "run_walk_forward_proxy_adoption",
     "write_campaign_report",
     "write_cost_grid_report",
 ]
@@ -210,6 +211,44 @@ def run_walk_forward_adoption(
         chosen_test_ce=chosen_ce,
         process_adopted_vs_baseline=process_adopted_vs_baseline,
     )
+
+
+def run_walk_forward_proxy_adoption(
+    spec: ExperimentSpec,
+    etf_runner: Callable[[AllocationConfig], AllocationResult],
+    proxy_runner: Callable[[AllocationConfig], AllocationResult],
+) -> CampaignReport:
+    """Run the Wave C identity-isolation campaign: ETF baseline versus research proxy.
+
+    The ETF runner serves only the non-proxy arms and the proxy runner only the
+    R1 arm, so a dispatching runner feeds the shared walk-forward CE gate;
+    ``spec`` is never mutated.
+
+    Raises:
+        ValueError: When train/test months are absent, the candidate is not exactly
+            one R1_US_MKT_FF policy, the baseline itself is the proxy identity, or
+            any transaction cost is nonzero.
+    """
+    if spec.train_months is None or spec.test_months is None:
+        raise ValueError("walk-forward proxy adoption requires both train_months and test_months")
+    if len(spec.candidates) != 1:
+        raise ValueError(f"expected exactly one candidate, got {len(spec.candidates)}")
+    candidate = spec.candidates[0]
+    if candidate.policy is not PolicyId.R1_US_MKT_FF:
+        raise ValueError(f"proxy campaign candidate must be R1_US_MKT_FF (research_proxy), got {candidate.policy!s}")
+    if spec.baseline.policy is PolicyId.R1_US_MKT_FF:
+        raise ValueError("proxy campaign baseline must be an ETF policy, not the research_proxy identity")
+    if spec.commission_bps != 0.0 or spec.fx_spread_bps != 0.0:
+        raise ValueError(
+            "Wave C identity isolation requires commission_bps == 0 and fx_spread_bps == 0, "
+            f"got commission_bps={spec.commission_bps!r}, fx_spread_bps={spec.fx_spread_bps!r}"
+        )
+
+    def _dispatching_runner(config: AllocationConfig) -> AllocationResult:
+        runner = proxy_runner if config.policy is PolicyId.R1_US_MKT_FF else etf_runner
+        return runner(config)
+
+    return run_walk_forward_adoption(spec, _dispatching_runner)
 
 
 def _fold_records(folds: tuple[FoldOutcome, ...]) -> list[dict[str, object]]:

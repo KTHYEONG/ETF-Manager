@@ -17,6 +17,7 @@ from src.etf_manager.data.fetch import (
     fetch_and_persist_fx,
     fetch_and_persist_macro,
     fetch_and_persist_prices,
+    fetch_and_persist_research_returns,
 )
 from src.etf_manager.data.providers.base import ProviderError
 from src.etf_manager.data.schema import Dataset
@@ -46,11 +47,13 @@ from src.etf_manager.sim.baseline import (
     BaselineId,
     run_baseline_from_store,
 )
+from src.etf_manager.sim.research_proxy import run_research_proxy_from_store
 from src.etf_manager.validation.ablation import run_ablation
 from src.etf_manager.validation.bootstrap import moving_block_bootstrap
 from src.etf_manager.validation.campaign import (
     run_walk_forward_adoption,
     run_walk_forward_cost_grid,
+    run_walk_forward_proxy_adoption,
     write_campaign_report,
     write_cost_grid_report,
 )
@@ -114,7 +117,7 @@ def _build_parser() -> _Parser:
     parser = _Parser(prog="etf-manager", description="ETF research ingest CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
     ingest = subparsers.add_parser("ingest", help="Fetch and persist one vendor dataset")
-    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "factors", "smoke", "history"))
+    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "factors", "research-returns", "smoke", "history"))
     ingest.add_argument("--tickers", nargs="+", default=None, help="Price tickers (prices/smoke only)")
     ingest.add_argument("--provider", choices=("fred", "ecos"), default=None, help="FX vendor (fx/smoke only)")
     ingest.add_argument("--series-id", default=None, help="FRED series identifier (macro only)")
@@ -239,6 +242,15 @@ def _build_parser() -> _Parser:
         required=True,
         help="Path to the experiment JSON (single candidate with train/test months)",
     )
+    walk_forward_proxy = run_targets.add_parser(
+        "walk-forward-proxy",
+        help="Wave C research-proxy versus ETF-baseline adoption campaign from an experiment JSON",
+    )
+    walk_forward_proxy.add_argument(
+        "--config",
+        required=True,
+        help="Path to the experiment JSON (single r1_us_mkt_ff candidate with train/test months)",
+    )
     return parser
 
 
@@ -284,6 +296,16 @@ def _dispatch(args: argparse.Namespace) -> int:
         fetch_and_persist_factors(args.start, args.end, settings=DataSettings())
         logger.info(
             "[DATA] event=cli_ingest_done dataset=factors start=%s end=%s",
+            args.start.isoformat(),
+            args.end.isoformat(),
+        )
+        return 0
+    if dataset == "research-returns":
+        if args.start is None or args.end is None:
+            raise _UsageError("ingest research-returns requires --start and --end")
+        fetch_and_persist_research_returns(args.start, args.end, settings=DataSettings())
+        logger.info(
+            "[DATA] event=cli_ingest_done dataset=research_returns start=%s end=%s",
             args.start.isoformat(),
             args.end.isoformat(),
         )
@@ -379,6 +401,8 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         return run_walk_forward_command(config_path=str(args.config), settings=DataSettings())
     if args.target == "walk-forward-costs":
         return run_walk_forward_costs_command(config_path=str(args.config), settings=DataSettings())
+    if args.target == "walk-forward-proxy":
+        return run_walk_forward_proxy_command(config_path=str(args.config), settings=DataSettings())
     raise _UsageError(f"unsupported target {args.target!r}")
 
 
@@ -480,10 +504,10 @@ def run_ingest_history(
     secrets: ProviderSecrets,
     client: httpx.Client | None = None,
 ) -> int:
-    """Persist FX, prices, CPI, factors, and VIXCLS macro over a long window.
+    """Persist FX, prices, CPI, factors, VIXCLS macro, and research returns over a long window.
 
     ``tickers`` defaults to the full policy sleeve universe. Returns 0 only when
-    every fetch persists and each of the five latest catalog partitions holds
+    every fetch persists and each of the six latest catalog partitions holds
     row_count >= 1; vendor/catalog messages never reach the log.
     """
     price_tickers = tickers if tickers is not None else all_policy_tickers()
@@ -497,9 +521,10 @@ def run_ingest_history(
         macro = fetch_and_persist_macro(
             _HISTORY_MACRO_SERIES, start, end, secrets=secrets, settings=settings, client=client
         )
+        research = fetch_and_persist_research_returns(start, end, settings=settings, client=client)
         row_counts = {
             str(dataset): latest_artifact(settings, dataset).manifest.row_count
-            for dataset in (Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.FACTORS, Dataset.MACRO)
+            for dataset in (Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.FACTORS, Dataset.MACRO, Dataset.RESEARCH_RETURNS)
         }
     except (ProviderError, ValueError, UntrustedDatasetError, OSError) as exc:
         # Vendor/catalog messages may echo api_key query strings; expose the failure class only.
@@ -510,13 +535,14 @@ def run_ingest_history(
         logger.error("[DATA] event=history_failed reason=empty_catalog dataset=%s", ",".join(underfilled))
         return 1
     logger.info(
-        "[DATA] event=history_ok tickers=%s price_rows=%d fx_rows=%d cpi_rows=%d factor_rows=%d macro_rows=%d",
+        "[DATA] event=history_ok tickers=%s price_rows=%d fx_rows=%d cpi_rows=%d factor_rows=%d macro_rows=%d research_rows=%d",
         ",".join(price_tickers),
         prices.manifest.row_count,
         fx.manifest.row_count,
         cpi.manifest.row_count,
         factors.manifest.row_count,
         macro.manifest.row_count,
+        research.manifest.row_count,
     )
     return 0
 
@@ -865,6 +891,53 @@ def run_walk_forward_costs_command(*, config_path: str, settings: DataSettings) 
         record.experiment_id,
         len(report.outcomes),
         report.all_scenarios_adopted,
+        report_path,
+    )
+    return 0
+
+
+def run_walk_forward_proxy_command(*, config_path: str, settings: DataSettings) -> int:
+    """Run the research-proxy walk-forward campaign and persist the report JSON.
+
+    Raises:
+        ValueError: When the experiment JSON is invalid or lineage is unavailable.
+    """
+    try:
+        spec = load_experiment_config(config_path)
+        if spec.train_months is None or spec.test_months is None:
+            raise ValueError("experiment JSON lacks train_months and test_months")
+        report = run_walk_forward_proxy_adoption(
+            spec,
+            lambda config: run_allocation_from_store(config, settings),
+            lambda config: run_research_proxy_from_store(config, settings),
+        )
+        record = make_experiment(
+            config=AllocationConfig(
+                policy=spec.candidates[0].policy,
+                start=spec.start,
+                end=spec.end,
+                monthly_contribution_krw=spec.contribution_krw,
+                fill_delay_sessions=1,
+                commission_bps=0.0,
+            ),
+            manifest_hash=latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
+            git_commit=_resolve_git_commit(),
+            seed=None,
+            metrics={
+                "folds": float(len(report.folds)),
+                "process_adopted_vs_baseline": 1.0 if report.process_adopted_vs_baseline else 0.0,
+            },
+        )
+        report_path = write_campaign_report(report, settings, record.experiment_id)
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        logger.error("[DATA] event=walkforward_proxy_cli_failed reason=%s", exc)
+        return 1
+    logger.info(
+        "[DATA] event=walkforward_proxy_cli_done experiment=%s experiment_id=%s folds=%d adopted_vs_baseline=%s report=%s",
+        spec.name,
+        record.experiment_id,
+        len(report.folds),
+        report.process_adopted_vs_baseline,
         report_path,
     )
     return 0

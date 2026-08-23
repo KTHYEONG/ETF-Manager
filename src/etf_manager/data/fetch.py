@@ -115,6 +115,21 @@ def fetch_and_persist_factors(
     return artifact
 
 
+def fetch_and_persist_research_returns(
+    start: date,
+    end: date,
+    *,
+    settings: DataSettings,
+    client: httpx.Client | None = None,
+) -> DatasetArtifact:
+    """Fetch Ken French daily market returns and persist Dataset.RESEARCH_RETURNS only."""
+    with _http(client) as session:
+        payload, frame = FrenchClient(session).fetch_daily_market_returns(start, end)
+        artifact = persist_ingest(frame, Dataset.RESEARCH_RETURNS, payload, settings)
+    _log_done("research_returns", "ken_french", artifact.manifest.row_count)
+    return artifact
+
+
 @contextlib.contextmanager
 def _http(injected: httpx.Client | None) -> Iterator[httpx.Client]:
     """Pass an injected client through unchanged or open a short-lived default."""

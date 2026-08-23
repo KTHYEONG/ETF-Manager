@@ -105,6 +105,14 @@ def _allocation_config(policy: PolicyId) -> AllocationConfig:
     )
 
 
+@pytest.mark.parametrize("scenario_id", ["I9-C-etf-engine-rejects-r1"])
+def test_i9_c_etf_engine_rejects_r1(scenario_id: str) -> None:
+    """I9-C-etf-engine-rejects-r1"""
+    # Empty frames prove the guard fires before any PRICES lookup of a proxy ticker.
+    with pytest.raises(ValueError, match=r"R1_US_MKT_FF|research_proxy"):
+        run_allocation(_allocation_config(PolicyId.R1_US_MKT_FF), pl.DataFrame(), pl.DataFrame(), pl.DataFrame())
+
+
 @pytest.mark.parametrize("scenario_id", ["SIM-G05-s0-matches-b0"])
 def test_sim_g05_s0_matches_b0(scenario_id: str) -> None:
     """SIM-G05-s0-matches-b0"""

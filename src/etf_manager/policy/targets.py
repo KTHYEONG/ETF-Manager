@@ -26,6 +26,8 @@ class PolicyId(StrEnum):
     S4_DEFENSIVE = "s4_defensive"
     S5_INVVOL = "s5_invvol"
     S6_US_CORE_VALUE = "s6_us_core_value"
+    # Campaign identity only: never resolvable into ETF sleeve targets.
+    R1_US_MKT_FF = "r1_us_mkt_ff"
 
 
 class PolicyError(RuntimeError):
@@ -53,9 +55,12 @@ def resolve_targets(policy: PolicyId, prices: pl.DataFrame, signal_at: datetime)
 
     Raises:
         ValueError: When ``signal_at`` is naive.
-        PolicyError: When any sleeve's vol window fails closed or the resolved
-            weights violate the simplex invariants.
+        PolicyError: When the requested policy is a research_proxy identity, or any
+            sleeve's vol window fails closed, or the resolved weights violate the
+            simplex invariants.
     """
+    if policy is PolicyId.R1_US_MKT_FF:
+        raise PolicyError("R1_US_MKT_FF is a research_proxy identity; it has no ETF target weights")
     if signal_at.tzinfo is None:
         raise ValueError(f"signal_at must be timezone-aware, got naive datetime {signal_at!r}")
     targets = _invvol_targets(prices, signal_at) if policy is PolicyId.S5_INVVOL else dict(_STATIC_TARGETS[policy])
@@ -66,7 +71,12 @@ def resolve_targets(policy: PolicyId, prices: pl.DataFrame, signal_at: datetime)
 
 
 def policy_sleeves(policy: PolicyId) -> tuple[str, ...]:
-    """Ordered sleeve tickers owned by ``policy`` (CLI logging seam)."""
+    """Ordered sleeve tickers owned by ``policy`` (CLI logging seam).
+
+    The research_proxy policy owns no tickers, so the ingest universe never grows.
+    """
+    if policy is PolicyId.R1_US_MKT_FF:
+        return ()
     if policy is PolicyId.S5_INVVOL:
         return _INVVOL_SLEEVES
     return tuple(_STATIC_TARGETS[policy])

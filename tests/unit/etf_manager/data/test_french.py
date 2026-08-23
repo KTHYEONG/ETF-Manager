@@ -100,3 +100,53 @@ def test_fr_h01_empty_parse_raises_provider_error(tmp_path: Path) -> None:
     http = _client_serving(_zip_bytes("five.CSV", _FIVE_TEXT), _zip_bytes("mom.CSV", headers_only))
     with http, pytest.raises(ProviderError, match="no monthly rows"):
         FrenchClient(http).fetch_factors(*_WINDOW)
+
+
+_DAILY_WINDOW: tuple[date, date] = (date(2010, 1, 1), date(2010, 12, 31))
+
+_DAILY_TEXT = """\
+,F-F_Research_Data_5_Factors_2x3_daily_CSV
+
+  ,Mkt-RF,SMB,HML,RMW,CMA,RF
+  20100104,   1.00,   0.20,  -0.40,   0.10,   0.05,   0.20
+  20100105,  -0.50,  -0.10,   0.30,  -0.05,  -0.02,   0.20
+
+Missing Data are coded as -99.99 or -999
+
+Copyright 2019 Kenneth R. French
+"""
+
+
+def _daily_client_serving(daily: bytes) -> httpx.Client:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=daily)
+
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+@pytest.mark.parametrize("scenario_id", ["FR-C-daily-market-parse"])
+def test_fr_c_daily_market_parse(scenario_id: str) -> None:
+    """FR-C-daily-market-parse"""
+    http = _daily_client_serving(_zip_bytes("F-F_Research_Data_5_Factors_2x3_daily.CSV", _DAILY_TEXT))
+    with http:
+        payload, frame = FrenchClient(http).fetch_daily_market_returns(*_DAILY_WINDOW)
+
+    assert frame.height == 2
+    assert "ticker" not in frame.columns
+    january = frame.filter(pl.col("date") == date(2010, 1, 4)).row(0, named=True)
+    # Percent row Mkt-RF=1.00 RF=0.20 becomes decimal mkt_rf + rf = 0.01 + 0.002.
+    assert january["simple_return"] == pytest.approx(0.012)
+    assert january["series_id"] == "us_mkt_ff_daily"
+    assert january["label"] == "research_proxy"
+    assert frame.get_column("source").unique().to_list() == ["ken_french"]
+    assert payload.provider == "ken_french"  # type: ignore[attr-defined]
+    assert "api_key" not in json.dumps(payload.request_params)  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("scenario_id", ["FR-C-daily-market-parse"])
+def test_fr_c_daily_empty_parse_raises_provider_error(scenario_id: str) -> None:
+    """FR-C-daily-market-parse"""
+    headers_only = ",F-F_Research_Data_5_Factors_2x3_daily_CSV\n\n  ,Mkt-RF,SMB,HML,RMW,CMA,RF\n"
+    http = _daily_client_serving(_zip_bytes("daily.CSV", headers_only))
+    with http, pytest.raises(ProviderError, match="no daily rows"):
+        FrenchClient(http).fetch_daily_market_returns(*_DAILY_WINDOW)

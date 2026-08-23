@@ -52,5 +52,8 @@
   },
   "src/etf_manager/validation/campaign.py": {
     "testing": "tests/unit/etf_manager/validation/test_campaign.py"
+  },
+  "src/etf_manager/sim/research_proxy.py": {
+    "testing": "tests/unit/etf_manager/sim/test_research_proxy.py"
   }
 }

@@ -36,6 +36,10 @@ logger = logging.getLogger(__name__)
 
 _BPS: Final[float] = 10_000.0
 
+_RESEARCH_PROXY_REJECT: Final[str] = (
+    "R1_US_MKT_FF is a research_proxy identity; the ETF allocation engine cannot simulate it"
+)
+
 __all__ = [
     "AllocationConfig",
     "AllocationDataError",
@@ -115,12 +119,15 @@ def run_allocation(
     terminal wealth and the money-weighted rate into first-snapshot purchasing power.
 
     Raises:
-        ValueError: When ``monthly_contribution_krw`` is not positive or mapping lacks its metadata frame.
+        ValueError: When ``monthly_contribution_krw`` is not positive, the policy is a
+            research_proxy identity, or mapping lacks its metadata frame.
         PolicyError: When weight resolution or ETF mapping fails closed at a signal instant.
         AllocationDataError: When the schedule is empty or a required price, FX,
             or CPI observation is missing, non-positive, or null at an execution close.
         XirrError: When the money-weighted rate cannot be identified.
     """
+    if config.policy is PolicyId.R1_US_MKT_FF:
+        raise ValueError(_RESEARCH_PROXY_REJECT)
     if config.monthly_contribution_krw <= 0:
         raise ValueError("monthly_contribution_krw must be positive")
     schedule = build_decision_schedule(config.start, config.end, fill_delay_sessions=config.fill_delay_sessions)
@@ -254,7 +261,10 @@ def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) 
     Raises:
         UntrustedDatasetError: When any required dataset lacks a manifest-verified partition.
         AllocationDataError: When the schedule is empty or fills lack data.
+        ValueError: When the policy is a research_proxy identity.
     """
+    if config.policy is PolicyId.R1_US_MKT_FF:
+        raise ValueError(_RESEARCH_PROXY_REJECT)
     need_macro = config.overlay is not None and config.overlay.vix_threshold is not None
     need_metadata = config.mapping is not None
     datasets = (

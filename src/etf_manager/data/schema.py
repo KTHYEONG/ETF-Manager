@@ -22,6 +22,7 @@ class Dataset(StrEnum):
     CPI = "cpi"
     FACTORS = "factors"
     ETF_METADATA = "etf_metadata"
+    RESEARCH_RETURNS = "research_returns"
 
 
 class AvailabilityKind(StrEnum):
@@ -201,6 +202,25 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         total_return_source=TotalReturnSource.NOT_APPLICABLE,
         schema_version="2",
     )
+    research_returns = DatasetSpec(
+        dataset=Dataset.RESEARCH_RETURNS,
+        # Research-only identity series: never a PRICES splice, never a sleeve ticker.
+        columns={
+            "series_id": pl.String(),
+            "date": pl.Date(),
+            "simple_return": pl.Float64(),
+            "label": pl.String(),
+            "source": pl.String(),
+            "retrieved_at": TS_DTYPE,
+        },
+        key=("series_id", "date"),
+        observation_column="date",
+        availability=AvailabilityRule(kind=AvailabilityKind.SESSION_CLOSE, calendar_name="XNYS"),
+        missing_policy=MissingPolicy.FAIL,
+        revisable=False,
+        total_return_source=TotalReturnSource.NOT_APPLICABLE,
+        schema_version="1",
+    )
     return {
         Dataset.PRICES: prices,
         Dataset.FX: fx,
@@ -208,6 +228,7 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         Dataset.CPI: cpi,
         Dataset.FACTORS: factors,
         Dataset.ETF_METADATA: etf_metadata,
+        Dataset.RESEARCH_RETURNS: research_returns,
     }
 
 

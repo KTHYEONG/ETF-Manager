@@ -13,6 +13,7 @@ from src.etf_manager.validation.campaign import (
     COST_SCENARIOS,
     run_walk_forward_adoption,
     run_walk_forward_cost_grid,
+    run_walk_forward_proxy_adoption,
 )
 from src.etf_manager.validation.experiment import CandidateSpec, ExperimentSpec
 
@@ -161,6 +162,73 @@ def test_wf_b_spec_costs_injected(scenario_id: str) -> None:
         assert config.currency is None
         assert config.mapping is None
     assert report.process_adopted_vs_baseline is True
+
+
+def _proxy_spec() -> ExperimentSpec:
+    """Wave C contract: S0 ETF baseline versus the R1 research-proxy candidate."""
+    return ExperimentSpec(
+        name="wf_s0_r1",
+        start=date(2012, 4, 1),
+        end=date(2024, 11, 30),
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        train_months=60,
+        test_months=36,
+        baseline=CandidateSpec(id="s0_global", policy="s0_global", modules=0),
+        candidates=[CandidateSpec(id="r1_us_mkt_ff", policy="r1_us_mkt_ff", modules=1)],
+    )
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-C-proxy-vs-baseline-gate"])
+def test_wf_c_proxy_vs_baseline_gate(scenario_id: str) -> None:
+    """WF-C-proxy-vs-baseline-gate"""
+    etf_runner = _RecordingRunner({PolicyId.S0_GLOBAL: 100.0})
+    proxy_runner = _RecordingRunner({PolicyId.R1_US_MKT_FF: 110.0})
+
+    report = run_walk_forward_proxy_adoption(_proxy_spec(), etf_runner, proxy_runner)
+
+    assert len(report.folds) > 0
+    assert report.process_adopted_vs_baseline is True
+    assert etf_runner.configs
+    assert all(config.policy is PolicyId.S0_GLOBAL for config in etf_runner.configs)
+    assert proxy_runner.configs
+    assert all(config.policy is PolicyId.R1_US_MKT_FF for config in proxy_runner.configs)
+
+    equal = run_walk_forward_proxy_adoption(
+        _proxy_spec(),
+        _RecordingRunner({PolicyId.S0_GLOBAL: 100.0}),
+        _RecordingRunner({PolicyId.R1_US_MKT_FF: 100.0}),
+    )
+    # ratio == 1.0 fails the strict > 1 + delta0 * modules hurdle.
+    assert equal.process_adopted_vs_baseline is False
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-C-reject-costs-and-etf-candidate"])
+def test_wf_c_reject_costs_and_etf_candidate(scenario_id: str) -> None:
+    """WF-C-reject-costs-and-etf-candidate"""
+    etf_runner = _RecordingRunner({PolicyId.S0_GLOBAL: 100.0})
+    proxy_runner = _RecordingRunner({PolicyId.R1_US_MKT_FF: 110.0})
+
+    commission = _proxy_spec().model_copy(update={"commission_bps": 10.0})
+    with pytest.raises(ValueError, match="commission_bps"):
+        run_walk_forward_proxy_adoption(commission, etf_runner, proxy_runner)
+
+    spread = _proxy_spec().model_copy(update={"fx_spread_bps": 10.0})
+    with pytest.raises(ValueError, match="fx_spread_bps"):
+        run_walk_forward_proxy_adoption(spread, etf_runner, proxy_runner)
+
+    etf_candidate = _proxy_spec().model_copy(
+        update={"candidates": [CandidateSpec(id="s1_us", policy="s1_us", modules=1)]}
+    )
+    with pytest.raises(ValueError, match=r"R1_US_MKT_FF|candidate"):
+        run_walk_forward_proxy_adoption(etf_candidate, etf_runner, proxy_runner)
+
+    proxy_baseline = _proxy_spec().model_copy(
+        update={"baseline": CandidateSpec(id="r1_us_mkt_ff", policy="r1_us_mkt_ff", modules=0)}
+    )
+    with pytest.raises(ValueError, match="baseline"):
+        run_walk_forward_proxy_adoption(proxy_baseline, etf_runner, proxy_runner)
 
 
 @pytest.mark.parametrize("scenario_id", ["WF-B-grid-four-scenarios"])
