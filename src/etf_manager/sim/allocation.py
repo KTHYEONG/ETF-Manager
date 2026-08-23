@@ -16,6 +16,7 @@ from src.etf_manager.data.catalog import latest_artifact, load_visible
 from src.etf_manager.data.query import load_as_of
 from src.etf_manager.data.schedule import build_decision_schedule
 from src.etf_manager.data.schema import Dataset
+from src.etf_manager.policy.overlay import apply_bounded_overlay
 from src.etf_manager.policy.targets import PolicyId, resolve_targets
 from src.etf_manager.policy.tilt import resolve_tilted_targets
 from src.etf_manager.sim.contribution import allocate_contribution
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from src.etf_manager.data.settings import DataSettings
+    from src.etf_manager.policy.overlay import OverlayConfig
     from src.etf_manager.policy.tilt import FactorTilt
 
 logger = logging.getLogger(__name__)
@@ -58,6 +60,7 @@ class AllocationConfig:
     commission_bps: float = 0.0
     tilt: FactorTilt | None = None
     rebalance_band: float | None = None
+    overlay: OverlayConfig | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +95,7 @@ def run_allocation(
     fx: pl.DataFrame,
     cpi: pl.DataFrame,
     factors: pl.DataFrame | None = None,
+    macro: pl.DataFrame | None = None,
 ) -> AllocationResult:
     """Simulate buy-only multi-sleeve monthly DCA with delayed fills on in-memory PIT frames.
 
@@ -130,6 +134,10 @@ def run_allocation(
             if factors is None:
                 raise ValueError("factor tilt requires a factors frame")
             targets = resolve_tilted_targets(config.policy, prices, factors, point.signal_at, config.tilt)
+        if config.overlay is not None:
+            targets = apply_bounded_overlay(
+                targets, prices, point.signal_at, config.overlay, macro=macro
+            )
 
         contribution = config.monthly_contribution_krw
         cash_krw += contribution
@@ -153,9 +161,11 @@ def run_allocation(
         )
         fees_krw = 0.0
         position_value_usd = 0.0
+        # Overlay may leave a cash residual: spend only sum(weights) of the investable amount.
+        sleeve_budget_krw = investable_krw * sum(spend_weights.values())
         for ticker, weight in spend_weights.items():
             price = _visible_close(prices, ticker, point.execution_session, close_ts)
-            spend_usd = investable_krw * weight / fx_gross
+            spend_usd = sleeve_budget_krw * weight / fx_gross
             fee_usd = spend_usd * config.commission_bps / _BPS
             bought = math.floor((spend_usd - fee_usd) / price)
             shares_by_ticker[ticker] = shares_by_ticker.get(ticker, 0) + bought
@@ -210,20 +220,24 @@ def run_allocation(
 
 
 def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) -> AllocationResult:
-    """Load latest PRICES, FX, and CPI partitions (plus FACTORS for tilts), then simulate.
+    """Load latest PRICES, FX, and CPI partitions (plus FACTORS/MACRO when required), then simulate.
 
     FACTORS is required only when ``config.tilt`` is set; a plain policy must not
-    depend on the factors dataset at all.
+    depend on the factors dataset at all. MACRO is loaded only for an overlay
+    with a VIX threshold.
 
     Raises:
         UntrustedDatasetError: When any required dataset lacks a manifest-verified partition.
         AllocationDataError: When the schedule is empty or fills lack data.
     """
+    need_macro = config.overlay is not None and config.overlay.vix_threshold is not None
     datasets = (
         (Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.FACTORS)
         if config.tilt is not None
         else (Dataset.PRICES, Dataset.FX, Dataset.CPI)
     )
+    if need_macro:
+        datasets = (*datasets, Dataset.MACRO)
     # Pre-flight trust gate: fail closed before simulating on untrusted partitions.
     for dataset in datasets:
         latest_artifact(settings, dataset)
@@ -235,7 +249,8 @@ def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) 
     fx = load_visible(settings, Dataset.FX, cutoff)
     cpi = load_visible(settings, Dataset.CPI, cutoff)
     factors = load_visible(settings, Dataset.FACTORS, cutoff) if config.tilt is not None else None
-    return run_allocation(config, prices, fx, cpi, factors=factors)
+    macro = load_visible(settings, Dataset.MACRO, cutoff) if need_macro else None
+    return run_allocation(config, prices, fx, cpi, factors=factors, macro=macro)
 
 
 def _visible_close(prices: pl.DataFrame, ticker: str, session: date, close_ts: datetime) -> float:

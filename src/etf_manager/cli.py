@@ -21,6 +21,7 @@ from src.etf_manager.data.schema import Dataset
 from src.etf_manager.data.secrets import load_provider_secrets
 from src.etf_manager.data.settings import DataSettings
 from src.etf_manager.data.storage import UntrustedDatasetError
+from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.targets import PolicyError, PolicyId, policy_sleeves
 from src.etf_manager.policy.tilt import TILT_FACTORS, FactorTilt
 from src.etf_manager.sim.allocation import (
@@ -106,6 +107,18 @@ def _build_parser() -> _Parser:
         type=float,
         default=None,
         help="Buy-only rebalance band in [0, 1); omit for Phase 3 mix",
+    )
+    policy.add_argument(
+        "--overlay-max-shift",
+        type=float,
+        default=None,
+        help="Bounded overlay max_shift in (0, 0.10]; omit to disable overlay",
+    )
+    policy.add_argument(
+        "--vix-threshold",
+        type=float,
+        default=None,
+        help="Optional VIX de-risk threshold (requires --overlay-max-shift)",
     )
     return parser
 
@@ -216,6 +229,7 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             settings=DataSettings(),
             tilt=tilt,
             rebalance_band=args.rebalance_band,
+            overlay=_resolve_overlay(args.overlay_max_shift, args.vix_threshold),
         )
     raise _UsageError(f"unsupported target {args.target!r}")
 
@@ -227,6 +241,15 @@ def _resolve_tilt(factor: str | None, intensity: float | None) -> FactorTilt | N
     if factor is None or intensity is None:
         return None
     return FactorTilt(factor=factor, intensity=intensity)
+
+
+def _resolve_overlay(max_shift: float | None, vix_threshold: float | None) -> OverlayConfig | None:
+    """Accept VIX threshold only together with overlay-max-shift."""
+    if vix_threshold is not None and max_shift is None:
+        raise _UsageError("--vix-threshold requires --overlay-max-shift")
+    if max_shift is None:
+        return None
+    return OverlayConfig(max_shift=max_shift, vix_threshold=vix_threshold)
 
 
 def run_ingest_smoke(
@@ -365,6 +388,7 @@ def run_policy_command(
     settings: DataSettings,
     tilt: FactorTilt | None = None,
     rebalance_band: float | None = None,
+    overlay: OverlayConfig | None = None,
 ) -> int:
     """Run a stored-data strategic allocation and log terminal KRW / XIRR / MDD.
 
@@ -382,6 +406,7 @@ def run_policy_command(
         commission_bps=0.0,
         tilt=tilt,
         rebalance_band=rebalance_band,
+        overlay=overlay,
     )
     try:
         result = run_allocation_from_store(config, settings)
