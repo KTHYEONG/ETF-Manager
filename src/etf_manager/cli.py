@@ -10,7 +10,13 @@ from datetime import date
 from typing import TYPE_CHECKING, Final, NoReturn
 
 from src.etf_manager.analytics.metrics import XirrError
-from src.etf_manager.data.catalog import latest_artifact
+from src.etf_manager.analytics.us_vehicles import (
+    compare_vehicle_dca,
+    history_price_tickers,
+    profile_us_vehicles,
+)
+from src.etf_manager.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
+from src.etf_manager.data.catalog import latest_artifact, load_visible
 from src.etf_manager.data.fetch import (
     fetch_and_persist_cpi,
     fetch_and_persist_factors,
@@ -20,6 +26,7 @@ from src.etf_manager.data.fetch import (
     fetch_and_persist_research_returns,
 )
 from src.etf_manager.data.providers.base import ProviderError
+from src.etf_manager.data.schedule import build_decision_schedule
 from src.etf_manager.data.schema import Dataset
 from src.etf_manager.data.secrets import load_provider_secrets
 from src.etf_manager.data.settings import DataSettings
@@ -32,7 +39,6 @@ from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.targets import (
     PolicyError,
     PolicyId,
-    all_policy_tickers,
     policy_sleeves,
 )
 from src.etf_manager.policy.tilt import TILT_FACTORS, FactorTilt
@@ -251,6 +257,13 @@ def _build_parser() -> _Parser:
         required=True,
         help="Path to the experiment JSON (single r1_us_mkt_ff candidate with train/test months)",
     )
+    diagnose_us = run_targets.add_parser(
+        "diagnose-us-vehicles",
+        help="Popular US vehicle diagnostics on identical cashflows; reporting only, never an adoption gate",
+    )
+    diagnose_us.add_argument("--start", required=True, type=_iso_date)
+    diagnose_us.add_argument("--end", required=True, type=_iso_date)
+    diagnose_us.add_argument("--contribution-krw", required=True, type=float)
     return parser
 
 
@@ -403,6 +416,13 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         return run_walk_forward_costs_command(config_path=str(args.config), settings=DataSettings())
     if args.target == "walk-forward-proxy":
         return run_walk_forward_proxy_command(config_path=str(args.config), settings=DataSettings())
+    if args.target == "diagnose-us-vehicles":
+        return run_diagnose_us_vehicles_command(
+            start=args.start,
+            end=args.end,
+            contribution_krw=float(args.contribution_krw),
+            settings=DataSettings(),
+        )
     raise _UsageError(f"unsupported target {args.target!r}")
 
 
@@ -506,11 +526,11 @@ def run_ingest_history(
 ) -> int:
     """Persist FX, prices, CPI, factors, VIXCLS macro, and research returns over a long window.
 
-    ``tickers`` defaults to the full policy sleeve universe. Returns 0 only when
-    every fetch persists and each of the six latest catalog partitions holds
-    row_count >= 1; vendor/catalog messages never reach the log.
+    ``tickers`` defaults to the policy sleeves plus the diagnostic vehicles (QQQ).
+    Returns 0 only when every fetch persists and each of the six latest catalog
+    partitions holds row_count >= 1; vendor/catalog messages never reach the log.
     """
-    price_tickers = tickers if tickers is not None else all_policy_tickers()
+    price_tickers = tickers if tickers is not None else history_price_tickers()
     try:
         fx = fetch_and_persist_fx(
             provider=fx_provider, start=start, end=end, secrets=secrets, settings=settings, client=client
@@ -581,6 +601,66 @@ def run_baseline_command(
         ticker,
         len(result.snapshots),
     )
+    return 0
+
+
+_DIAGNOSE_VEHICLES: Final[tuple[str, ...]] = ("VTI", "IVV", "QQQ")
+
+
+def run_diagnose_us_vehicles_command(
+    *,
+    start: date,
+    end: date,
+    contribution_krw: float,
+    settings: DataSettings,
+) -> int:
+    """Log factor profiles and identical-cashflow DCA metrics for VTI/IVV/QQQ.
+
+    Reporting-only diagnostics: no ablation, walk-forward gate, or adoption
+    decision may run here, and no PolicyId is created or unlocked.
+    """
+    try:
+        schedule = build_decision_schedule(start, end, fill_delay_sessions=1)
+        if not schedule:
+            raise BaselineDataError(f"empty decision schedule over [{start.isoformat()}, {end.isoformat()}]")
+        cutoff = load_calendar(DEFAULT_CALENDAR_NAME).close_ts(schedule[-1].execution_session)
+        prices = load_visible(settings, Dataset.PRICES, cutoff)
+        fx = load_visible(settings, Dataset.FX, cutoff)
+        cpi = load_visible(settings, Dataset.CPI, cutoff)
+        factors = load_visible(settings, Dataset.FACTORS, cutoff)
+        profiles = profile_us_vehicles(prices, factors, tickers=_DIAGNOSE_VEHICLES, signal_at=cutoff)
+        base = BaselineConfig(
+            baseline=BaselineId.B1_US,
+            ticker=_DIAGNOSE_VEHICLES[0],
+            start=start,
+            end=end,
+            monthly_contribution_krw=float(contribution_krw),
+        )
+        paths = compare_vehicle_dca(base, prices, fx, cpi, tickers=_DIAGNOSE_VEHICLES)
+    except (BaselineDataError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        logger.error("[DATA] event=diagnose_us_vehicles_failed reason_type=%s", type(exc).__name__)
+        return 1
+    for profile in profiles:
+        logger.info(
+            "[DATA] event=vehicle_factor_profile ticker=%s alpha=%.6f mkt_rf=%.4f smb=%.4f hml=%.4f rmw=%.4f cma=%.4f mom=%.4f",
+            profile.ticker,
+            profile.alpha,
+            profile.mkt_rf,
+            profile.smb,
+            profile.hml,
+            profile.rmw,
+            profile.cma,
+            profile.mom,
+        )
+    for path in paths:
+        logger.info(
+            "[DATA] event=vehicle_dca_done ticker=%s terminal_krw=%.3f terminal_real_krw=%.3f xirr=%.6f steps=%d",
+            path.ticker,
+            path.result.terminal_wealth_krw,
+            path.result.terminal_wealth_real_krw,
+            path.result.xirr,
+            len(path.result.snapshots),
+        )
     return 0
 
 
