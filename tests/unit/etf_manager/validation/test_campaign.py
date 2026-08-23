@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from datetime import date
 
 import pytest
 
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.sim.allocation import AllocationConfig, AllocationResult
-from src.etf_manager.validation.campaign import run_walk_forward_adoption
+from src.etf_manager.validation.campaign import (
+    COST_SCENARIOS,
+    run_walk_forward_adoption,
+    run_walk_forward_cost_grid,
+)
 from src.etf_manager.validation.experiment import CandidateSpec, ExperimentSpec
 
 
@@ -118,3 +123,84 @@ def test_wf_a_rejects_invalid_spec(scenario_id: str) -> None:
     tiny_window = _spec().model_copy(update={"end": date(2012, 5, 1)})
     with pytest.raises(ValueError, match="no walk-forward folds"):
         run_walk_forward_adoption(tiny_window, _RecordingRunner(dict.fromkeys(PolicyId, 100.0)))
+
+
+class _StressCostRunner:
+    """Candidate arm collapses only once commissions reach the stress level."""
+
+    def __call__(self, config: AllocationConfig) -> AllocationResult:
+        wealth = 120.0 if config.policy is PolicyId.S1_US else 100.0
+        if config.policy is PolicyId.S1_US and config.commission_bps >= 50.0:
+            wealth = 90.0
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-B-spec-costs-injected"])
+def test_wf_b_spec_costs_injected(scenario_id: str) -> None:
+    """WF-B-spec-costs-injected"""
+    runner = _RecordingRunner({PolicyId.S0_GLOBAL: 100.0, PolicyId.S1_US: 110.0})
+    spec = _spec().model_copy(update={"commission_bps": 10.0, "fx_spread_bps": 20.0})
+
+    report = run_walk_forward_adoption(spec, runner)
+
+    assert len(report.folds) > 0
+    for config in runner.configs:
+        assert config.commission_bps == pytest.approx(10.0)
+        assert config.fx_spread_bps == pytest.approx(20.0)
+        assert config.fill_delay_sessions == 1
+        assert config.tilt is None
+        assert config.overlay is None
+        assert config.currency is None
+        assert config.mapping is None
+    assert report.process_adopted_vs_baseline is True
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-B-grid-four-scenarios"])
+def test_wf_b_grid_four_scenarios(scenario_id: str) -> None:
+    """WF-B-grid-four-scenarios"""
+    runner = _RecordingRunner({PolicyId.S0_GLOBAL: 100.0, PolicyId.S1_US: 120.0})
+    spec = _spec()
+
+    grid = run_walk_forward_cost_grid(spec, runner)
+
+    assert [outcome.scenario.id for outcome in grid.outcomes] == ["ideal", "low", "base", "stress"]
+    expected_bps = ((0.0, 0.0), (5.0, 10.0), (10.0, 20.0), (50.0, 50.0))
+    for outcome, (commission_bps, fx_spread_bps) in zip(grid.outcomes, expected_bps, strict=True):
+        assert outcome.scenario.commission_bps == pytest.approx(commission_bps)
+        assert outcome.scenario.fx_spread_bps == pytest.approx(fx_spread_bps)
+    with pytest.raises(FrozenInstanceError):
+        COST_SCENARIOS[0].id = "mutated"  # type: ignore[misc]
+
+    fold_count = len(grid.outcomes[0].campaign.folds)
+    configs_per_scenario = 5 * fold_count
+    for index, outcome in enumerate(grid.outcomes):
+        chunk = runner.configs[index * configs_per_scenario : (index + 1) * configs_per_scenario]
+        assert chunk
+        for config in chunk:
+            assert config.commission_bps == pytest.approx(outcome.scenario.commission_bps)
+            assert config.fx_spread_bps == pytest.approx(outcome.scenario.fx_spread_bps)
+    assert grid.all_scenarios_adopted is True
+    assert spec.commission_bps == pytest.approx(0.0)
+    assert spec.fx_spread_bps == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-B-grid-stress-can-flip"])
+def test_wf_b_grid_stress_can_flip(scenario_id: str) -> None:
+    """WF-B-grid-stress-can-flip"""
+    grid = run_walk_forward_cost_grid(_spec(), _StressCostRunner())
+
+    assert grid.all_scenarios_adopted is False
+    ideal = grid.outcomes[0]
+    assert ideal.scenario.id == "ideal"
+    assert ideal.campaign.process_adopted_vs_baseline is True
+    stress = grid.outcomes[-1]
+    assert stress.scenario.id == "stress"
+    assert stress.campaign.process_adopted_vs_baseline is False

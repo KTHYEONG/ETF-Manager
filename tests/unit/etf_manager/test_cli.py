@@ -859,3 +859,58 @@ def test_cli_horizon_default_36(scenario_id: str, monkeypatch: pytest.MonkeyPatc
 
     assert main([*argv, "--horizon-months", "12"]) == 0
     assert captured[-1] == 12
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-walk-forward-costs"])
+def test_cli_walk_forward_costs(
+    scenario_id: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI-walk-forward-costs"""
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        wealth = 120.0 if config.policy is PolicyId.S1_US else 100.0
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "latest_artifact", lambda settings, dataset: _FakeArtifact(8))
+
+    assert main(["run", "walk-forward-costs"]) == 2
+
+    payload = {
+        "name": "wf_s0_s1",
+        "start": "2012-04-01",
+        "end": "2024-11-30",
+        "contribution_krw": 1_000_000,
+        "delta0": 0.02,
+        "horizon_months": 0,
+        "train_months": 60,
+        "test_months": 36,
+        "baseline": {"id": "s0_global", "policy": "s0_global", "modules": 0},
+        "candidates": [{"id": "s1_us", "policy": "s1_us", "modules": 1}],
+    }
+    wf_path = tmp_path / "wf_s0_s1.json"
+    wf_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    data_root = tmp_path / "data"
+    monkeypatch.setattr(cli, "DataSettings", lambda: DataSettings(data_root=data_root))
+
+    exit_code = main(["run", "walk-forward-costs", "--config", str(wf_path)])
+
+    assert exit_code == 0
+    reports = list((data_root / "experiments").glob("*_costs_*.json"))
+    assert len(reports) == 1
+    written = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert "all_scenarios_adopted" in written
+    assert len(written["scenarios"]) == 4
+
+    assert main(["run", "walk-forward-costs", "--config", "configs/experiments/m0_m1.json"]) == 1
