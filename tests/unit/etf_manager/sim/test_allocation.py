@@ -13,6 +13,7 @@ import src.etf_manager.sim.allocation as allocation_module
 from src.etf_manager.data.calendar import load_calendar
 from src.etf_manager.data.pipeline import ingest
 from src.etf_manager.data.schema import Dataset, spec_for
+from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.policy.tilt import FactorTilt
 from src.etf_manager.sim.allocation import AllocationConfig, AllocationDataError, AllocationResult, run_allocation
@@ -216,9 +217,11 @@ def test_sim_h04_store_loads_factors_only_for_tilt(monkeypatch: pytest.MonkeyPat
         fx: pl.DataFrame,
         cpi: pl.DataFrame,
         factors: pl.DataFrame | None = None,
+        macro: pl.DataFrame | None = None,
     ) -> AllocationResult:
         captured["config"] = config
         captured["factors"] = factors
+        captured["macro"] = macro
         return AllocationResult(
             config=config,
             snapshots=(),
@@ -311,3 +314,81 @@ def test_sim_i04_allocation_band_path(scenario_id: str) -> None:
         banded_buys = banded.snapshots[-1].shares[ticker] - banded.snapshots[0].shares[ticker]
         identity_buys = identity.snapshots[-1].shares[ticker] - identity.snapshots[0].shares[ticker]
         assert banded_buys > identity_buys > 0.0
+
+
+_LONG_PANEL_START: Final[date] = date(2022, 12, 1)
+
+
+def _long_rising_panel(days: tuple[date, ...]) -> pl.DataFrame:
+    """Identical monotonic 0.1%/session closes per sleeve over a multi-year window."""
+    spec = spec_for(Dataset.PRICES)
+    tickers: list[str] = []
+    dates: list[date] = []
+    closes: list[float] = []
+    for ticker in ("VTI", "VEA", "VWO"):
+        for index, day in enumerate(days):
+            tickers.append(ticker)
+            dates.append(day)
+            closes.append(100.0 * 1.001**index)
+    n = len(dates)
+    return pl.DataFrame(
+        {
+            "ticker": tickers,
+            "date": dates,
+            "open": [close * 0.98 for close in closes],
+            "high": [close * 1.02 for close in closes],
+            "low": [close * 0.97 for close in closes],
+            "close": closes,
+            "volume": [10_000] * n,
+            "adjusted_close": closes,
+            "dividend": [0.0] * n,
+            "split_factor": [1.0] * n,
+            "source": ["synthetic"] * n,
+            "retrieved_at": [_RETRIEVED_AT] * n,
+        },
+        schema=dict(spec.columns),
+    )
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-J04-overlay-none-identity"])
+def test_sim_j04_overlay_none_identity(scenario_id: str) -> None:
+    """SIM-J04-overlay-none-identity"""
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, ("VT",)), Dataset.PRICES)
+    fx = ingest(_fx_panel(window), Dataset.FX)
+    cpi = _constant_cpi()
+
+    result = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    baseline = run_baseline(
+        BaselineConfig(
+            baseline=BaselineId.B0_GLOBAL,
+            ticker="VT",
+            start=_CONFIG_START,
+            end=_CONFIG_END,
+            monthly_contribution_krw=_CONTRIBUTION_KRW,
+        ),
+        prices,
+        fx,
+        cpi,
+    )
+
+    assert result.terminal_wealth_krw == pytest.approx(baseline.terminal_wealth_krw, rel=1e-6)
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-J04-overlay-none-identity"])
+def test_sim_j04_overlay_buy_only_long_panel(scenario_id: str) -> None:
+    """SIM-J04-overlay-none-identity"""
+    days = _CALENDAR.sessions(_LONG_PANEL_START, date(2024, 2, 29))
+    prices = ingest(_long_rising_panel(days), Dataset.PRICES)
+    fx = ingest(_fx_panel(days), Dataset.FX)
+    cpi = _constant_cpi()
+    config = replace(
+        _allocation_config(PolicyId.S2_REGIONAL), overlay=OverlayConfig(max_shift=0.10)
+    )
+
+    result = run_allocation(config, prices, fx, cpi)
+
+    assert all(snapshot.shares for snapshot in result.snapshots)
+    for previous, current in zip(result.snapshots, result.snapshots[1:], strict=False):
+        for ticker in ("VTI", "VEA", "VWO"):
+            assert current.shares[ticker] >= previous.shares[ticker]
