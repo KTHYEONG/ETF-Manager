@@ -55,6 +55,7 @@ def test_cli_d07_ingest_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
 class _FakeManifest:
     def __init__(self, row_count: int) -> None:
         self.row_count = row_count
+        self.normalized_sha256 = "f" * 64
 
 
 class _FakeArtifact:
@@ -577,3 +578,61 @@ def test_cli_m05_map_etf_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch
 
     assert main(base_argv) == 0
     assert captured[-1].mapping is None
+
+
+@pytest.mark.parametrize("scenario_id", ["VAL-V05-cli-validate"])
+def test_val_v05_cli_validate(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """VAL-V05-cli-validate"""
+    policy_configs: list[AllocationConfig] = []
+    baseline_configs: list[BaselineConfig] = []
+
+    def fake_policy_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        policy_configs.append(config)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=2.5,
+            xirr=0.12,
+            max_drawdown=-0.05,
+            terminal_wealth_real_krw=2.0,
+            xirr_real=0.09,
+        )
+
+    def fake_baseline_run(config: BaselineConfig, settings: object) -> BaselineResult:
+        baseline_configs.append(config)
+        return BaselineResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=1.25,
+            xirr=0.06,
+            max_drawdown=-0.03,
+            terminal_wealth_real_krw=1.0,
+            xirr_real=0.04,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_policy_run)
+    monkeypatch.setattr(cli, "run_baseline_from_store", fake_baseline_run)
+    monkeypatch.setattr(cli, "latest_artifact", lambda settings, dataset: _FakeArtifact(8))
+
+    base_argv = [
+        "run",
+        "validate",
+        "--id",
+        "s0_global",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-12-31",
+        "--contribution-krw",
+        "1000000",
+    ]
+
+    assert main(base_argv) == 0
+    assert len(policy_configs) == 1
+    assert len(baseline_configs) == 1
+    assert (policy_configs[0].start, policy_configs[0].end) == (date(2024, 1, 1), date(2024, 12, 31))
+    assert (baseline_configs[0].start, baseline_configs[0].end) == (date(2024, 1, 1), date(2024, 12, 31))
+    assert baseline_configs[0].baseline == BaselineId.B0_GLOBAL
+
+    assert main([*base_argv, "--bootstrap-paths", "2"]) == 2
+    assert main([*base_argv, "--bootstrap-paths", "2", "--seed", "1"]) == 0
