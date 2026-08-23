@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P8_ETF_MAPPING",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_P8_ETF_MAPPING",
+      "domain": "policy",
+      "title": "Phase 8: PIT ETF score + hysteresis mapping (buy-only)",
+      "why": "Phase 7 spent economic sleeve tickers directly; next.md Phase 8 requires L6 implementation mapping with hard filters, implementation-quality score, and incumbent hysteresis without selling on switch.",
+      "resolution": "Expanded Dataset.ETF_METADATA schema v2, added passes_hard_filters and etf_score with PIT metadata lookup, MappingConfig and apply_etf_mapping with hysteresis, wired run_allocation after overlay before currency with buy-only leftover lots in NAV, ETF_METADATA load when mapping set, and CLI --map-etf / --map-min-improvement; mapping=None preserves Phase 7 identity.",
+      "impact": "Closes Phase 8 ETF implementation layer under I1/I10 PIT metadata and I6 buy-only cash conservation; unblocks Phase 9 robust validation without SEC ingest or survivorship-free universe."
+    },
+    {
       "task_id": "TASK_P7_CURRENCY",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_P7_CURRENCY",
