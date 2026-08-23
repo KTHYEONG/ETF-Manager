@@ -316,3 +316,69 @@ def test_cli_g07_run_policy(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(cli, "run_allocation_from_store", failing_run)
     assert main(argv) == 1
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-H06-ingest-factors-and-tilt-flags"])
+def test_cli_h06_ingest_factors_and_tilt_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-H06-ingest-factors-and-tilt-flags"""
+    factor_calls: list[tuple[date, date]] = []
+
+    def fake_factors(start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        factor_calls.append((start, end))
+        return _FakeArtifact(12)
+
+    monkeypatch.setattr(cli, "fetch_and_persist_factors", fake_factors)
+
+    exit_code = main(["ingest", "factors", "--start", "2010-01-01", "--end", "2010-12-31"])
+
+    assert exit_code == 0
+    assert len(factor_calls) == 1
+    assert factor_calls[0] == (date(2010, 1, 1), date(2010, 12, 31))
+
+    assert main(["ingest", "factors"]) == 2
+    assert len(factor_calls) == 1
+
+    captured: list[AllocationConfig] = []
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        captured.append(config)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=2.5,
+            xirr=0.12,
+            max_drawdown=-0.05,
+            terminal_wealth_real_krw=2.0,
+            xirr_real=0.09,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+
+    base_argv = [
+        "run",
+        "policy",
+        "--id",
+        "s2_regional",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-01-31",
+        "--contribution-krw",
+        "1",
+    ]
+    assert main([*base_argv, "--tilt-factor", "hml"]) == 2
+    assert main([*base_argv, "--tilt-intensity", "0.1"]) == 2
+    assert captured == []
+
+    exit_code = main([*base_argv, "--tilt-factor", "hml", "--tilt-intensity", "0.1"])
+
+    assert exit_code == 0
+    assert len(captured) == 1
+    tilt = captured[0].tilt
+    assert tilt is not None
+    assert tilt.factor == "hml"
+    assert tilt.intensity == pytest.approx(0.1)
+
+    exit_code = main(base_argv)
+    assert exit_code == 0
+    assert captured[1].tilt is None
