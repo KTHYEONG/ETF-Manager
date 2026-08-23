@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P9_ROBUST_VALIDATION",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_P9_ROBUST_VALIDATION",
+      "domain": "validation",
+      "title": "Phase 9: Walk-forward, cohort CE gate, block bootstrap, I12 registry",
+      "why": "Phase 8 produced single-path AllocationResult only; next.md Phase 9 and architecture L5 require time-ordered validation, rolling cohorts, CE_gamma adoption gate versus B0, bootstrap distributions, and I12 experiment identity.",
+      "resolution": "Added validation/windows (walk_forward_windows, rolling_cohorts), gate (certainty_equivalent, adoption_passes, select_plateau), moving_block_bootstrap, registry (ExperimentRecord, make_experiment), evaluate_cohort_wealths, CLI run validate with delta0/modules/cohort/bootstrap flags, and cohort identity test; no price-path MC or SPA/MCS.",
+      "impact": "Closes Phase 9 robust validation core under I5 identical cashflows and architecture CE gate; unblocks Phase 10 paper execution after research stabilization."
+    },
+    {
       "task_id": "TASK_P8_ETF_MAPPING",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_P8_ETF_MAPPING",
