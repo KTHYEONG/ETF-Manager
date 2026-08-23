@@ -12,6 +12,7 @@ import pytest
 import src.etf_manager.sim.allocation as allocation_module
 from src.etf_manager.data.calendar import load_calendar
 from src.etf_manager.etf.mapping import MappingConfig
+from src.etf_manager.execution.broker import PaperBroker, reconcile, replay_paper
 from src.etf_manager.data.pipeline import ingest
 from src.etf_manager.data.schema import Dataset, spec_for
 from src.etf_manager.policy.currency import CurrencyConfig
@@ -578,3 +579,19 @@ def test_val_v04_cohort_identity(scenario_id: str) -> None:
             (),
             lambda config: run_allocation(config, prices, fx, cpi),
         )
+
+
+@pytest.mark.parametrize("scenario_id", ["EXE-X03-replay-identity"])
+def test_exe_x03_replay_identity(scenario_id: str) -> None:
+    """EXE-X03-replay-identity"""
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, ("VT",)), Dataset.PRICES)
+    fx = ingest(_fx_panel(window), Dataset.FX)
+    cpi = _constant_cpi()
+
+    result = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    book = replay_paper(result)
+
+    assert isinstance(book, PaperBroker)
+    assert book.position("VT") == int(result.snapshots[-1].shares["VT"])
+    reconcile(book, result.snapshots[-1])
