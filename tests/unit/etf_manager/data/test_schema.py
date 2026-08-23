@@ -65,3 +65,19 @@ def test_spec_c09_registry_cpi_macro_key(scenario_id: str) -> None:
     fx = spec_for(Dataset.FX)
     assert fx.missing_policy is MissingPolicy.EXPLICIT_GAP
     assert "usdkrw" in fx.nullable_columns
+
+
+@pytest.mark.parametrize("scenario_id", ["SPEC-M01-etf-metadata-schema"])
+def test_spec_m01_etf_metadata_schema(scenario_id: str) -> None:
+    """SPEC-M01-etf-metadata-schema"""
+    spec = spec_for(Dataset.ETF_METADATA)
+    assert spec.key == ("ticker", "effective_date")
+    assert spec.schema_version == "2"
+    assert {"expense_ratio", "aum_usd", "avg_dollar_volume", "sleeve", "is_leveraged", "is_inverse", "inception_date"} <= set(spec.columns)
+    assert spec.availability.kind is AvailabilityKind.RELEASE_COLUMN
+    assert spec.availability.release_column == "filing_date"
+    assert spec.missing_policy is MissingPolicy.FAIL
+    assert spec.revisable is True
+    assert spec.observation_column == "effective_date"
+    assert spec.columns["is_leveraged"] == pl.Int64()
+    assert spec.columns["is_inverse"] == pl.Int64()

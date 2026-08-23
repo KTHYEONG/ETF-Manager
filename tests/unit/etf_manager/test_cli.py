@@ -9,6 +9,7 @@ import pytest
 from src.etf_manager import cli
 from src.etf_manager.cli import main
 from src.etf_manager.data.providers.base import ProviderError
+from src.etf_manager.etf.mapping import MappingConfig
 from src.etf_manager.data.schema import Dataset
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.sim.allocation import AllocationConfig, AllocationDataError, AllocationResult
@@ -528,3 +529,51 @@ def test_cli_k05_fx_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> 
     assert main(base_argv) == 0
     assert len(captured) == 3
     assert captured[2].currency is None
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-M05-map-etf-flags"])
+def test_cli_m05_map_etf_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-M05-map-etf-flags"""
+    captured: list[AllocationConfig] = []
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        captured.append(config)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=2.5,
+            xirr=0.12,
+            max_drawdown=-0.05,
+            terminal_wealth_real_krw=2.0,
+            xirr_real=0.09,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+
+    base_argv = [
+        "run",
+        "policy",
+        "--id",
+        "s2_regional",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-01-31",
+        "--contribution-krw",
+        "1000000",
+    ]
+
+    assert main([*base_argv, "--map-etf"]) == 0
+    mapping = captured[-1].mapping
+    assert isinstance(mapping, MappingConfig)
+    assert mapping.min_improvement == pytest.approx(0.02)
+
+    assert main([*base_argv, "--map-min-improvement", "0.05"]) == 2
+
+    assert main([*base_argv, "--map-etf", "--map-min-improvement", "0.05"]) == 0
+    tuned = captured[-1].mapping
+    assert tuned is not None
+    assert tuned.min_improvement == pytest.approx(0.05)
+
+    assert main(base_argv) == 0
+    assert captured[-1].mapping is None

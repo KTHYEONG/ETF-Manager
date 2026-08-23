@@ -11,6 +11,7 @@ import pytest
 
 import src.etf_manager.sim.allocation as allocation_module
 from src.etf_manager.data.calendar import load_calendar
+from src.etf_manager.etf.mapping import MappingConfig
 from src.etf_manager.data.pipeline import ingest
 from src.etf_manager.data.schema import Dataset, spec_for
 from src.etf_manager.policy.currency import CurrencyConfig
@@ -219,10 +220,12 @@ def test_sim_h04_store_loads_factors_only_for_tilt(monkeypatch: pytest.MonkeyPat
         cpi: pl.DataFrame,
         factors: pl.DataFrame | None = None,
         macro: pl.DataFrame | None = None,
+        metadata: pl.DataFrame | None = None,
     ) -> AllocationResult:
         captured["config"] = config
         captured["factors"] = factors
         captured["macro"] = macro
+        captured["metadata"] = metadata
         return AllocationResult(
             config=config,
             snapshots=(),
@@ -455,3 +458,96 @@ def test_sim_k04_defer_keeps_cash_krw(scenario_id: str) -> None:
     plain = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, rising_fx, cpi)
 
     assert deferred.snapshots[-1].cash_krw > plain.snapshots[-1].cash_krw
+
+
+def _etf_metadata_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
+    spec = spec_for(Dataset.ETF_METADATA)
+    columns = {name: [row[name] for row in rows] for name in spec.columns}
+    return ingest(pl.DataFrame(columns, schema=dict(spec.columns)), Dataset.ETF_METADATA)
+
+
+def _metadata_row(*, ticker: str, sleeve: str, expense_ratio: float, **overrides: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "ticker": ticker,
+        "effective_date": date(2023, 11, 1),
+        "filing_date": datetime(2023, 11, 5, tzinfo=UTC),
+        "sleeve": sleeve,
+        "expense_ratio": expense_ratio,
+        "aum_usd": 3e11,
+        "avg_dollar_volume": 4e10,
+        "is_leveraged": 0,
+        "is_inverse": 0,
+        "inception_date": date(2010, 1, 4),
+        "source": "synthetic",
+        "retrieved_at": _RETRIEVED_AT,
+    }
+    row.update(overrides)
+    return row
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-M04-mapping-none-identity"])
+def test_sim_m04_mapping_none_identity(scenario_id: str) -> None:
+    """SIM-M04-mapping-none-identity"""
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, ("VT",)), Dataset.PRICES)
+    fx = ingest(_fx_panel(window), Dataset.FX)
+    cpi = _constant_cpi()
+
+    result = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    baseline = run_baseline(
+        BaselineConfig(
+            baseline=BaselineId.B0_GLOBAL,
+            ticker="VT",
+            start=_CONFIG_START,
+            end=_CONFIG_END,
+            monthly_contribution_krw=_CONTRIBUTION_KRW,
+        ),
+        prices,
+        fx,
+        cpi,
+    )
+
+    assert result.terminal_wealth_krw == pytest.approx(baseline.terminal_wealth_krw, rel=1e-6)
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-M04-mapping-none-identity"])
+def test_sim_m04_mapping_switch_keeps_leftover_lots(scenario_id: str) -> None:
+    """SIM-M04-mapping-none-identity"""
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, ("VTI", "VEA", "VWO", "ITOT")), Dataset.PRICES)
+    fx = ingest(_fx_panel(window), Dataset.FX)
+    cpi = _constant_cpi()
+    mapping = MappingConfig(
+        min_improvement=0.02,
+        fit_window=5,
+        td_window=5,
+        candidates={"VTI": ("VTI", "ITOT"), "VEA": ("VEA",), "VWO": ("VWO",)},
+    )
+    # Step 1 sees only the expensive ITOT filing; the cheap one lands between signals.
+    metadata = _etf_metadata_frame(
+        [
+            _metadata_row(ticker="VTI", sleeve="VTI", expense_ratio=0.05),
+            _metadata_row(ticker="ITOT", sleeve="VTI", expense_ratio=0.09),
+            _metadata_row(
+                ticker="ITOT",
+                sleeve="VTI",
+                expense_ratio=0.0001,
+                effective_date=date(2024, 2, 1),
+                filing_date=datetime(2024, 2, 10, tzinfo=UTC),
+            ),
+            _metadata_row(ticker="VEA", sleeve="VEA", expense_ratio=0.0008),
+            _metadata_row(ticker="VWO", sleeve="VWO", expense_ratio=0.001),
+        ]
+    )
+    config = replace(_allocation_config(PolicyId.S2_REGIONAL), mapping=mapping)
+
+    result = run_allocation(config, prices, fx, cpi, metadata=metadata)
+
+    assert len(result.snapshots) == 2
+    first, final = result.snapshots[0], result.snapshots[-1]
+    assert set(first.shares) == {"VTI", "VEA", "VWO"}
+    assert all(first.shares[ticker] > 0 for ticker in ("VTI", "VEA", "VWO"))
+    # Buy-only switch: ITOT gets a fresh lot while the VTI leftover stays untouched.
+    assert final.shares["VTI"] == first.shares["VTI"]
+    assert final.shares["ITOT"] > 0
+    assert final.mark_krw > 0.0
