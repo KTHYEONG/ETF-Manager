@@ -49,5 +49,8 @@
   },
   "src/etf_manager/policy/targets.py": {
     "testing": "tests/unit/etf_manager/policy/test_targets.py"
+  },
+  "src/etf_manager/validation/campaign.py": {
+    "testing": "tests/unit/etf_manager/validation/test_campaign.py"
   }
 }
