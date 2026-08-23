@@ -20,6 +20,7 @@ from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.policy.tilt import FactorTilt
 from src.etf_manager.sim.allocation import AllocationConfig, AllocationDataError, AllocationResult, run_allocation
 from src.etf_manager.sim.baseline import BaselineConfig, BaselineId, run_baseline
+from src.etf_manager.validation.evaluate import evaluate_cohort_wealths
 
 _CALENDAR = load_calendar("XNYS")
 _RETRIEVED_AT = datetime(2024, 4, 1, 5, 0, tzinfo=UTC)
@@ -551,3 +552,29 @@ def test_sim_m04_mapping_switch_keeps_leftover_lots(scenario_id: str) -> None:
     assert final.shares["VTI"] == first.shares["VTI"]
     assert final.shares["ITOT"] > 0
     assert final.mark_krw > 0.0
+
+
+@pytest.mark.parametrize("scenario_id", ["VAL-V04-cohort-identity"])
+def test_val_v04_cohort_identity(scenario_id: str) -> None:
+    """VAL-V04-cohort-identity"""
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, ("VT",)), Dataset.PRICES)
+    fx = ingest(_fx_panel(window), Dataset.FX)
+    cpi = _constant_cpi()
+
+    reference = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    wealths = evaluate_cohort_wealths(
+        _allocation_config(PolicyId.S0_GLOBAL),
+        ((_CONFIG_START, _CONFIG_END),),
+        lambda config: run_allocation(config, prices, fx, cpi),
+    )
+
+    assert len(wealths) == 1
+    assert wealths[0] == pytest.approx(reference.terminal_wealth_real_krw, rel=1e-6)
+
+    with pytest.raises(ValueError, match="cohorts"):
+        evaluate_cohort_wealths(
+            _allocation_config(PolicyId.S0_GLOBAL),
+            (),
+            lambda config: run_allocation(config, prices, fx, cpi),
+        )
