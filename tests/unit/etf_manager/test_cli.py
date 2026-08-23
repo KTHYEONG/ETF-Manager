@@ -13,6 +13,7 @@ from src.etf_manager import cli
 from src.etf_manager.cli import main
 from src.etf_manager.data.providers.base import ProviderError
 from src.etf_manager.data.schema import Dataset
+from src.etf_manager.data.settings import DataSettings
 from src.etf_manager.etf.mapping import MappingConfig
 from src.etf_manager.policy.targets import PolicyId, all_policy_tickers
 from src.etf_manager.sim.allocation import (
@@ -775,6 +776,59 @@ def test_cli_w1_ablation_dispatch(
     assert captured[0].monthly_contribution_krw == pytest.approx(1_000_000.0)
 
     assert main(["run", "ablation"]) == 2
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-WF-dispatch"])
+def test_cli_wf_dispatch(
+    scenario_id: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI-WF-dispatch"""
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=100.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=100.0,
+            xirr_real=0.0,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "latest_artifact", lambda settings, dataset: _FakeArtifact(8))
+
+    assert main(["run", "walk-forward"]) == 2
+
+    payload = {
+        "name": "wf_s0_s1",
+        "start": "2012-04-01",
+        "end": "2024-11-30",
+        "contribution_krw": 1_000_000,
+        "delta0": 0.02,
+        "horizon_months": 0,
+        "train_months": 60,
+        "test_months": 36,
+        "baseline": {"id": "s0_global", "policy": "s0_global", "modules": 0},
+        "candidates": [{"id": "s1_us", "policy": "s1_us", "modules": 1}],
+    }
+    wf_path = tmp_path / "wf_s0_s1.json"
+    wf_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    data_root = tmp_path / "data"
+    monkeypatch.setattr(cli, "DataSettings", lambda: DataSettings(data_root=data_root))
+
+    exit_code = main(["run", "walk-forward", "--config", str(wf_path)])
+
+    assert exit_code == 0
+    reports = list((data_root / "experiments").glob("*.json"))
+    assert len(reports) == 1
+    written = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert "process_adopted_vs_baseline" in written
+
+    assert main(["run", "walk-forward", "--config", "configs/experiments/m0_m1.json"]) == 1
 
 
 @pytest.mark.parametrize("scenario_id", ["CLI-horizon-default-36"])
