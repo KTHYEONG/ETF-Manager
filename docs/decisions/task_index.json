@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P7_CURRENCY",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_P7_CURRENCY",
+      "domain": "policy",
+      "title": "Phase 7: Bounded FX defer + trading/economic currency labels",
+      "why": "Phase 6 converted every month's investable KRW in full at execution FX; next.md Phase 7 requires baseline conversion with optional bounded defer and explicit trading vs economic currency separation.",
+      "resolution": "Added trailing_fx_percentile (L2), CurrencyConfig and conversion_fraction with bounded defer on expensive FX percentile, trading_currency/economic_currency labels, wired run_allocation to apply currency after overlay with cash_krw debit by spent KRW only, and CLI --fx-max-defer / --fx-expensive-percentile; currency=None preserves Phase 6 identity.",
+      "impact": "Closes Phase 7 spot conversion policy under I6 no-extra-cashflow; unblocks Phase 8 ETF mapping and FX hedge challengers without changing external cashflows."
+    },
+    {
       "task_id": "TASK_P6_DYNAMIC_OVERLAY",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_P6_DYNAMIC_OVERLAY",

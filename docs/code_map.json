@@ -33,5 +33,8 @@
   },
   "src/etf_manager/policy/overlay.py": {
     "testing": "tests/unit/etf_manager/policy/test_overlay.py"
+  },
+  "src/etf_manager/policy/currency.py": {
+    "testing": "tests/unit/etf_manager/policy/test_currency.py"
   }
 }
