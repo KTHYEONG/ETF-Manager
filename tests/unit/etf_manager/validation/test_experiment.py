@@ -66,6 +66,25 @@ def test_exp_w1_load_round_trip(scenario_id: str, tmp_path: Path) -> None:
     assert all(candidate.modules == 1 for candidate in spec.candidates)
 
 
+@pytest.mark.parametrize("scenario_id", ["EXP-M2-json-load"])
+def test_exp_m2_json_load(scenario_id: str) -> None:
+    """EXP-M2-json-load"""
+    spec = load_experiment_config("configs/experiments/m1_m2.json")
+
+    assert spec.name == "m1_m2_us_core_value"
+    assert spec.start == date(2012, 4, 1)
+    assert spec.end == date(2024, 11, 30)
+    assert spec.contribution_krw == pytest.approx(1_000_000.0)
+    assert spec.delta0 == pytest.approx(0.02)
+    assert spec.horizon_months == 36
+    assert spec.baseline.id == "s1_us"
+    assert spec.baseline.policy is PolicyId.S1_US
+    assert spec.baseline.modules == 0
+    assert [candidate.id for candidate in spec.candidates] == ["s6_us_core_value"]
+    assert [candidate.policy for candidate in spec.candidates] == [PolicyId.S6_US_CORE_VALUE]
+    assert [candidate.modules for candidate in spec.candidates] == [1]
+
+
 _FAIL_CASES = [
     ("empty candidates", lambda payload: payload.update(candidates=[]), "candidates"),
     (
