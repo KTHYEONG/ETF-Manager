@@ -21,6 +21,7 @@ from src.etf_manager.data.schema import Dataset
 from src.etf_manager.data.secrets import load_provider_secrets
 from src.etf_manager.data.settings import DataSettings
 from src.etf_manager.data.storage import UntrustedDatasetError
+from src.etf_manager.policy.currency import CurrencyConfig
 from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.targets import PolicyError, PolicyId, policy_sleeves
 from src.etf_manager.policy.tilt import TILT_FACTORS, FactorTilt
@@ -119,6 +120,18 @@ def _build_parser() -> _Parser:
         type=float,
         default=None,
         help="Optional VIX de-risk threshold (requires --overlay-max-shift)",
+    )
+    policy.add_argument(
+        "--fx-max-defer",
+        type=float,
+        default=None,
+        help="Max KRW defer fraction in (0, 1]; omit to disable FX defer",
+    )
+    policy.add_argument(
+        "--fx-expensive-percentile",
+        type=float,
+        default=None,
+        help="Optional expensive-USD percentile in (0, 1) (requires --fx-max-defer)",
     )
     return parser
 
@@ -230,6 +243,7 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             tilt=tilt,
             rebalance_band=args.rebalance_band,
             overlay=_resolve_overlay(args.overlay_max_shift, args.vix_threshold),
+            currency=_resolve_currency(args.fx_max_defer, args.fx_expensive_percentile),
         )
     raise _UsageError(f"unsupported target {args.target!r}")
 
@@ -250,6 +264,18 @@ def _resolve_overlay(max_shift: float | None, vix_threshold: float | None) -> Ov
     if max_shift is None:
         return None
     return OverlayConfig(max_shift=max_shift, vix_threshold=vix_threshold)
+
+
+def _resolve_currency(max_defer: float | None, expensive_percentile: float | None) -> CurrencyConfig | None:
+    """Accept expensive percentile only together with fx-max-defer."""
+    if expensive_percentile is not None and max_defer is None:
+        raise _UsageError("--fx-expensive-percentile requires --fx-max-defer")
+    if max_defer is None:
+        return None
+    return CurrencyConfig(
+        max_defer=max_defer,
+        expensive_percentile=0.80 if expensive_percentile is None else expensive_percentile,
+    )
 
 
 def run_ingest_smoke(
@@ -389,6 +415,7 @@ def run_policy_command(
     tilt: FactorTilt | None = None,
     rebalance_band: float | None = None,
     overlay: OverlayConfig | None = None,
+    currency: CurrencyConfig | None = None,
 ) -> int:
     """Run a stored-data strategic allocation and log terminal KRW / XIRR / MDD.
 
@@ -407,6 +434,7 @@ def run_policy_command(
         tilt=tilt,
         rebalance_band=rebalance_band,
         overlay=overlay,
+        currency=currency,
     )
     try:
         result = run_allocation_from_store(config, settings)
