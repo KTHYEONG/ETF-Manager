@@ -11,6 +11,7 @@ from src.etf_manager.analytics.metrics import XirrError
 from src.etf_manager.data.catalog import latest_artifact
 from src.etf_manager.data.fetch import (
     fetch_and_persist_cpi,
+    fetch_and_persist_factors,
     fetch_and_persist_fx,
     fetch_and_persist_macro,
     fetch_and_persist_prices,
@@ -21,6 +22,7 @@ from src.etf_manager.data.secrets import load_provider_secrets
 from src.etf_manager.data.settings import DataSettings
 from src.etf_manager.data.storage import UntrustedDatasetError
 from src.etf_manager.policy.targets import PolicyError, PolicyId, policy_sleeves
+from src.etf_manager.policy.tilt import TILT_FACTORS, FactorTilt
 from src.etf_manager.sim.allocation import (
     AllocationConfig,
     AllocationDataError,
@@ -68,7 +70,7 @@ def _build_parser() -> _Parser:
     parser = _Parser(prog="etf-manager", description="ETF research ingest CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
     ingest = subparsers.add_parser("ingest", help="Fetch and persist one vendor dataset")
-    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "smoke", "history"))
+    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "factors", "smoke", "history"))
     ingest.add_argument("--tickers", nargs="+", default=None, help="Price tickers (prices/smoke only)")
     ingest.add_argument("--provider", choices=("fred", "ecos"), default=None, help="FX vendor (fx/smoke only)")
     ingest.add_argument("--series-id", default=None, help="FRED series identifier (macro only)")
@@ -87,6 +89,18 @@ def _build_parser() -> _Parser:
     policy.add_argument("--start", required=True, type=_iso_date)
     policy.add_argument("--end", required=True, type=_iso_date)
     policy.add_argument("--contribution-krw", required=True, type=float)
+    policy.add_argument(
+        "--tilt-factor",
+        choices=TILT_FACTORS,
+        default=None,
+        help="Factor to tilt (requires --tilt-intensity)",
+    )
+    policy.add_argument(
+        "--tilt-intensity",
+        type=float,
+        default=None,
+        help="Tilt strength in (0, 0.25] (requires --tilt-factor)",
+    )
     return parser
 
 
@@ -127,6 +141,16 @@ def _dispatch(args: argparse.Namespace) -> int:
             settings=DataSettings(),
             secrets=load_provider_secrets(),
         )
+    if dataset == "factors":
+        if args.start is None or args.end is None:
+            raise _UsageError("ingest factors requires --start and --end")
+        fetch_and_persist_factors(args.start, args.end, settings=DataSettings())
+        logger.info(
+            "[DATA] event=cli_ingest_done dataset=factors start=%s end=%s",
+            args.start.isoformat(),
+            args.end.isoformat(),
+        )
+        return 0
     if dataset == "prices" and not args.tickers:
         raise _UsageError("ingest prices requires --tickers")
     if dataset == "fx" and args.provider is None:
@@ -177,14 +201,25 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             settings=DataSettings(),
         )
     if args.target == "policy":
+        tilt = _resolve_tilt(args.tilt_factor, args.tilt_intensity)
         return run_policy_command(
             policy_id=str(args.id),
             start=args.start,
             end=args.end,
             contribution_krw=float(args.contribution_krw),
             settings=DataSettings(),
+            tilt=tilt,
         )
     raise _UsageError(f"unsupported target {args.target!r}")
+
+
+def _resolve_tilt(factor: str | None, intensity: float | None) -> FactorTilt | None:
+    """Accept tilt flags only as a pair; a lone flag is a usage error."""
+    if (factor is None) != (intensity is None):
+        raise _UsageError("--tilt-factor and --tilt-intensity must be provided together")
+    if factor is None or intensity is None:
+        return None
+    return FactorTilt(factor=factor, intensity=intensity)
 
 
 def run_ingest_smoke(
@@ -321,6 +356,7 @@ def run_policy_command(
     end: date,
     contribution_krw: float,
     settings: DataSettings,
+    tilt: FactorTilt | None = None,
 ) -> int:
     """Run a stored-data strategic allocation and log terminal KRW / XIRR / MDD."""
     config = AllocationConfig(
@@ -330,6 +366,7 @@ def run_policy_command(
         monthly_contribution_krw=float(contribution_krw),
         fill_delay_sessions=1,
         commission_bps=0.0,
+        tilt=tilt,
     )
     try:
         result = run_allocation_from_store(config, settings)

@@ -154,7 +154,18 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
     )
     factors = DatasetSpec(
         dataset=Dataset.FACTORS,
-        columns={"period_end": pl.Date(), "mkt_rf": pl.Float64()},
+        columns={
+            "period_end": pl.Date(),
+            "mkt_rf": pl.Float64(),
+            "smb": pl.Float64(),
+            "hml": pl.Float64(),
+            "rmw": pl.Float64(),
+            "cma": pl.Float64(),
+            "mom": pl.Float64(),
+            "rf": pl.Float64(),
+            "source": pl.String(),
+            "retrieved_at": TS_DTYPE,
+        },
         key=("period_end",),
         observation_column="period_end",
         availability=AvailabilityRule(
@@ -164,7 +175,7 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         revisable=False,
         total_return_source=TotalReturnSource.NOT_APPLICABLE,
         schema_version="1",
-        nullable_columns=frozenset({"mkt_rf"}),
+        nullable_columns=frozenset({"mkt_rf", "smb", "hml", "rmw", "cma", "mom", "rf"}),
     )
     etf_metadata = DatasetSpec(
         dataset=Dataset.ETF_METADATA,
