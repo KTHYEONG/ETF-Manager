@@ -16,6 +16,7 @@ from src.etf_manager.data.catalog import latest_artifact, load_visible
 from src.etf_manager.data.query import load_as_of
 from src.etf_manager.data.schedule import build_decision_schedule
 from src.etf_manager.data.schema import Dataset
+from src.etf_manager.etf.mapping import MappingConfig, apply_etf_mapping
 from src.etf_manager.policy.currency import conversion_fraction
 from src.etf_manager.policy.overlay import apply_bounded_overlay
 from src.etf_manager.policy.targets import PolicyId, resolve_targets
@@ -64,6 +65,7 @@ class AllocationConfig:
     rebalance_band: float | None = None
     overlay: OverlayConfig | None = None
     currency: CurrencyConfig | None = None
+    mapping: MappingConfig | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,18 +101,22 @@ def run_allocation(
     cpi: pl.DataFrame,
     factors: pl.DataFrame | None = None,
     macro: pl.DataFrame | None = None,
+    metadata: pl.DataFrame | None = None,
 ) -> AllocationResult:
     """Simulate buy-only multi-sleeve monthly DCA with delayed fills on in-memory PIT frames.
 
     Target weights resolve at each decision point's ``signal_at``; fills use
-    execution-session close prices and FX. New money follows the targets and no
-    position is ever sold, so integer-lot rounding dust stays in unmarked cash.
-    Nominal marks drive the equity path; CPI levels only deflate terminal wealth
-    and the money-weighted rate into first-snapshot purchasing power.
+    execution-session close prices and FX. When ``config.mapping`` is set the
+    economic sleeve weights are remapped onto implementation tickers after the
+    overlay, and marks iterate held lots plus spend keys so leftover positions
+    of a switched-away ticker stay in NAV. New money follows the mapped targets
+    and no position is ever sold, so integer-lot rounding dust stays in
+    unmarked cash. Nominal marks drive the equity path; CPI levels only deflate
+    terminal wealth and the money-weighted rate into first-snapshot purchasing power.
 
     Raises:
-        ValueError: When ``monthly_contribution_krw`` is not positive.
-        PolicyError: When weight resolution fails closed at a signal instant.
+        ValueError: When ``monthly_contribution_krw`` is not positive or mapping lacks its metadata frame.
+        PolicyError: When weight resolution or ETF mapping fails closed at a signal instant.
         AllocationDataError: When the schedule is empty or a required price, FX,
             or CPI observation is missing, non-positive, or null at an execution close.
         XirrError: When the money-weighted rate cannot be identified.
@@ -125,6 +131,7 @@ def run_allocation(
     cash_krw = 0.0
     cash_usd = 0.0
     shares_by_ticker: dict[str, int] = {}
+    incumbents_by_sleeve: dict[str, str] = {}
     snapshots: list[AllocationSnapshot] = []
     cpi_levels: list[float] = []
     for point in schedule:
@@ -141,15 +148,27 @@ def run_allocation(
             targets = apply_bounded_overlay(
                 targets, prices, point.signal_at, config.overlay, macro=macro
             )
+        if config.mapping is not None:
+            if metadata is None:
+                raise ValueError("ETF mapping requires an ETF_METADATA frame")
+            targets, incumbents_by_sleeve = apply_etf_mapping(
+                targets, prices, metadata, point.signal_at, config.mapping, incumbents_by_sleeve
+            )
         fraction = 1.0 if config.currency is None else conversion_fraction(fx, point.signal_at, config.currency)
 
         contribution = config.monthly_contribution_krw
         cash_krw += contribution
         investable_krw = min(cash_krw, contribution)
         fx_gross = usdkrw * (1.0 + config.fx_spread_bps / _BPS)
+        # Marks cover held leftovers plus spend keys so remapped lots stay in NAV.
+        mark_keys = sorted(set(shares_by_ticker) | set(targets))
+        mark_prices = {
+            ticker: _visible_close(prices, ticker, point.execution_session, close_ts)
+            for ticker in mark_keys
+        }
         marks_krw = {
-            ticker: float(shares_by_ticker.get(ticker, 0)) * _visible_close(prices, ticker, point.execution_session, close_ts) * usdkrw
-            for ticker in targets
+            ticker: float(shares_by_ticker.get(ticker, 0)) * mark_prices[ticker] * usdkrw
+            for ticker in mark_keys
         }
         nav_krw = sum(marks_krw.values()) + cash_usd * usdkrw + cash_krw
         spend_weights = (
@@ -164,19 +183,20 @@ def run_allocation(
             )
         )
         fees_krw = 0.0
-        position_value_usd = 0.0
         # Overlay residual and FX defer both stay in cash: spend only the converted budget.
         convert_krw = investable_krw * fraction
         sleeve_budget_krw = convert_krw * sum(spend_weights.values())
         for ticker, weight in spend_weights.items():
-            price = _visible_close(prices, ticker, point.execution_session, close_ts)
+            price = mark_prices[ticker]
             spend_usd = sleeve_budget_krw * weight / fx_gross
             fee_usd = spend_usd * config.commission_bps / _BPS
             bought = math.floor((spend_usd - fee_usd) / price)
             shares_by_ticker[ticker] = shares_by_ticker.get(ticker, 0) + bought
             cash_usd += spend_usd - fee_usd - bought * price
             fees_krw += spend_usd * (fx_gross - usdkrw) + fee_usd * fx_gross
-            position_value_usd += shares_by_ticker[ticker] * price
+        position_value_usd = sum(
+            float(shares_by_ticker.get(ticker, 0)) * mark_prices[ticker] for ticker in mark_keys
+        )
         cash_krw -= sleeve_budget_krw
         snapshots.append(
             AllocationSnapshot(
@@ -225,17 +245,18 @@ def run_allocation(
 
 
 def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) -> AllocationResult:
-    """Load latest PRICES, FX, and CPI partitions (plus FACTORS/MACRO when required), then simulate.
+    """Load latest PRICES, FX, and CPI partitions (plus FACTORS/MACRO/ETF_METADATA when required), then simulate.
 
     FACTORS is required only when ``config.tilt`` is set; a plain policy must not
     depend on the factors dataset at all. MACRO is loaded only for an overlay
-    with a VIX threshold.
+    with a VIX threshold, and ETF_METADATA only for ETF mapping.
 
     Raises:
         UntrustedDatasetError: When any required dataset lacks a manifest-verified partition.
         AllocationDataError: When the schedule is empty or fills lack data.
     """
     need_macro = config.overlay is not None and config.overlay.vix_threshold is not None
+    need_metadata = config.mapping is not None
     datasets = (
         (Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.FACTORS)
         if config.tilt is not None
@@ -243,6 +264,8 @@ def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) 
     )
     if need_macro:
         datasets = (*datasets, Dataset.MACRO)
+    if need_metadata:
+        datasets = (*datasets, Dataset.ETF_METADATA)
     # Pre-flight trust gate: fail closed before simulating on untrusted partitions.
     for dataset in datasets:
         latest_artifact(settings, dataset)
@@ -255,7 +278,8 @@ def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) 
     cpi = load_visible(settings, Dataset.CPI, cutoff)
     factors = load_visible(settings, Dataset.FACTORS, cutoff) if config.tilt is not None else None
     macro = load_visible(settings, Dataset.MACRO, cutoff) if need_macro else None
-    return run_allocation(config, prices, fx, cpi, factors=factors, macro=macro)
+    metadata = load_visible(settings, Dataset.ETF_METADATA, cutoff) if need_metadata else None
+    return run_allocation(config, prices, fx, cpi, factors=factors, macro=macro, metadata=metadata)
 
 
 def _visible_close(prices: pl.DataFrame, ticker: str, session: date, close_ts: datetime) -> float:
