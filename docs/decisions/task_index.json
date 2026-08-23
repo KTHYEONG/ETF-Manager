@@ -1,6 +1,26 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_E_US_VEHICLE_DIAGNOSTICS",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_WAVE_E_US_VEHICLE_DIAGNOSTICS",
+      "domain": "analytics",
+      "title": "Wave E: US Vehicle Diagnostics (VTI/IVV/QQQ reporting)",
+      "why": "S1 locked VTI but retail prefers SP500/QQQ; need factor-shape and identical-cashflow DCA diagnostics without unlocking new PolicyId.",
+      "resolution": "Added UsEquityUniverse.NASDAQ_100, analytics/us_vehicles (profile_us_vehicles, compare_vehicle_dca, history_price_tickers), CLI run diagnose-us-vehicles, ingest history QQQ union, and contract tests VEH-E/CLI-E.",
+      "impact": "Explains popularity vs locked S1 without adoption gate; QQQ stays diagnostic-only; unblocks operator ingest+diagnose before Wave D wf_s1_s7."
+    },
+    {
+      "task_id": "WAVE_D_US_UNIVERSE",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_WAVE_D_US_UNIVERSE",
+      "domain": "policy",
+      "title": "Wave D: US Large-Cap Universe vs Locked S1 (IVV vs VTI)",
+      "why": "S1 locked US total market; open question is whether a different US equity universe beats VTI on same walk-forward CE.",
+      "resolution": "Added UsEquityUniverse, S7_US_LARGE_CAP via IVV, m1_d_universe ablation and wf_s1_s7 walk-forward configs.",
+      "impact": "First orthogonal US structure test vs S1; operational lock stays S1 until wf_s1_s7 process CE passes."
+    },
+    {
       "task_id": "WAVE_C_RESEARCH_PROXY",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_WAVE_C_RESEARCH_PROXY",
