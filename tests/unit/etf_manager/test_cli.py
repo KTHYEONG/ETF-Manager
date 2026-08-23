@@ -475,3 +475,56 @@ def test_cli_j05_overlay_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch
     overlay_gated = captured[1].overlay
     assert overlay_gated is not None
     assert overlay_gated.vix_threshold == pytest.approx(20.0)
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-K05-fx-flags"])
+def test_cli_k05_fx_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-K05-fx-flags"""
+    captured: list[AllocationConfig] = []
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        captured.append(config)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=2.5,
+            xirr=0.12,
+            max_drawdown=-0.05,
+            terminal_wealth_real_krw=2.0,
+            xirr_real=0.09,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+
+    base_argv = [
+        "run",
+        "policy",
+        "--id",
+        "s2_regional",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-01-31",
+        "--contribution-krw",
+        "1000000",
+    ]
+
+    assert main([*base_argv, "--fx-max-defer", "0.2"]) == 0
+    assert len(captured) == 1
+    currency = captured[0].currency
+    assert currency is not None
+    assert currency.max_defer == pytest.approx(0.2)
+    assert currency.expensive_percentile == pytest.approx(0.80)
+
+    assert main([*base_argv, "--fx-expensive-percentile", "0.9"]) == 2
+    assert len(captured) == 1
+
+    assert main([*base_argv, "--fx-max-defer", "0.2", "--fx-expensive-percentile", "0.9"]) == 0
+    assert len(captured) == 2
+    gated = captured[1].currency
+    assert gated is not None
+    assert gated.expensive_percentile == pytest.approx(0.9)
+
+    assert main(base_argv) == 0
+    assert len(captured) == 3
+    assert captured[2].currency is None

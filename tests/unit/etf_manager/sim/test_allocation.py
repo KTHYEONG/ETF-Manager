@@ -13,6 +13,7 @@ import src.etf_manager.sim.allocation as allocation_module
 from src.etf_manager.data.calendar import load_calendar
 from src.etf_manager.data.pipeline import ingest
 from src.etf_manager.data.schema import Dataset, spec_for
+from src.etf_manager.policy.currency import CurrencyConfig
 from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.policy.tilt import FactorTilt
@@ -392,3 +393,65 @@ def test_sim_j04_overlay_buy_only_long_panel(scenario_id: str) -> None:
     for previous, current in zip(result.snapshots, result.snapshots[1:], strict=False):
         for ticker in ("VTI", "VEA", "VWO"):
             assert current.shares[ticker] >= previous.shares[ticker]
+
+
+def _rising_fx_panel(days: tuple[date, ...]) -> pl.DataFrame:
+    """Strictly increasing usdkrw prints so every trailing window flags expensive USD."""
+    spec = spec_for(Dataset.FX)
+    ordered = list(days)
+    return pl.DataFrame(
+        {
+            "date": ordered,
+            "usdkrw": [1300.0 + 10.0 * index for index in range(len(ordered))],
+            "source": ["synthetic"] * len(ordered),
+            "retrieved_at": [_RETRIEVED_AT] * len(ordered),
+        },
+        schema=dict(spec.columns),
+    )
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-K04-currency-none-identity"])
+def test_sim_k04_currency_none_identity(scenario_id: str) -> None:
+    """SIM-K04-currency-none-identity"""
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, ("VT",)), Dataset.PRICES)
+    fx = ingest(_fx_panel(window), Dataset.FX)
+    cpi = _constant_cpi()
+
+    reference = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    none_currency = run_allocation(
+        replace(_allocation_config(PolicyId.S0_GLOBAL), currency=None), prices, fx, cpi
+    )
+    baseline = run_baseline(
+        BaselineConfig(
+            baseline=BaselineId.B0_GLOBAL,
+            ticker="VT",
+            start=_CONFIG_START,
+            end=_CONFIG_END,
+            monthly_contribution_krw=_CONTRIBUTION_KRW,
+        ),
+        prices,
+        fx,
+        cpi,
+    )
+
+    assert none_currency.terminal_wealth_krw == pytest.approx(reference.terminal_wealth_krw, rel=1e-6)
+    assert reference.terminal_wealth_krw == pytest.approx(baseline.terminal_wealth_krw, rel=1e-6)
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-K04-currency-none-identity"])
+def test_sim_k04_defer_keeps_cash_krw(scenario_id: str) -> None:
+    """SIM-K04-currency-none-identity"""
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, ("VT",)), Dataset.PRICES)
+    rising_fx = ingest(_rising_fx_panel(window), Dataset.FX)
+    cpi = _constant_cpi()
+    deferred_config = replace(
+        _allocation_config(PolicyId.S0_GLOBAL),
+        currency=CurrencyConfig(max_defer=1.0, expensive_percentile=0.1, percentile_window=2),
+    )
+
+    deferred = run_allocation(deferred_config, prices, rising_fx, cpi)
+    plain = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, rising_fx, cpi)
+
+    assert deferred.snapshots[-1].cash_krw > plain.snapshots[-1].cash_krw
