@@ -426,3 +426,52 @@ def test_cli_i05_rebalance_band_flag(scenario_id: str, monkeypatch: pytest.Monke
     for invalid in ("-0.1", "1.0"):
         assert main([*base_argv, "--rebalance-band", invalid]) == 1
     assert len(captured) == 2
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-J05-overlay-flags"])
+def test_cli_j05_overlay_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-J05-overlay-flags"""
+    captured: list[AllocationConfig] = []
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        captured.append(config)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=2.5,
+            xirr=0.12,
+            max_drawdown=-0.05,
+            terminal_wealth_real_krw=2.0,
+            xirr_real=0.09,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+
+    base_argv = [
+        "run",
+        "policy",
+        "--id",
+        "s2_regional",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-01-31",
+        "--contribution-krw",
+        "1000000",
+    ]
+
+    assert main([*base_argv, "--overlay-max-shift", "0.1"]) == 0
+    assert len(captured) == 1
+    overlay = captured[0].overlay
+    assert overlay is not None
+    assert overlay.max_shift == pytest.approx(0.1)
+    assert overlay.vix_threshold is None
+
+    assert main([*base_argv, "--vix-threshold", "20"]) == 2
+    assert len(captured) == 1
+
+    assert main([*base_argv, "--overlay-max-shift", "0.1", "--vix-threshold", "20"]) == 0
+    assert len(captured) == 2
+    overlay_gated = captured[1].overlay
+    assert overlay_gated is not None
+    assert overlay_gated.vix_threshold == pytest.approx(20.0)
