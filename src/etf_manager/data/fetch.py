@@ -13,6 +13,7 @@ from src.etf_manager.data.pipeline import persist_ingest
 from src.etf_manager.data.providers.base import DEFAULT_TIMEOUT_S
 from src.etf_manager.data.providers.ecos import EcosClient
 from src.etf_manager.data.providers.fred import FredClient
+from src.etf_manager.data.providers.french import FrenchClient
 from src.etf_manager.data.providers.tiingo import TiingoClient
 from src.etf_manager.data.schema import Dataset
 from src.etf_manager.data.secrets import ProviderSecrets
@@ -96,6 +97,21 @@ def fetch_and_persist_cpi(
         payload, frame = EcosClient(secrets.ecos_api, session).fetch_cpi(start, end)
         artifact = persist_ingest(frame, Dataset.CPI, payload, settings)
     _log_done("cpi", "ecos", artifact.manifest.row_count)
+    return artifact
+
+
+def fetch_and_persist_factors(
+    start: date,
+    end: date,
+    *,
+    settings: DataSettings,
+    client: httpx.Client | None = None,
+) -> DatasetArtifact:
+    """Fetch Ken French 5F+Mom and persist Dataset.FACTORS (no API secrets)."""
+    with _http(client) as session:
+        payload, frame = FrenchClient(session).fetch_factors(start, end)
+        artifact = persist_ingest(frame, Dataset.FACTORS, payload, settings)
+    _log_done("factors", "ken_french", artifact.manifest.row_count)
     return artifact
 
 

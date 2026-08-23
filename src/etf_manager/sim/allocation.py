@@ -17,12 +17,14 @@ from src.etf_manager.data.query import load_as_of
 from src.etf_manager.data.schedule import build_decision_schedule
 from src.etf_manager.data.schema import Dataset
 from src.etf_manager.policy.targets import PolicyId, resolve_targets
+from src.etf_manager.policy.tilt import resolve_tilted_targets
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
 
     from src.etf_manager.data.settings import DataSettings
+    from src.etf_manager.policy.tilt import FactorTilt
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,7 @@ class AllocationConfig:
     fill_delay_sessions: int = 1
     fx_spread_bps: float = 0.0
     commission_bps: float = 0.0
+    tilt: FactorTilt | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +89,7 @@ def run_allocation(
     prices: pl.DataFrame,
     fx: pl.DataFrame,
     cpi: pl.DataFrame,
+    factors: pl.DataFrame | None = None,
 ) -> AllocationResult:
     """Simulate buy-only multi-sleeve monthly DCA with delayed fills on in-memory PIT frames.
 
@@ -118,7 +122,12 @@ def run_allocation(
         close_ts = calendar.close_ts(point.execution_session)
         usdkrw = _visible_fx(fx, point.execution_session, close_ts)
         cpi_level = _visible_cpi(cpi, point.execution_session, close_ts)
-        targets = resolve_targets(config.policy, prices, point.signal_at)
+        if config.tilt is None:
+            targets = resolve_targets(config.policy, prices, point.signal_at)
+        else:
+            if factors is None:
+                raise ValueError("factor tilt requires a factors frame")
+            targets = resolve_tilted_targets(config.policy, prices, factors, point.signal_at, config.tilt)
 
         contribution = config.monthly_contribution_krw
         cash_krw += contribution
@@ -183,14 +192,22 @@ def run_allocation(
 
 
 def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) -> AllocationResult:
-    """Load latest PRICES, FX, and CPI partitions, then run :func:`run_allocation`.
+    """Load latest PRICES, FX, and CPI partitions (plus FACTORS for tilts), then simulate.
+
+    FACTORS is required only when ``config.tilt`` is set; a plain policy must not
+    depend on the factors dataset at all.
 
     Raises:
-        UntrustedDatasetError: When any dataset lacks a manifest-verified partition.
+        UntrustedDatasetError: When any required dataset lacks a manifest-verified partition.
         AllocationDataError: When the schedule is empty or fills lack data.
     """
+    datasets = (
+        (Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.FACTORS)
+        if config.tilt is not None
+        else (Dataset.PRICES, Dataset.FX, Dataset.CPI)
+    )
     # Pre-flight trust gate: fail closed before simulating on untrusted partitions.
-    for dataset in (Dataset.PRICES, Dataset.FX, Dataset.CPI):
+    for dataset in datasets:
         latest_artifact(settings, dataset)
     schedule = build_decision_schedule(config.start, config.end, fill_delay_sessions=config.fill_delay_sessions)
     if not schedule:
@@ -199,7 +216,8 @@ def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) 
     prices = load_visible(settings, Dataset.PRICES, cutoff)
     fx = load_visible(settings, Dataset.FX, cutoff)
     cpi = load_visible(settings, Dataset.CPI, cutoff)
-    return run_allocation(config, prices, fx, cpi)
+    factors = load_visible(settings, Dataset.FACTORS, cutoff) if config.tilt is not None else None
+    return run_allocation(config, prices, fx, cpi, factors=factors)
 
 
 def _visible_close(prices: pl.DataFrame, ticker: str, session: date, close_ts: datetime) -> float:
