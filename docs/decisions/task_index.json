@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P10_PAPER_EXECUTION",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_P10_PAPER_EXECUTION",
+      "domain": "execution",
+      "title": "Phase 10: Buy-only orders, PaperBroker, position reconcile, run paper",
+      "why": "Phase 9 validation ended at AllocationResult ledger with no order objects or broker book; next.md Phase 10 requires paper execution after research stabilization.",
+      "resolution": "Added BuyOrder and orders_from_snapshots (buy-only integer deltas), Broker protocol and PaperBroker, reconcile and replay_paper, CLI run paper with plain AllocationConfig and monkeypatched store tests; live routing and sells out of scope.",
+      "impact": "Closes Phase 10 paper execution path under buy-only I6; roadmap P0-P10 implementation complete; live broker connectivity remains deferred per architecture boundary."
+    },
+    {
       "task_id": "TASK_P9_ROBUST_VALIDATION",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_P9_ROBUST_VALIDATION",
