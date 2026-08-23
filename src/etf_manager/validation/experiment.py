@@ -46,6 +46,8 @@ class ExperimentSpec(BaseModel):
     contribution_krw: float = Field(gt=0)
     delta0: float = Field(ge=0)
     horizon_months: int = Field(ge=0)
+    commission_bps: float = Field(default=0.0, ge=0)
+    fx_spread_bps: float = Field(default=0.0, ge=0)
     train_months: int | None = Field(default=None, ge=1)
     test_months: int | None = Field(default=None, ge=1)
     baseline: CandidateSpec
