@@ -94,3 +94,28 @@ data/
 | `quality_findings` | list | serialized gate result |
 
 A normalized partition without a matching manifest is treated as untrusted and rejected on read.
+
+## 7. Ingest Universe
+
+| Function | Tickers | Use |
+| --- | --- | --- |
+| `all_policy_tickers()` | BND, IEF, IVV, TLT, VEA, VT, VTI, VTV, VWO | Policy sleeves + ablation/WF |
+| `diagnostic_price_tickers()` | QQQ | Reporting only (`run diagnose-us-vehicles`) |
+| `history_price_tickers()` | Union of the above | Default `ingest history` panel |
+
+QQQ is ingested for factor/DCA diagnostics but has **no `PolicyId`**. Partial ticker ingest
+(e.g. QQQ alone) replaces the latest prices partition — always run full `ingest history` before
+campaigns.
+
+## 8. Operator Date Constraints
+
+ECOS CPI uses `FIXED_LAG` availability (roughly 6–8 weeks after `period_end`). Combined with
+NYSE fill-delay semantics, the following windows are known-good with the current catalog:
+
+| Boundary | Issue if violated |
+| --- | --- |
+| `start < 2012-06-01` | `missing positive CPI row` at early execution sessions |
+| `end > 2024-10-31` (with current Tiingo pull) | `missing price row` on last execution session after signal month-end |
+
+Experiment JSON under `configs/experiments/` may still list `2012-04-01` / `2024-11-30`; operators
+should override dates or maintain scratch copies for reproducible runs.

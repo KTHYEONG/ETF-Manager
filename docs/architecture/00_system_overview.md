@@ -7,135 +7,160 @@ terminal wealth under point-in-time (PIT) data, realistic cost/FX/tax, and ident
 cashflows across candidates.**
 
 In scope: research datasets, feature computation, allocation policy, cashflow-driven simulation,
-statistical validation, ETF implementation mapping.
-Out of scope (deferred to Live Execution Layer): broker connectivity, live order routing.
+statistical validation, ETF implementation mapping, reporting diagnostics.
+Out of scope (deferred): live broker connectivity, sell-based rebalancing in production,
+variable external cashflow without an explicit reserve ledger.
+
+### Operational lock (2026-08-23)
+
+| Field | Value |
+| --- | --- |
+| Policy | `S1_US` — US total market, VTI 100% |
+| Contribution | Fixed monthly KRW |
+| Rebalancing | Buy-only via `allocate_contribution` |
+| Active modules | Strategic targets only (`modules = 0`) |
+
+All other `PolicyId` values and optional layers (tilt, overlay, currency, mapping) remain
+**research challengers** until they pass the CE adoption gate under walk-forward or cohort ablation.
 
 ## 2. Layer Topology
 
 ```mermaid
 flowchart TD
-    subgraph L1["L1 Data Layer (src/etf_manager/data)"]
+    subgraph L1["L1 Data (src/etf_manager/data)"]
         P[providers] --> R[(raw immutable)]
         R --> N[normalization]
-        N --> A[pit: availability stamping]
-        A --> Q[quality: fail-closed gate]
-        Q --> S[(normalized parquet + manifest)]
+        N --> A[pit + availability]
+        A --> Q[quality gate]
+        Q --> S[(parquet + manifest)]
     end
-    subgraph L2["L2 Feature Layer (src/etf_manager/features)"]
-        S --> F1[returns]
-        S --> F2[trend / momentum]
-        S --> F3[realized vol / drawdown]
-        S --> F4[factors research]
-        S --> F5[fx / macro]
+    subgraph L2["L2 Features (src/etf_manager/features)"]
+        S --> F1[returns / vol / drawdown]
+        S --> F2[factors OLS]
+        S --> F3[fx / macro]
     end
-    subgraph L3["L3 Policy Layer (src/etf_manager/policy)"]
-        F1 & F2 & F3 & F4 & F5 --> ST[strategic target]
-        ST --> FT[fixed factor tilt]
-        FT --> OV[bounded risk overlay]
-        OV --> TG[target weights_t]
+    subgraph L3["L3 Policy (src/etf_manager/policy)"]
+        F1 & F2 & F3 --> ST[resolve_targets PolicyId]
+        ST --> FT[FactorTilt optional]
+        FT --> OV[bounded overlay optional]
+        OV --> FX[currency defer optional]
+        FX --> TG[target weights_t]
     end
-    subgraph L4["L4 Simulation Layer (src/etf_manager/sim)"]
-        TG --> CA[contribution allocator]
-        CA --> EX[execution: delayed fill]
+    subgraph L4["L4 Simulation (src/etf_manager/sim)"]
+        TG --> CA[allocate_contribution]
+        CA --> EX[delayed fill + FX]
         EX --> LG[(ledger SSOT)]
-        LG --> TX[tax lots / fees / fx]
-        TX --> LG
     end
-    subgraph L5["L5 Validation Layer (src/etf_manager/validation)"]
-        LG --> AB[ablation M0..M11]
-        LG --> WF[walk-forward]
-        LG --> BS[block bootstrap]
+    subgraph L5["L5 Validation (src/etf_manager/validation)"]
+        LG --> AB[ablation + CE gate]
+        LG --> WF[walk-forward adoption]
+        LG --> CG[cost-grid walk-forward]
+        LG --> RP[research proxy I9]
         LG --> CH[rolling cohorts]
-        LG --> MT[multiple testing]
+        LG --> BS[block bootstrap]
     end
-    subgraph L6["L6 Implementation Layer (src/etf_manager/etf)"]
-        S --> MD[pit metadata]
-        MD --> SC[etf score]
-        SC --> MP[exposure -> etf mapping]
+    subgraph L6["L6 ETF mapping (src/etf_manager/etf)"]
+        S --> MD[PIT metadata]
+        MD --> MP[score + hysteresis]
         MP --> TG
     end
-    L5 --> RP[analytics / reporting]
+    subgraph AN["Analytics (src/etf_manager/analytics)"]
+        S --> DV[us_vehicles diagnostics]
+        LG --> MET[metrics / attribution]
+    end
+    subgraph EXE["Execution (src/etf_manager/execution)"]
+        LG --> ORD[BuyOrder]
+        ORD --> PB[PaperBroker]
+    end
 ```
 
-Dependency rule: `L(n)` may import only from `L(m<n)` plus `core`. `L1` imports nothing from
-`L2..L6`. The ledger (`L4`) is the sole source of portfolio state.
+Dependency rule: `L(n)` imports only from `L(m<n)` plus `core`. The ledger (`L4`) is the sole
+source of portfolio state. Analytics and execution read the ledger; they never drive adoption gates.
 
 ## 3. Objective Function
 
-Contributions are identical across all candidates, so terminal wealth is directly comparable.
-Let $W^{\text{real}}$ be terminal wealth deflated by Korean CPI, evaluated over the joint set of
-rolling start cohorts $c$ and bootstrap paths $b$ ($N$ realizations total).
+Contributions are identical across all candidates (I5), so terminal wealth is directly comparable.
+Let $W^{\text{real}}$ be terminal wealth deflated by Korean CPI.
 
 $$
 \mathrm{CE}_\gamma \;=\; \left(\frac{1}{N}\sum_{i=1}^{N}\left(W_i^{\text{real}}\right)^{1-\gamma}\right)^{\frac{1}{1-\gamma}},
 \qquad \gamma \in \{2, 5, 10\}
 $$
 
-Adoption gate for a candidate policy $k$ against baseline $B_0$:
+Adoption gate for candidate $k$ against baseline $B$:
 
 $$
-\forall \gamma:\quad \frac{\mathrm{CE}_\gamma(k)}{\mathrm{CE}_\gamma(B_0)} \;>\; 1 + \delta_0 \cdot m_k
+\forall \gamma:\quad \frac{\mathrm{CE}_\gamma(k)}{\mathrm{CE}_\gamma(B)} \;>\; 1 + \delta_0 \cdot m_k
 $$
 
-where $m_k$ is the count of added signal/sleeve modules and $\delta_0$ is the per-module complexity
-margin (policy constant, config-supplied — not fitted). Cost, FX, and tax are not penalty terms:
-they are realized inside `L4` and are already embedded in $W^{\text{real}}$. Turnover, MDD, and
-drawdown duration are reported diagnostics and hard constraints, not weighted objective terms.
+$m_k$ is the declared module count per experiment arm (never inferred). Cost, FX, and tax are
+realized inside `L4`, not added as objective penalties.
 
-## 4. Non-Negotiable Invariants
+## 4. Research vs Operations
 
-| ID | Invariant | Enforcement Point |
+| Mode | Entry | Adoption gate | Overlay in JSON experiments |
+| --- | --- | --- | --- |
+| **Operations** | `run policy --id s1_us` | N/A (locked policy) | CLI flags only (`--overlay-max-shift`) |
+| **Ablation** | `run ablation --config` | CE on cohort wealths | Disabled (`overlay=None` in `_arm_config`) |
+| **Walk-forward** | `run walk-forward --config` | Train select → test CE | Disabled (pending Wave G) |
+| **Diagnostics** | `run diagnose-us-vehicles` | Never | Never |
+
+`run diagnose-us-vehicles` profiles VTI/IVV/QQQ factor loadings and identical-cashflow DCA paths;
+it must not call `adoption_passes` or create a `PolicyId`.
+
+## 5. Non-Negotiable Invariants
+
+| ID | Invariant | Enforcement |
 | --- | --- | --- |
-| I1 | Every value used at decision time $t$ satisfies `available_at <= t` | `data.pit.as_of`, `assert_no_lookahead` |
-| I2 | Signal session $\ne$ fill session; `execution_at > signal_at` | `data.calendar.next_execution_session`, `sim.execution` |
-| I3 | Revisable series resolve to the latest vintage with `release_date <= t` | `data.pit.as_of` |
-| I4 | Missing data never silently imputed; no global forward-fill | `data.quality` fail-closed + `MissingPolicy` registry |
-| I5 | External KRW cashflow schedule identical across all candidates | `sim.cashflow` shared fixture |
-| I6 | Cash conservation: $\Delta\text{cash} = \text{contrib} - \text{buys} + \text{sells} + \text{div} - \text{fees} - \text{tax}$ | ledger invariant test |
-| I7 | Weights: $\sum_i w_i + w_{\text{cash}} = 1 \pm 10^{-6}$ | `policy.targets` normalization test |
-| I8 | Total return via adjusted price XOR raw price + dividend cashflow, never both | `data.schema` dataset flag |
-| I9 | Research proxy returns are never spliced onto ETF return series | `validation` layer separation + labeled series |
-| I10 | Current metadata is never applied to past dates | PIT metadata tables keyed by `available_at` |
-| I11 | KRW tax basis is stamped at trade time and never recomputed with later FX | `sim.tax` lot records |
-| I12 | Every result carries `experiment_id`, config hash, data manifest hash, git commit, seed | `validation.registry` |
+| I1 | `available_at <= t` at decision time | `data.pit` |
+| I2 | `execution_at > signal_at` | `data.calendar`, `sim` |
+| I3 | Revisable series: latest vintage with `release_date <= t` | `data.pit.as_of` |
+| I4 | No silent imputation; no global forward-fill | `data.quality` |
+| I5 | Identical external KRW cashflows across candidates | `AllocationConfig` |
+| I6 | Cash conservation on every ledger step | ledger tests |
+| I7 | Weights sum to $1 \pm 10^{-6}$ | `policy.targets` |
+| I8 | Adjusted price XOR raw + dividends, never both | `data.schema` |
+| I9 | Research proxy ≠ ETF return series | `sim.research_proxy` |
+| I10 | No current metadata applied to past dates | PIT metadata |
+| I11 | Tax basis stamped at trade FX | `sim.tax` (full mode) |
+| I12 | `experiment_id`, manifest hash, git commit on results | `validation.registry` |
 
-## 5. Module Map
+## 6. Module Map
 
-| Path | Responsibility | Key Contracts |
-| --- | --- | --- |
-| `data/schema.py` | Canonical dataset specs, dtypes, keys, availability rules, missing policy | `DatasetSpec`, `DATASET_SPECS` |
-| `data/calendar.py` | Exchange sessions, close timestamps, fill-delay resolution | `TradingCalendar` |
-| `data/pit.py` | Availability stamping, as-of/vintage resolution, look-ahead assertion | `stamp_availability`, `as_of` |
-| `data/quality.py` | Declarative fail-closed validation gate | `QualityReport`, `enforce` |
-| `data/storage.py` | Parquet write/read, manifest lineage, content hashing | `Manifest`, `write_dataset` |
-| `data/providers/*` | Tiingo, FRED/ALFRED, Ken French, ECOS, SEC clients | `Provider` protocol |
-| `features/*` | Pure PIT-safe transforms producing `(value, available_at)` pairs | vectorized, stateless |
-| `policy/*` | Strategic weights, factor tilt, bounded overlay, currency policy | `TargetPolicy` protocol |
-| `sim/*` | Event-driven engine, contribution allocator, ledger, fees, tax lots | `Ledger`, `TaxModel` |
-| `validation/*` | Ablation, walk-forward, bootstrap, cohorts, multiple testing, registry | `Experiment` |
-| `etf/*` | PIT ETF metadata, implementation score, exposure mapping, switching | `ETFScore` |
+| Path | Responsibility |
+| --- | --- |
+| `data/*` | Providers, PIT catalog, quality, manifests |
+| `features/*` | PIT-safe returns, vol, drawdown, factor OLS |
+| `policy/targets.py` | `PolicyId`, `resolve_targets`, sleeve universe |
+| `policy/tilt.py` | Fixed factor tilt (research) |
+| `policy/overlay.py` | Bounded trend/vol/drawdown/VIX overlay |
+| `policy/currency.py` | Bounded FX defer |
+| `sim/allocation.py` | Multi-sleeve buy-only engine |
+| `sim/contribution.py` | Band + cost-aware contribution mixer |
+| `sim/baseline.py` | Single-ticker fast DCA (B0/B1) |
+| `sim/research_proxy.py` | French daily proxy path (I9) |
+| `validation/ablation.py` | Cohort CE gate |
+| `validation/campaign.py` | Walk-forward + cost grid |
+| `validation/experiment.py` | `ExperimentSpec` JSON |
+| `analytics/us_vehicles.py` | VTI/IVV/QQQ diagnostics (no adoption) |
+| `etf/mapping.py` | Implementation mapping + hysteresis |
+| `execution/*` | Buy-only orders, PaperBroker |
 
-## 6. Engine Design Decision
+## 7. Engine Modes
 
-A single simulation engine serves both research and validation, with two modes:
+| Mode | Tax lots | Costs | Use |
+| --- | --- | --- | --- |
+| `fast` | off | linear bps | ablation, walk-forward, policy CLI |
+| `full` | on | commission + spread + FX + TER + tax | future final reporting |
 
-| Mode | Tax lots | Cost model | Batching | Use |
-| --- | --- | --- | --- | --- |
-| `fast` | disabled | linear bps | vectorized over parameter grid (config axis) | parameter surface, sensitivity |
-| `full` | enabled | commission + spread + slippage + FX + TER + tax | single path | final validation, reporting |
+Current validation paths use the fast allocation engine with costs from `ExperimentSpec`
+(`commission_bps`, `fx_spread_bps`) or CLI defaults.
 
-Reconciliation constraint: with all costs, taxes and lot accounting zeroed, `fast` and `full` must
-produce identical terminal wealth to $10^{-9}$ relative tolerance. This replaces a second
-third-party research engine and removes cross-engine semantic drift.
-
-## 7. Currency Model
-
-`Trading currency` and `underlying economic currency exposure` are distinct columns on every
-instrument record. Valuation path is fixed:
+## 8. Currency Model
 
 $$
 V^{\text{KRW}}_t = \sum_i q_{i,t}\, p^{\text{USD}}_{i,t}\, e_t + \text{cash}^{\text{USD}}_t e_t + \text{cash}^{\text{KRW}}_t
 $$
 
-where $e_t$ is the PIT USD/KRW rate. Conversion events carry an explicit spread cost and are
-recorded as ledger rows; no implicit conversion is permitted anywhere outside `sim.fx`.
+Trading currency and economic exposure are distinct per instrument. FX conversion records spread
+explicitly; no implicit conversion outside the simulation layer.
