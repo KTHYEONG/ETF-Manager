@@ -20,6 +20,12 @@ from src.etf_manager.data.schema import Dataset
 from src.etf_manager.data.secrets import load_provider_secrets
 from src.etf_manager.data.settings import DataSettings
 from src.etf_manager.data.storage import UntrustedDatasetError
+from src.etf_manager.policy.targets import PolicyError, PolicyId, policy_sleeves
+from src.etf_manager.sim.allocation import (
+    AllocationConfig,
+    AllocationDataError,
+    run_allocation_from_store,
+)
 from src.etf_manager.sim.baseline import (
     BaselineConfig,
     BaselineDataError,
@@ -76,6 +82,11 @@ def _build_parser() -> _Parser:
     baseline.add_argument("--start", required=True, type=_iso_date)
     baseline.add_argument("--end", required=True, type=_iso_date)
     baseline.add_argument("--contribution-krw", required=True, type=float)
+    policy = run_targets.add_parser("policy", help="Run an S-policy strategic allocation on catalog partitions")
+    policy.add_argument("--id", choices=tuple(str(member) for member in PolicyId), required=True)
+    policy.add_argument("--start", required=True, type=_iso_date)
+    policy.add_argument("--end", required=True, type=_iso_date)
+    policy.add_argument("--contribution-krw", required=True, type=float)
     return parser
 
 
@@ -156,20 +167,24 @@ def _dispatch_smoke(args: argparse.Namespace) -> int:
 
 
 def _dispatch_run(args: argparse.Namespace) -> int:
-    if args.target != "baseline":
-        raise _UsageError(f"unsupported target {args.target!r}")
-    return run_baseline_command(
-        baseline_id=str(args.id),
-        ticker=str(args.ticker),
-        start=args.start,
-        end=args.end,
-        contribution_krw=float(args.contribution_krw),
-        settings=DataSettings(),
-    )
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    if args.target == "baseline":
+        return run_baseline_command(
+            baseline_id=str(args.id),
+            ticker=str(args.ticker),
+            start=args.start,
+            end=args.end,
+            contribution_krw=float(args.contribution_krw),
+            settings=DataSettings(),
+        )
+    if args.target == "policy":
+        return run_policy_command(
+            policy_id=str(args.id),
+            start=args.start,
+            end=args.end,
+            contribution_krw=float(args.contribution_krw),
+            settings=DataSettings(),
+        )
+    raise _UsageError(f"unsupported target {args.target!r}")
 
 
 def run_ingest_smoke(
@@ -297,3 +312,51 @@ def run_baseline_command(
         len(result.snapshots),
     )
     return 0
+
+
+def run_policy_command(
+    *,
+    policy_id: str,
+    start: date,
+    end: date,
+    contribution_krw: float,
+    settings: DataSettings,
+) -> int:
+    """Run a stored-data strategic allocation and log terminal KRW / XIRR / MDD."""
+    config = AllocationConfig(
+        policy=PolicyId(policy_id),
+        start=start,
+        end=end,
+        monthly_contribution_krw=float(contribution_krw),
+        fill_delay_sessions=1,
+        commission_bps=0.0,
+    )
+    try:
+        result = run_allocation_from_store(config, settings)
+    except (
+        AllocationDataError,
+        PolicyError,
+        BaselineDataError,
+        UntrustedDatasetError,
+        XirrError,
+        ValueError,
+    ) as exc:
+        logger.error("[DATA] event=policy_cli_failed reason=%s", exc)
+        return 1
+    logger.info(
+        "[DATA] event=policy_cli_done policy=%s terminal_krw=%.3f xirr=%.6f mdd=%.4f"
+        " terminal_real_krw=%.3f xirr_real=%.6f sleeves=%d steps=%d",
+        str(config.policy),
+        result.terminal_wealth_krw,
+        result.xirr,
+        result.max_drawdown,
+        result.terminal_wealth_real_krw,
+        result.xirr_real,
+        len(policy_sleeves(config.policy)),
+        len(result.snapshots),
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

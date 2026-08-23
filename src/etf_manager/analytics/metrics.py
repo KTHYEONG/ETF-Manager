@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Final
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-_XIRR_TOLERANCE: Final[float] = 1e-8
+_XIRR_TOLERANCE: Final[float] = 1e-6
 _XIRR_MAX_ITERATIONS: Final[int] = 50
 _DAYS_PER_YEAR: Final[float] = 365.25
 _SECONDS_PER_DAY: Final[float] = 86400.0
