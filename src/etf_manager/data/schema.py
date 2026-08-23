@@ -126,13 +126,13 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
             "release_date": TS_DTYPE,
             "value": pl.Float64(),
         },
-        key=("series_id", "observation_date"),
+        key=("series_id", "observation_date", "release_date"),
         observation_column="observation_date",
         availability=AvailabilityRule(kind=AvailabilityKind.RELEASE_COLUMN, release_column="release_date"),
         missing_policy=MissingPolicy.EXPLICIT_GAP,
         revisable=True,
         total_return_source=TotalReturnSource.NOT_APPLICABLE,
-        schema_version="1",
+        schema_version="2",
         nullable_columns=frozenset({"value"}),
     )
     cpi = DatasetSpec(
