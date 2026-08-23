@@ -55,5 +55,8 @@
   },
   "src/etf_manager/sim/research_proxy.py": {
     "testing": "tests/unit/etf_manager/sim/test_research_proxy.py"
+  },
+  "src/etf_manager/analytics/us_vehicles.py": {
+    "testing": "tests/unit/etf_manager/analytics/test_us_vehicles.py"
   }
 }
