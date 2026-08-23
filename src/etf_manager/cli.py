@@ -48,6 +48,7 @@ from src.etf_manager.sim.baseline import (
 )
 from src.etf_manager.validation.ablation import run_ablation
 from src.etf_manager.validation.bootstrap import moving_block_bootstrap
+from src.etf_manager.validation.campaign import run_walk_forward_adoption, write_campaign_report
 from src.etf_manager.validation.evaluate import evaluate_cohort_wealths
 from src.etf_manager.validation.experiment import load_experiment_config
 from src.etf_manager.validation.gate import adoption_passes, certainty_equivalent
@@ -215,6 +216,15 @@ def _build_parser() -> _Parser:
         required=True,
         help="Path to the experiment JSON (baseline plus candidates)",
     )
+    walk_forward = run_targets.add_parser(
+        "walk-forward",
+        help="Walk-forward adoption campaign from an experiment JSON",
+    )
+    walk_forward.add_argument(
+        "--config",
+        required=True,
+        help="Path to the experiment JSON (single candidate with train/test months)",
+    )
     return parser
 
 
@@ -351,6 +361,8 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         )
     if args.target == "ablation":
         return run_ablation_command(config_path=str(args.config), settings=DataSettings())
+    if args.target == "walk-forward":
+        return run_walk_forward_command(config_path=str(args.config), settings=DataSettings())
     raise _UsageError(f"unsupported target {args.target!r}")
 
 
@@ -751,6 +763,49 @@ def run_ablation_command(*, config_path: str, settings: DataSettings) -> int:
         record.experiment_id,
         adopted_count,
         len(report.rows),
+    )
+    return 0
+
+
+def run_walk_forward_command(*, config_path: str, settings: DataSettings) -> int:
+    """Run a walk-forward adoption campaign and persist the report JSON.
+
+    Raises:
+        ValueError: When the experiment JSON is invalid or lineage is unavailable.
+    """
+    try:
+        spec = load_experiment_config(config_path)
+        if spec.train_months is None or spec.test_months is None:
+            raise ValueError("experiment JSON lacks train_months and test_months")
+        report = run_walk_forward_adoption(spec, lambda config: run_allocation_from_store(config, settings))
+        record = make_experiment(
+            config=AllocationConfig(
+                policy=spec.candidates[0].policy,
+                start=spec.start,
+                end=spec.end,
+                monthly_contribution_krw=spec.contribution_krw,
+                fill_delay_sessions=1,
+                commission_bps=0.0,
+            ),
+            manifest_hash=latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
+            git_commit=_resolve_git_commit(),
+            seed=None,
+            metrics={
+                "folds": float(len(report.folds)),
+                "process_adopted_vs_baseline": 1.0 if report.process_adopted_vs_baseline else 0.0,
+            },
+        )
+        report_path = write_campaign_report(report, settings, record.experiment_id)
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        logger.error("[DATA] event=walkforward_cli_failed reason=%s", exc)
+        return 1
+    logger.info(
+        "[DATA] event=walkforward_cli_done experiment=%s experiment_id=%s folds=%d adopted_vs_baseline=%s report=%s",
+        spec.name,
+        record.experiment_id,
+        len(report.folds),
+        report.process_adopted_vs_baseline,
+        report_path,
     )
     return 0
 
