@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_W1_RESEARCH_LAB",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_W1_RESEARCH_LAB",
+      "domain": "validation",
+      "title": "Wave 1: Policy sleeve universe ingest + M0/M1 JSON ablation",
+      "why": "P0-P10 plumbing lacked default history tickers for S2-S4 sleeves, flag-based CLI experiments, and an identical-cashflow M0 vs M1 strategic comparison loop.",
+      "resolution": "Added all_policy_tickers, expanded ingest history to full sleeve union plus Ken French factors and FRED VIXCLS, Pydantic ExperimentSpec JSON loader, run_ablation with CE adoption gate, CLI run ablation --config, and configs/experiments/m0_m1.json; tilt/overlay/currency/mapping disabled in ablation path.",
+      "impact": "Closes Wave 1 research lab under I5 identical external cashflows; operator can ingest 2012-2024 sleeve panel and run S0 vs S1-S4 adoption gate; unblocks W1b diagnostics and cost scenarios."
+    },
+    {
       "task_id": "TASK_P10_PAPER_EXECUTION",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_P10_PAPER_EXECUTION",
