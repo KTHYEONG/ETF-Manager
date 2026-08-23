@@ -85,6 +85,25 @@ def test_exp_m2_json_load(scenario_id: str) -> None:
     assert [candidate.modules for candidate in spec.candidates] == [1]
 
 
+@pytest.mark.parametrize("scenario_id", ["EXP-WF-optional-months"])
+def test_exp_wf_optional_months(scenario_id: str) -> None:
+    """EXP-WF-optional-months"""
+    m0_m1 = load_experiment_config("configs/experiments/m0_m1.json")
+    assert m0_m1.train_months is None
+    assert m0_m1.test_months is None
+
+    only_train = dict(_payload())
+    only_train["train_months"] = 60
+    with pytest.raises(ValueError, match="both train_months and test_months"):
+        ExperimentSpec.model_validate(only_train)
+
+    wf = load_experiment_config("configs/experiments/wf_s0_s1.json")
+    assert wf.train_months == 60
+    assert wf.test_months == 36
+    assert wf.baseline.policy is PolicyId.S0_GLOBAL
+    assert [candidate.policy for candidate in wf.candidates] == [PolicyId.S1_US]
+
+
 _FAIL_CASES = [
     ("empty candidates", lambda payload: payload.update(candidates=[]), "candidates"),
     (
