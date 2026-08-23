@@ -13,8 +13,10 @@ from src.etf_manager.data.pipeline import ingest
 from src.etf_manager.data.pit import TS_DTYPE
 from src.etf_manager.data.schema import Dataset, spec_for
 from src.etf_manager.policy.targets import (
+    UNIVERSE_VEHICLE,
     PolicyError,
     PolicyId,
+    UsEquityUniverse,
     all_policy_tickers,
     policy_sleeves,
     resolve_targets,
@@ -49,10 +51,41 @@ def test_pol_g03_static_sum_one(scenario_id: str, policy_value: str) -> None:
         assert targets == {"VTI": 0.8, "VTV": 0.2}
 
 
+@pytest.mark.parametrize("scenario_id", ["POL-D-s7-large-cap-ivv"])
+def test_pol_d_s7_large_cap_ivv(scenario_id: str) -> None:
+    """POL-D-s7-large-cap-ivv"""
+    assert UNIVERSE_VEHICLE[UsEquityUniverse.LARGE_CAP] == "IVV"
+    assert UNIVERSE_VEHICLE[UsEquityUniverse.TOTAL_MARKET] == "VTI"
+
+    s7 = resolve_targets(PolicyId.S7_US_LARGE_CAP, pl.DataFrame(), _SIGNAL_AT)
+    s1 = resolve_targets(PolicyId.S1_US, pl.DataFrame(), _SIGNAL_AT)
+
+    assert s7 == {"IVV": 1.0}
+    assert s1 == {"VTI": 1.0}
+    for weights in (list(s7.values()), list(s1.values())):
+        assert min(weights) >= 0.0
+        assert abs(sum(weights) - 1.0) <= 1e-6
+
+    banned = {"s8_us_nasdaq", "s9_voo_qqq", "qqqm"}
+    assert banned.isdisjoint(member.value for member in PolicyId)
+
+
+@pytest.mark.parametrize("scenario_id", ["VEH-E-nasdaq-not-policy"])
+def test_veh_e_nasdaq_not_policy(scenario_id: str) -> None:
+    """VEH-E-nasdaq-not-policy"""
+    assert UNIVERSE_VEHICLE[UsEquityUniverse.NASDAQ_100] == "QQQ"
+    assert "QQQ" not in all_policy_tickers()
+
+    banned = {"s8_us_nasdaq", "s9_voo_qqq", "qqqm"}
+    assert banned.isdisjoint(member.value for member in PolicyId)
+    assert resolve_targets(PolicyId.S1_US, pl.DataFrame(), _SIGNAL_AT) == {"VTI": 1.0}
+    assert resolve_targets(PolicyId.S7_US_LARGE_CAP, pl.DataFrame(), _SIGNAL_AT) == {"IVV": 1.0}
+
+
 @pytest.mark.parametrize("scenario_id", ["TGT-W1-sleeve-universe"])
 def test_tgt_w1_sleeve_universe(scenario_id: str) -> None:
     """TGT-W1-sleeve-universe"""
-    assert all_policy_tickers() == ("BND", "IEF", "TLT", "VEA", "VT", "VTI", "VTV", "VWO")
+    assert all_policy_tickers() == ("BND", "IEF", "IVV", "TLT", "VEA", "VT", "VTI", "VTV", "VWO")
     union: set[str] = set()
     for member in PolicyId:
         union.update(policy_sleeves(member))
@@ -87,7 +120,7 @@ def test_i9_c_resolve_targets_rejects_r1(scenario_id: str) -> None:
     union: set[str] = set()
     for member in PolicyId:
         union.update(policy_sleeves(member))
-    expected = ("BND", "IEF", "TLT", "VEA", "VT", "VTI", "VTV", "VWO")
+    expected = ("BND", "IEF", "IVV", "TLT", "VEA", "VT", "VTI", "VTV", "VWO")
     assert all_policy_tickers() == tuple(sorted(union)) == expected
 
 

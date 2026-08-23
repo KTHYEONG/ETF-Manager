@@ -85,6 +85,38 @@ def test_exp_m2_json_load(scenario_id: str) -> None:
     assert [candidate.modules for candidate in spec.candidates] == [1]
 
 
+@pytest.mark.parametrize("scenario_id", ["EXP-D-universe-json"])
+def test_exp_d_universe_json(scenario_id: str) -> None:
+    """EXP-D-universe-json"""
+    m1_d = load_experiment_config("configs/experiments/m1_d_universe.json")
+
+    assert m1_d.name == "m1_d_universe"
+    assert m1_d.start == date(2012, 4, 1)
+    assert m1_d.end == date(2024, 11, 30)
+    assert m1_d.contribution_krw == pytest.approx(1_000_000.0)
+    assert m1_d.delta0 == pytest.approx(0.02)
+    assert m1_d.horizon_months == 36
+    assert m1_d.baseline.id == "s1_us"
+    assert m1_d.baseline.policy is PolicyId.S1_US
+    assert m1_d.baseline.modules == 0
+    assert [candidate.id for candidate in m1_d.candidates] == ["s7_us_large_cap"]
+    assert [candidate.policy for candidate in m1_d.candidates] == [PolicyId.S7_US_LARGE_CAP]
+    assert [candidate.modules for candidate in m1_d.candidates] == [1]
+
+    wf = load_experiment_config("configs/experiments/wf_s1_s7.json")
+
+    assert wf.name == "wf_s1_s7"
+    assert wf.train_months == 60
+    assert wf.test_months == 36
+    assert wf.horizon_months == 0
+    assert wf.baseline.id == "s1_us"
+    assert wf.baseline.policy is PolicyId.S1_US
+    assert wf.baseline.modules == 0
+    assert [candidate.id for candidate in wf.candidates] == ["s7_us_large_cap"]
+    assert [candidate.policy for candidate in wf.candidates] == [PolicyId.S7_US_LARGE_CAP]
+    assert [candidate.modules for candidate in wf.candidates] == [1]
+
+
 @pytest.mark.parametrize("scenario_id", ["EXP-WF-optional-months"])
 def test_exp_wf_optional_months(scenario_id: str) -> None:
     """EXP-WF-optional-months"""
