@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Final, cast
 
 import polars as pl
@@ -22,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 _OBSERVATIONS_URL: Final[str] = "https://api.stlouisfed.org/fred/series/observations"
 _FX_SERIES: Final[str] = "DEXKOUS"
+# FRED caps vintage dates per request (~2000); ~400 calendar days stays under the limit.
+_VINTAGE_CHUNK_DAYS: Final[int] = 400
 
 
 class FredClient:
@@ -65,30 +68,61 @@ class FredClient:
         return _payload(_FX_SERIES, response.content, retrieved_at, lineage), frame
 
     def fetch_macro_vintages(self, series_id: str, start: date, end: date) -> tuple[RawPayload, pl.DataFrame]:
-        """Fetch ALFRED vintage history as Dataset.MACRO; release_date comes from realtime_end."""
+        """Fetch ALFRED vintage history as Dataset.MACRO; release_date comes from realtime_end.
+
+        Long realtime windows are split into calendar chunks because FRED rejects
+        requests whose vintage-date count exceeds ~2000 per file type.
+        """
         spec = spec_for(Dataset.MACRO)
         retrieved_at = datetime.now(UTC)
         lineage = {
             "series_id": series_id,
             "file_type": "json",
+            "observation_start": start.isoformat(),
+            "observation_end": end.isoformat(),
             "realtime_start": start.isoformat(),
             "realtime_end": end.isoformat(),
+            "vintage_chunk_days": str(_VINTAGE_CHUNK_DAYS),
         }
-        response, observations = self._get(lineage)
         records: list[dict[str, object]] = []
-        for row in observations:
-            day, value = _observed(row)
-            records.append(
-                {
-                    "series_id": series_id,
-                    "observation_date": day,
-                    "release_date": _vintage(row, series_id),
-                    "value": value,
-                }
+        raw_observations: list[JSONValue] = []
+        chunk_count = 0
+        chunk_start = start
+        while chunk_start <= end:
+            chunk_end = min(
+                chunk_start + timedelta(days=_VINTAGE_CHUNK_DAYS),
+                end,
             )
+            chunk_lineage = {
+                **lineage,
+                "realtime_start": chunk_start.isoformat(),
+                "realtime_end": chunk_end.isoformat(),
+            }
+            _response, observations = self._get(chunk_lineage)
+            chunk_count += 1
+            raw_observations.extend(observations)
+            for row in observations:
+                day, value = _observed(row)
+                records.append(
+                    {
+                        "series_id": series_id,
+                        "observation_date": day,
+                        "release_date": _vintage(row, series_id),
+                        "value": value,
+                    }
+                )
+            chunk_start = chunk_end + timedelta(days=1)
+        if not records:
+            raise ProviderError(f"fred returned no macro observations for {series_id} in [{start}, {end}]")
         frame = pl.DataFrame(records).select(*spec.columns).cast(pl.Schema(dict(spec.columns)))
-        logger.info("[DATA] event=fetch dataset=macro provider=fred series=%s rows=%d", series_id, frame.height)
-        return _payload(series_id, response.content, retrieved_at, lineage), frame
+        merged_content = json.dumps({"observations": raw_observations}).encode("utf-8")
+        logger.info(
+            "[DATA] event=fetch dataset=macro provider=fred series=%s rows=%d chunks=%d",
+            series_id,
+            frame.height,
+            chunk_count,
+        )
+        return _payload(series_id, merged_content, retrieved_at, lineage), frame
 
     def _get(self, lineage: dict[str, str]) -> tuple[ProviderResponse, list[JSONValue]]:
         """GET one observations document; api_key rides the wire only."""

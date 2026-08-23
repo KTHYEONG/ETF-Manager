@@ -28,7 +28,12 @@ from src.etf_manager.execution.broker import replay_paper
 from src.etf_manager.execution.orders import ExecutionError, orders_from_snapshots
 from src.etf_manager.policy.currency import CurrencyConfig
 from src.etf_manager.policy.overlay import OverlayConfig
-from src.etf_manager.policy.targets import PolicyError, PolicyId, policy_sleeves
+from src.etf_manager.policy.targets import (
+    PolicyError,
+    PolicyId,
+    all_policy_tickers,
+    policy_sleeves,
+)
 from src.etf_manager.policy.tilt import TILT_FACTORS, FactorTilt
 from src.etf_manager.sim.allocation import (
     AllocationConfig,
@@ -41,8 +46,10 @@ from src.etf_manager.sim.baseline import (
     BaselineId,
     run_baseline_from_store,
 )
+from src.etf_manager.validation.ablation import run_ablation
 from src.etf_manager.validation.bootstrap import moving_block_bootstrap
 from src.etf_manager.validation.evaluate import evaluate_cohort_wealths
+from src.etf_manager.validation.experiment import load_experiment_config
 from src.etf_manager.validation.gate import adoption_passes, certainty_equivalent
 from src.etf_manager.validation.registry import make_experiment
 from src.etf_manager.validation.windows import rolling_cohorts
@@ -58,8 +65,8 @@ _SMOKE_START: Final[date] = date(2024, 1, 2)
 _SMOKE_END: Final[date] = date(2024, 1, 5)
 _SMOKE_TICKER: Final[str] = "VT"
 _SMOKE_FX_PROVIDER: Final[str] = "fred"
-_HISTORY_TICKERS: Final[tuple[str, ...]] = ("VT", "VTI")
 _HISTORY_FX_PROVIDER: Final[str] = "fred"
+_HISTORY_MACRO_SERIES: Final[str] = "VIXCLS"
 _VALIDATE_GAMMAS: Final[tuple[float, ...]] = (2.0, 5.0, 10.0)
 _VALIDATE_BASELINE_TICKER: Final[str] = "VT"
 
@@ -199,6 +206,15 @@ def _build_parser() -> _Parser:
     paper.add_argument("--start", required=True, type=_iso_date)
     paper.add_argument("--end", required=True, type=_iso_date)
     paper.add_argument("--contribution-krw", required=True, type=float)
+    ablation = run_targets.add_parser(
+        "ablation",
+        help="Identical-cashflow adoption ablation from an experiment JSON",
+    )
+    ablation.add_argument(
+        "--config",
+        required=True,
+        help="Path to the experiment JSON (baseline plus candidates)",
+    )
     return parser
 
 
@@ -230,11 +246,10 @@ def _dispatch(args: argparse.Namespace) -> int:
     if dataset == "history":
         if args.start is None or args.end is None:
             raise _UsageError("ingest history requires --start and --end")
-        tickers = tuple(args.tickers) if args.tickers else _HISTORY_TICKERS
         return run_ingest_history(
             start=args.start,
             end=args.end,
-            tickers=tickers,
+            tickers=tuple(args.tickers) if args.tickers else None,
             fx_provider=str(args.provider) if args.provider is not None else _HISTORY_FX_PROVIDER,
             settings=DataSettings(),
             secrets=load_provider_secrets(),
@@ -334,6 +349,8 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             contribution_krw=float(args.contribution_krw),
             settings=DataSettings(),
         )
+    if args.target == "ablation":
+        return run_ablation_command(config_path=str(args.config), settings=DataSettings())
     raise _UsageError(f"unsupported target {args.target!r}")
 
 
@@ -429,26 +446,32 @@ def run_ingest_history(
     *,
     start: date,
     end: date,
-    tickers: tuple[str, ...],
+    tickers: tuple[str, ...] | None = None,
     fx_provider: str,
     settings: DataSettings,
     secrets: ProviderSecrets,
     client: httpx.Client | None = None,
 ) -> int:
-    """Persist FX, prices, and CPI over a long window; all three datasets are required.
+    """Persist FX, prices, CPI, factors, and VIXCLS macro over a long window.
 
-    Returns 0 only when every fetch persists and each latest catalog partition
-    holds row_count >= 1; vendor/catalog messages never reach the log.
+    ``tickers`` defaults to the full policy sleeve universe. Returns 0 only when
+    every fetch persists and each of the five latest catalog partitions holds
+    row_count >= 1; vendor/catalog messages never reach the log.
     """
+    price_tickers = tickers if tickers is not None else all_policy_tickers()
     try:
         fx = fetch_and_persist_fx(
             provider=fx_provider, start=start, end=end, secrets=secrets, settings=settings, client=client
         )
-        prices = fetch_and_persist_prices(tickers, start, end, secrets=secrets, settings=settings, client=client)
+        prices = fetch_and_persist_prices(price_tickers, start, end, secrets=secrets, settings=settings, client=client)
         cpi = fetch_and_persist_cpi(start, end, secrets=secrets, settings=settings, client=client)
+        factors = fetch_and_persist_factors(start, end, settings=settings, client=client)
+        macro = fetch_and_persist_macro(
+            _HISTORY_MACRO_SERIES, start, end, secrets=secrets, settings=settings, client=client
+        )
         row_counts = {
             str(dataset): latest_artifact(settings, dataset).manifest.row_count
-            for dataset in (Dataset.PRICES, Dataset.FX, Dataset.CPI)
+            for dataset in (Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.FACTORS, Dataset.MACRO)
         }
     except (ProviderError, ValueError, UntrustedDatasetError, OSError) as exc:
         # Vendor/catalog messages may echo api_key query strings; expose the failure class only.
@@ -459,11 +482,13 @@ def run_ingest_history(
         logger.error("[DATA] event=history_failed reason=empty_catalog dataset=%s", ",".join(underfilled))
         return 1
     logger.info(
-        "[DATA] event=history_ok tickers=%s price_rows=%d fx_rows=%d cpi_rows=%d",
-        ",".join(tickers),
+        "[DATA] event=history_ok tickers=%s price_rows=%d fx_rows=%d cpi_rows=%d factor_rows=%d macro_rows=%d",
+        ",".join(price_tickers),
         prices.manifest.row_count,
         fx.manifest.row_count,
         cpi.manifest.row_count,
+        factors.manifest.row_count,
+        macro.manifest.row_count,
     )
     return 0
 
@@ -669,6 +694,63 @@ def run_validate_command(
         bootstrap_paths,
         bootstrap_mean,
         record.experiment_id,
+    )
+    return 0
+
+
+def run_ablation_command(*, config_path: str, settings: DataSettings) -> int:
+    """Run an identical-cashflow ablation from an experiment JSON and log each gate.
+
+    Raises:
+        ValueError: When the experiment JSON is invalid or lineage is unavailable.
+    """
+    try:
+        spec = load_experiment_config(config_path)
+        report = run_ablation(spec, lambda config: run_allocation_from_store(config, settings))
+        metrics: dict[str, float] = {
+            "candidates": float(len(report.rows)),
+            "adopted": float(sum(row.adopted for row in report.rows)),
+        }
+        for row in report.rows:
+            for gamma, ratio in row.ce_ratio.items():
+                metrics[f"{row.candidate_id}_ratio_gamma_{int(gamma)}"] = ratio
+        record = make_experiment(
+            config=AllocationConfig(
+                policy=spec.baseline.policy,
+                start=spec.start,
+                end=spec.end,
+                monthly_contribution_krw=spec.contribution_krw,
+                fill_delay_sessions=1,
+                commission_bps=0.0,
+            ),
+            manifest_hash=latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
+            git_commit=_resolve_git_commit(),
+            seed=None,
+            metrics=metrics,
+        )
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        logger.error("[DATA] event=ablation_cli_failed reason=%s", exc)
+        return 1
+    adopted_count = sum(row.adopted for row in report.rows)
+    for index, row in enumerate(report.rows):
+        logger.info(
+            "[DATA] event=ablation_candidate index=%d candidate=%s policy=%s modules=%d adopted=%s"
+            " ratio_gamma_2=%.6f ratio_gamma_5=%.6f ratio_gamma_10=%.6f",
+            index,
+            row.candidate_id,
+            str(row.policy),
+            row.modules,
+            row.adopted,
+            row.ce_ratio[2.0],
+            row.ce_ratio[5.0],
+            row.ce_ratio[10.0],
+        )
+    logger.info(
+        "[DATA] event=ablation_cli_done experiment=%s experiment_id=%s adopted=%d/%d",
+        spec.name,
+        record.experiment_id,
+        adopted_count,
+        len(report.rows),
     )
     return 0
 
