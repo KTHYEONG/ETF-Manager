@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P3_STRATEGIC_ALLOCATION",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_P3_STRATEGIC_ALLOCATION",
+      "domain": "policy",
+      "title": "Phase 3: Strategic Allocation (L2 features, L3 policy, multi-sleeve sim)",
+      "why": "Phase 2 only supported single-ticker B0/B1 DCA; Phase 3 requires regional/defensive alternatives under identical KRW cashflows with PIT target weights.",
+      "resolution": "Implemented session_returns and trailing_simple_vol (L2), six PolicyId targets including inverse-vol (L3), buy-only multi-sleeve run_allocation with CPI real metrics, and run policy CLI; S0 matches B0 on identical panels.",
+      "impact": "Closes Phase 3 simple allocation research path; unblocks Phase 4 factor tilts and Phase 5 contribution rebalancing."
+    },
+    {
       "task_id": "TASK_P2C_PHASE2_COMPLETE",
       "date": "2026-08-22",
       "adr_id": "ADR_20260822_P2C_PHASE2_COMPLETE",
