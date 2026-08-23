@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
     import polars as pl
 
-__all__ = ["PolicyError", "PolicyId", "policy_sleeves", "resolve_targets"]
+__all__ = ["PolicyError", "PolicyId", "all_policy_tickers", "policy_sleeves", "resolve_targets"]
 
 
 class PolicyId(StrEnum):
@@ -68,6 +68,14 @@ def policy_sleeves(policy: PolicyId) -> tuple[str, ...]:
     if policy is PolicyId.S5_INVVOL:
         return _INVVOL_SLEEVES
     return tuple(_STATIC_TARGETS[policy])
+
+
+def all_policy_tickers() -> tuple[str, ...]:
+    """Sorted union of every policy's sleeve tickers; the history ingest universe."""
+    union: set[str] = set(_INVVOL_SLEEVES)
+    for targets in _STATIC_TARGETS.values():
+        union.update(targets)
+    return tuple(sorted(union))
 
 
 def _invvol_targets(prices: pl.DataFrame, signal_at: datetime) -> dict[str, float]:
