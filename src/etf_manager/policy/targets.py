@@ -13,7 +13,15 @@ if TYPE_CHECKING:
 
     import polars as pl
 
-__all__ = ["PolicyError", "PolicyId", "all_policy_tickers", "policy_sleeves", "resolve_targets"]
+__all__ = [
+    "UNIVERSE_VEHICLE",
+    "PolicyError",
+    "PolicyId",
+    "UsEquityUniverse",
+    "all_policy_tickers",
+    "policy_sleeves",
+    "resolve_targets",
+]
 
 
 class PolicyId(StrEnum):
@@ -26,6 +34,7 @@ class PolicyId(StrEnum):
     S4_DEFENSIVE = "s4_defensive"
     S5_INVVOL = "s5_invvol"
     S6_US_CORE_VALUE = "s6_us_core_value"
+    S7_US_LARGE_CAP = "s7_us_large_cap"
     # Campaign identity only: never resolvable into ETF sleeve targets.
     R1_US_MKT_FF = "r1_us_mkt_ff"
 
@@ -34,13 +43,30 @@ class PolicyError(RuntimeError):
     """Target-weight resolution failed closed (invalid weights or unusable sleeve vols)."""
 
 
+class UsEquityUniverse(StrEnum):
+    """US equity universe buckets, each mapped to a single listed vehicle."""
+
+    TOTAL_MARKET = "us_total_market"
+    LARGE_CAP = "us_large_cap"
+    # Diagnostic-only bucket: resolvable to a ticker through UNIVERSE_VEHICLE,
+    # never through resolve_targets (no PolicyId owns a Nasdaq-100 sleeve).
+    NASDAQ_100 = "us_nasdaq_100"
+
+
+UNIVERSE_VEHICLE: Final[dict[UsEquityUniverse, str]] = {
+    UsEquityUniverse.TOTAL_MARKET: "VTI",
+    UsEquityUniverse.LARGE_CAP: "IVV",
+    UsEquityUniverse.NASDAQ_100: "QQQ",
+}
+
 _STATIC_TARGETS: Final[dict[PolicyId, dict[str, float]]] = {
     PolicyId.S0_GLOBAL: {"VT": 1.0},
-    PolicyId.S1_US: {"VTI": 1.0},
+    PolicyId.S1_US: {UNIVERSE_VEHICLE[UsEquityUniverse.TOTAL_MARKET]: 1.0},
     PolicyId.S2_REGIONAL: {"VTI": 0.5, "VEA": 0.3, "VWO": 0.2},
     PolicyId.S3_GLOBAL_BOND: {"VT": 0.7, "BND": 0.3},
     PolicyId.S4_DEFENSIVE: {"VT": 0.6, "IEF": 0.2, "TLT": 0.2},
     PolicyId.S6_US_CORE_VALUE: {"VTI": 0.8, "VTV": 0.2},
+    PolicyId.S7_US_LARGE_CAP: {UNIVERSE_VEHICLE[UsEquityUniverse.LARGE_CAP]: 1.0},
 }
 _INVVOL_SLEEVES: Final[tuple[str, ...]] = ("VTI", "VEA", "VWO")
 _WEIGHT_SUM_TOLERANCE: Final[float] = 1e-6
