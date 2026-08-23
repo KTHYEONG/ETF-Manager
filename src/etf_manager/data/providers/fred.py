@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, cast
 
 import polars as pl
 
+from src.etf_manager.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
 from src.etf_manager.data.providers.base import ProviderError, ProviderResponse, get_json
 from src.etf_manager.data.schema import TS_DTYPE, Dataset, spec_for
 from src.etf_manager.data.storage import RawPayload
@@ -45,6 +46,12 @@ class FredClient:
         for row in observations:
             day, value = _observed(row)
             records.append({"date": day, "usdkrw": value})
+        if records:
+            calendar = load_calendar(DEFAULT_CALENDAR_NAME)
+            observed_days = [cast(date, row["date"]) for row in records]
+            bounds = (min(observed_days), max(observed_days))
+            session_days = frozenset(calendar.sessions(bounds[0], bounds[1]))
+            records = [row for row in records if row["date"] in session_days]
         frame = (
             pl.DataFrame(records)
             .with_columns(
