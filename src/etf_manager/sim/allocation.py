@@ -16,6 +16,7 @@ from src.etf_manager.data.catalog import latest_artifact, load_visible
 from src.etf_manager.data.query import load_as_of
 from src.etf_manager.data.schedule import build_decision_schedule
 from src.etf_manager.data.schema import Dataset
+from src.etf_manager.policy.currency import conversion_fraction
 from src.etf_manager.policy.overlay import apply_bounded_overlay
 from src.etf_manager.policy.targets import PolicyId, resolve_targets
 from src.etf_manager.policy.tilt import resolve_tilted_targets
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from src.etf_manager.data.settings import DataSettings
+    from src.etf_manager.policy.currency import CurrencyConfig
     from src.etf_manager.policy.overlay import OverlayConfig
     from src.etf_manager.policy.tilt import FactorTilt
 
@@ -61,6 +63,7 @@ class AllocationConfig:
     tilt: FactorTilt | None = None
     rebalance_band: float | None = None
     overlay: OverlayConfig | None = None
+    currency: CurrencyConfig | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +141,7 @@ def run_allocation(
             targets = apply_bounded_overlay(
                 targets, prices, point.signal_at, config.overlay, macro=macro
             )
+        fraction = 1.0 if config.currency is None else conversion_fraction(fx, point.signal_at, config.currency)
 
         contribution = config.monthly_contribution_krw
         cash_krw += contribution
@@ -161,8 +165,9 @@ def run_allocation(
         )
         fees_krw = 0.0
         position_value_usd = 0.0
-        # Overlay may leave a cash residual: spend only sum(weights) of the investable amount.
-        sleeve_budget_krw = investable_krw * sum(spend_weights.values())
+        # Overlay residual and FX defer both stay in cash: spend only the converted budget.
+        convert_krw = investable_krw * fraction
+        sleeve_budget_krw = convert_krw * sum(spend_weights.values())
         for ticker, weight in spend_weights.items():
             price = _visible_close(prices, ticker, point.execution_session, close_ts)
             spend_usd = sleeve_budget_krw * weight / fx_gross
@@ -172,7 +177,7 @@ def run_allocation(
             cash_usd += spend_usd - fee_usd - bought * price
             fees_krw += spend_usd * (fx_gross - usdkrw) + fee_usd * fx_gross
             position_value_usd += shares_by_ticker[ticker] * price
-        cash_krw -= investable_krw
+        cash_krw -= sleeve_budget_krw
         snapshots.append(
             AllocationSnapshot(
                 session=point.execution_session,
