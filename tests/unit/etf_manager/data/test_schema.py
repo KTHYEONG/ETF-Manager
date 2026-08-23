@@ -49,7 +49,7 @@ def test_spec_c09_registry_cpi_macro_key(scenario_id: str) -> None:
     assert Dataset.CPI in DATASET_SPECS
 
     macro = spec_for(Dataset.MACRO)
-    assert macro.key == ("series_id", "observation_date")
+    assert macro.key == ("series_id", "observation_date", "release_date")
     assert "series_id" in macro.columns
     assert macro.revisable is True
 

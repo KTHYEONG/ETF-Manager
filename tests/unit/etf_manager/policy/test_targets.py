@@ -12,7 +12,13 @@ from src.etf_manager.data.calendar import load_calendar
 from src.etf_manager.data.pipeline import ingest
 from src.etf_manager.data.pit import TS_DTYPE
 from src.etf_manager.data.schema import Dataset, spec_for
-from src.etf_manager.policy.targets import PolicyError, PolicyId, resolve_targets
+from src.etf_manager.policy.targets import (
+    PolicyError,
+    PolicyId,
+    all_policy_tickers,
+    policy_sleeves,
+    resolve_targets,
+)
 
 _CALENDAR = load_calendar("XNYS")
 _RETRIEVED_AT = datetime(2024, 4, 1, 5, 0, tzinfo=UTC)
@@ -38,6 +44,16 @@ def test_pol_g03_static_sum_one(scenario_id: str, policy_value: str) -> None:
     assert min(weights) >= 0.0
     if policy_value == "s2_regional":
         assert targets == {"VTI": 0.5, "VEA": 0.3, "VWO": 0.2}
+
+
+@pytest.mark.parametrize("scenario_id", ["TGT-W1-sleeve-universe"])
+def test_tgt_w1_sleeve_universe(scenario_id: str) -> None:
+    """TGT-W1-sleeve-universe"""
+    assert all_policy_tickers() == ("BND", "IEF", "TLT", "VEA", "VT", "VTI", "VWO")
+    union: set[str] = set()
+    for member in PolicyId:
+        union.update(policy_sleeves(member))
+    assert all_policy_tickers() == tuple(sorted(union))
 
 
 @pytest.mark.parametrize("scenario_id", ["POL-G03-static-sum-one"])
