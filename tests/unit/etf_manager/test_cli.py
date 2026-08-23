@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -12,7 +13,12 @@ from src.etf_manager.data.providers.base import ProviderError
 from src.etf_manager.etf.mapping import MappingConfig
 from src.etf_manager.data.schema import Dataset
 from src.etf_manager.policy.targets import PolicyId
-from src.etf_manager.sim.allocation import AllocationConfig, AllocationDataError, AllocationResult
+from src.etf_manager.sim.allocation import (
+    AllocationConfig,
+    AllocationDataError,
+    AllocationResult,
+    AllocationSnapshot,
+)
 from src.etf_manager.sim.baseline import BaselineConfig, BaselineId, BaselineResult
 
 
@@ -636,3 +642,59 @@ def test_val_v05_cli_validate(scenario_id: str, monkeypatch: pytest.MonkeyPatch)
 
     assert main([*base_argv, "--bootstrap-paths", "2"]) == 2
     assert main([*base_argv, "--bootstrap-paths", "2", "--seed", "1"]) == 0
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-X04-paper-flags"])
+def test_cli_x04_paper_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-X04-paper-flags"""
+    captured: list[AllocationConfig] = []
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        captured.append(config)
+        empty = AllocationSnapshot(
+            session=date(2024, 1, 5),
+            cash_krw=1_000_000.0,
+            cash_usd=0.0,
+            shares={},
+            mark_krw=1_000_000.0,
+            contribution_krw=1_000_000.0,
+            fees_krw=0.0,
+        )
+        filled = replace(empty, session=date(2024, 1, 31), shares={"VT": 1})
+        return AllocationResult(
+            config=config,
+            snapshots=(empty, filled),
+            terminal_wealth_krw=1_300_000.0,
+            xirr=0.12,
+            max_drawdown=-0.05,
+            terminal_wealth_real_krw=1_200_000.0,
+            xirr_real=0.09,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+
+    argv = [
+        "run",
+        "paper",
+        "--id",
+        "s0_global",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-01-31",
+        "--contribution-krw",
+        "1000000",
+    ]
+    assert main(argv) == 0
+    assert len(captured) == 1
+    assert captured[0] == AllocationConfig(
+        policy=PolicyId.S0_GLOBAL,
+        start=date(2024, 1, 1),
+        end=date(2024, 1, 31),
+        monthly_contribution_krw=1000000.0,
+    )
+
+    missing_id_argv = ["run", "paper", "--start", "2024-01-01", "--end", "2024-01-31",
+                       "--contribution-krw", "1000000"]
+    assert main(missing_id_argv) == 2
+    assert len(captured) == 1
