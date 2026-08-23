@@ -67,6 +67,25 @@ def test_spec_c09_registry_cpi_macro_key(scenario_id: str) -> None:
     assert "usdkrw" in fx.nullable_columns
 
 
+@pytest.mark.parametrize("scenario_id", ["SPEC-C-research-returns-schema"])
+def test_spec_c_research_returns_schema(scenario_id: str) -> None:
+    """SPEC-C-research-returns-schema"""
+    assert set(DATASET_SPECS.keys()) == set(Dataset)
+
+    spec = spec_for(Dataset.RESEARCH_RETURNS)
+    assert spec.key == ("series_id", "date")
+    assert set(spec.columns) == {"series_id", "date", "simple_return", "label", "source", "retrieved_at"}
+    assert spec.columns["date"] == pl.Date()
+    assert spec.columns["simple_return"] == pl.Float64()
+    assert spec.observation_column == "date"
+    assert spec.availability.kind is AvailabilityKind.SESSION_CLOSE
+    assert spec.availability.calendar_name == "XNYS"
+    assert spec.missing_policy is MissingPolicy.FAIL
+    assert spec.revisable is False
+    assert spec.total_return_source is TotalReturnSource.NOT_APPLICABLE
+    assert spec.schema_version == "1"
+
+
 @pytest.mark.parametrize("scenario_id", ["SPEC-M01-etf-metadata-schema"])
 def test_spec_m01_etf_metadata_schema(scenario_id: str) -> None:
     """SPEC-M01-etf-metadata-schema"""
