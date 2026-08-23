@@ -22,5 +22,9 @@
   "src/etf_manager/sim/allocation.py": {
     "architecture": "docs/architecture/00_system_overview.md",
     "testing": "tests/unit/etf_manager/sim/test_allocation.py"
+  },
+  "src/etf_manager/policy/tilt.py": {
+    "architecture": "docs/architecture/00_system_overview.md",
+    "testing": "tests/unit/etf_manager/policy/test_tilt.py"
   }
 }
