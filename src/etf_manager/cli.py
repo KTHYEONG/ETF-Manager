@@ -21,6 +21,7 @@ from src.etf_manager.data.schema import Dataset
 from src.etf_manager.data.secrets import load_provider_secrets
 from src.etf_manager.data.settings import DataSettings
 from src.etf_manager.data.storage import UntrustedDatasetError
+from src.etf_manager.etf.mapping import MappingConfig
 from src.etf_manager.policy.currency import CurrencyConfig
 from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.targets import PolicyError, PolicyId, policy_sleeves
@@ -133,6 +134,17 @@ def _build_parser() -> _Parser:
         default=None,
         help="Optional expensive-USD percentile in (0, 1) (requires --fx-max-defer)",
     )
+    policy.add_argument(
+        "--map-etf",
+        action="store_true",
+        help="Map economic sleeves to implementation ETFs with incumbent hysteresis",
+    )
+    policy.add_argument(
+        "--map-min-improvement",
+        type=float,
+        default=None,
+        help="Optional hysteresis min improvement in (0, 1] (requires --map-etf)",
+    )
     return parser
 
 
@@ -244,6 +256,7 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             rebalance_band=args.rebalance_band,
             overlay=_resolve_overlay(args.overlay_max_shift, args.vix_threshold),
             currency=_resolve_currency(args.fx_max_defer, args.fx_expensive_percentile),
+            mapping=_resolve_mapping(bool(args.map_etf), args.map_min_improvement),
         )
     raise _UsageError(f"unsupported target {args.target!r}")
 
@@ -276,6 +289,17 @@ def _resolve_currency(max_defer: float | None, expensive_percentile: float | Non
         max_defer=max_defer,
         expensive_percentile=0.80 if expensive_percentile is None else expensive_percentile,
     )
+
+
+def _resolve_mapping(map_etf: bool, min_improvement: float | None) -> MappingConfig | None:
+    """Accept map-min-improvement only together with --map-etf."""
+    if min_improvement is not None and not map_etf:
+        raise _UsageError("--map-min-improvement requires --map-etf")
+    if not map_etf:
+        return None
+    if min_improvement is None:
+        return MappingConfig()
+    return MappingConfig(min_improvement=min_improvement)
 
 
 def run_ingest_smoke(
@@ -416,11 +440,12 @@ def run_policy_command(
     rebalance_band: float | None = None,
     overlay: OverlayConfig | None = None,
     currency: CurrencyConfig | None = None,
+    mapping: MappingConfig | None = None,
 ) -> int:
     """Run a stored-data strategic allocation and log terminal KRW / XIRR / MDD.
 
     Raises:
-        ValueError: When ``rebalance_band`` is set and lies outside ``[0, 1)``.
+        ValueError: When ``rebalance_band`` is set outside ``[0, 1)`` or the mapping config is invalid.
     """
     if rebalance_band is not None and not 0.0 <= rebalance_band < 1.0:
         raise ValueError(f"rebalance_band must lie in [0, 1), got {rebalance_band!r}")
@@ -435,6 +460,7 @@ def run_policy_command(
         rebalance_band=rebalance_band,
         overlay=overlay,
         currency=currency,
+        mapping=mapping,
     )
     try:
         result = run_allocation_from_store(config, settings)
