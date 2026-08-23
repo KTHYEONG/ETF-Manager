@@ -20,7 +20,17 @@ if TYPE_CHECKING:
     from src.etf_manager.data.settings import DataSettings
     from src.etf_manager.sim.allocation import AllocationResult
 
-__all__ = ["CampaignReport", "FoldOutcome", "run_walk_forward_adoption", "write_campaign_report"]
+__all__ = [
+    "COST_SCENARIOS",
+    "CampaignReport",
+    "CostGridReport",
+    "CostScenario",
+    "FoldOutcome",
+    "run_walk_forward_adoption",
+    "run_walk_forward_cost_grid",
+    "write_campaign_report",
+    "write_cost_grid_report",
+]
 
 _CE_GAMMAS: Final[tuple[float, ...]] = (2.0, 5.0, 10.0)
 
@@ -58,6 +68,44 @@ class CampaignReport:
     process_adopted_vs_baseline: bool
 
 
+@dataclass(frozen=True, slots=True)
+class CostScenario:
+    """Fixed transaction-cost pair applied to every arm of one grid pass."""
+
+    id: str
+    commission_bps: float
+    fx_spread_bps: float
+
+
+COST_SCENARIOS: Final[tuple[CostScenario, ...]] = (
+    CostScenario(id="ideal", commission_bps=0.0, fx_spread_bps=0.0),
+    CostScenario(id="low", commission_bps=5.0, fx_spread_bps=10.0),
+    CostScenario(id="base", commission_bps=10.0, fx_spread_bps=20.0),
+    CostScenario(id="stress", commission_bps=50.0, fx_spread_bps=50.0),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ScenarioOutcome:
+    """One cost scenario paired with its walk-forward campaign verdict."""
+
+    scenario: CostScenario
+    campaign: CampaignReport
+
+
+@dataclass(frozen=True, slots=True)
+class CostGridReport:
+    """Walk-forward adoption verdicts across the fixed cost grid."""
+
+    name: str
+    outcomes: tuple[ScenarioOutcome, ...]
+
+    @property
+    def all_scenarios_adopted(self) -> bool:
+        """True only when every scenario's campaign beats the baseline."""
+        return all(outcome.campaign.process_adopted_vs_baseline for outcome in self.outcomes)
+
+
 def _arm_config(spec: ExperimentSpec, policy: PolicyId, start: date, end: date) -> AllocationConfig:
     """Identical cashflow/costs for every arm on one sliced window."""
     return AllocationConfig(
@@ -66,8 +114,8 @@ def _arm_config(spec: ExperimentSpec, policy: PolicyId, start: date, end: date) 
         end=end,
         monthly_contribution_krw=spec.contribution_krw,
         fill_delay_sessions=1,
-        fx_spread_bps=0.0,
-        commission_bps=0.0,
+        fx_spread_bps=spec.fx_spread_bps,
+        commission_bps=spec.commission_bps,
         tilt=None,
         rebalance_band=None,
         overlay=None,
@@ -164,6 +212,24 @@ def run_walk_forward_adoption(
     )
 
 
+def _fold_records(folds: tuple[FoldOutcome, ...]) -> list[dict[str, object]]:
+    """JSON-ready records for one campaign's folds."""
+    return [
+        {
+            "train_start": fold.train_start.isoformat(),
+            "train_end": fold.train_end.isoformat(),
+            "test_start": fold.test_start.isoformat(),
+            "test_end": fold.test_end.isoformat(),
+            "train_adopted": fold.train_adopted,
+            "chosen_policy": str(fold.chosen_policy),
+            "baseline_test_wealth": fold.baseline_test_wealth,
+            "candidate_test_wealth": fold.candidate_test_wealth,
+            "chosen_test_wealth": fold.chosen_test_wealth,
+        }
+        for fold in folds
+    ]
+
+
 def write_campaign_report(report: CampaignReport, settings: DataSettings, experiment_id: str) -> Path:
     """Persist the campaign verdict under ``experiments/{name}_{experiment_id}.json``.
 
@@ -175,23 +241,71 @@ def write_campaign_report(report: CampaignReport, settings: DataSettings, experi
         "experiment_id": experiment_id,
         "process_adopted_vs_baseline": report.process_adopted_vs_baseline,
         "fold_count": len(report.folds),
-        "folds": [
-            {
-                "train_start": fold.train_start.isoformat(),
-                "train_end": fold.train_end.isoformat(),
-                "test_start": fold.test_start.isoformat(),
-                "test_end": fold.test_end.isoformat(),
-                "train_adopted": fold.train_adopted,
-                "chosen_policy": str(fold.chosen_policy),
-                "baseline_test_wealth": fold.baseline_test_wealth,
-                "candidate_test_wealth": fold.candidate_test_wealth,
-                "chosen_test_wealth": fold.chosen_test_wealth,
-            }
-            for fold in report.folds
-        ],
+        "folds": _fold_records(report.folds),
     }
     experiments_dir = settings.resolved_data_root() / "experiments"
     experiments_dir.mkdir(parents=True, exist_ok=True)
     out_path = experiments_dir / f"{report.name}_{experiment_id}.json"
+    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return out_path
+
+
+def run_walk_forward_cost_grid(
+    spec: ExperimentSpec,
+    runner: Callable[[AllocationConfig], AllocationResult],
+    scenarios: tuple[CostScenario, ...] = COST_SCENARIOS,
+) -> CostGridReport:
+    """Re-run the identical walk-forward campaign once per fixed cost scenario.
+
+    ``spec`` is never mutated: each scenario applies its own bps via
+    ``model_copy`` and then delegates to the single-campaign runner.
+
+    Raises:
+        ValueError: Propagated from the campaign when the spec violates the
+            walk-forward contract.
+    """
+    outcomes = [
+        ScenarioOutcome(
+            scenario=scenario,
+            campaign=run_walk_forward_adoption(
+                spec.model_copy(
+                    update={
+                        "commission_bps": scenario.commission_bps,
+                        "fx_spread_bps": scenario.fx_spread_bps,
+                    }
+                ),
+                runner,
+            ),
+        )
+        for scenario in scenarios
+    ]
+    return CostGridReport(name=spec.name, outcomes=tuple(outcomes))
+
+
+def write_cost_grid_report(report: CostGridReport, settings: DataSettings, experiment_id: str) -> Path:
+    """Persist the grid verdict under ``experiments/{name}_costs_{experiment_id}.json``.
+
+    Returns:
+        Path: The written UTF-8 JSON artifact.
+    """
+    payload = {
+        "name": report.name,
+        "experiment_id": experiment_id,
+        "all_scenarios_adopted": report.all_scenarios_adopted,
+        "scenarios": [
+            {
+                "id": outcome.scenario.id,
+                "commission_bps": outcome.scenario.commission_bps,
+                "fx_spread_bps": outcome.scenario.fx_spread_bps,
+                "process_adopted_vs_baseline": outcome.campaign.process_adopted_vs_baseline,
+                "fold_count": len(outcome.campaign.folds),
+                "folds": _fold_records(outcome.campaign.folds),
+            }
+            for outcome in report.outcomes
+        ],
+    }
+    experiments_dir = settings.resolved_data_root() / "experiments"
+    experiments_dir.mkdir(parents=True, exist_ok=True)
+    out_path = experiments_dir / f"{report.name}_costs_{experiment_id}.json"
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return out_path
