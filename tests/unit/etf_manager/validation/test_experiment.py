@@ -142,3 +142,22 @@ def test_exp_w1_fail_closed(
 
     with pytest.raises(ValueError, match=match):
         load_experiment_config(_write(tmp_path, payload))
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-WF-B-json-costs"])
+def test_exp_wf_b_json_costs(scenario_id: str, tmp_path: Path) -> None:
+    """EXP-WF-B-json-costs"""
+    defaults = load_experiment_config(_write(tmp_path, _payload()))
+    assert defaults.commission_bps == pytest.approx(0.0)
+    assert defaults.fx_spread_bps == pytest.approx(0.0)
+
+    payload = _payload()
+    payload.update(commission_bps=10, fx_spread_bps=20)
+    loaded = load_experiment_config(_write(tmp_path, payload))
+    assert loaded.commission_bps == pytest.approx(10.0)
+    assert loaded.fx_spread_bps == pytest.approx(20.0)
+
+    negative = _payload()
+    negative.update(commission_bps=-0.1)
+    with pytest.raises(ValueError, match="commission_bps"):
+        load_experiment_config(_write(tmp_path, negative))
