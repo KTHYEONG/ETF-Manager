@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from typing import Final
 
 import polars as pl
 import pytest
 
+import src.etf_manager.sim.allocation as allocation_module
 from src.etf_manager.data.calendar import load_calendar
 from src.etf_manager.data.pipeline import ingest
 from src.etf_manager.data.schema import Dataset, spec_for
 from src.etf_manager.policy.targets import PolicyId
-from src.etf_manager.sim.allocation import AllocationConfig, AllocationDataError, run_allocation
+from src.etf_manager.policy.tilt import FactorTilt
+from src.etf_manager.sim.allocation import AllocationConfig, AllocationDataError, AllocationResult, run_allocation
 from src.etf_manager.sim.baseline import BaselineConfig, BaselineId, run_baseline
 
 _CALENDAR = load_calendar("XNYS")
@@ -154,3 +157,93 @@ def test_sim_g06_buy_only_split(scenario_id: str) -> None:
     )
     with pytest.raises(AllocationDataError):
         run_allocation(_allocation_config(PolicyId.S2_REGIONAL), missing_vwo, fx, cpi)
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-H04-tilt-none-identity"])
+def test_sim_h04_tilt_none_identity(scenario_id: str) -> None:
+    """SIM-H04-tilt-none-identity"""
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, ("VT", "VTI", "VEA", "VWO")), Dataset.PRICES)
+    fx = ingest(_fx_panel(window), Dataset.FX)
+    cpi = _constant_cpi()
+
+    reference = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    with_factors_frame = run_allocation(
+        _allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi, factors=pl.DataFrame()
+    )
+    baseline = run_baseline(
+        BaselineConfig(
+            baseline=BaselineId.B0_GLOBAL,
+            ticker="VT",
+            start=_CONFIG_START,
+            end=_CONFIG_END,
+            monthly_contribution_krw=_CONTRIBUTION_KRW,
+        ),
+        prices,
+        fx,
+        cpi,
+    )
+
+    # A None tilt must reproduce the Phase 3 path exactly, factors frame or not.
+    assert with_factors_frame.terminal_wealth_krw == pytest.approx(reference.terminal_wealth_krw, rel=1e-6)
+    assert reference.terminal_wealth_krw == pytest.approx(baseline.terminal_wealth_krw, rel=1e-6)
+
+    tilted_config = replace(
+        _allocation_config(PolicyId.S2_REGIONAL),
+        tilt=FactorTilt(factor="hml", intensity=0.1),
+    )
+    with pytest.raises(ValueError, match="factors"):
+        run_allocation(tilted_config, prices, fx, cpi)
+
+
+def test_sim_h04_store_loads_factors_only_for_tilt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SIM-H04-tilt-none-identity"""
+    requested: list[Dataset] = []
+    loaded: list[Dataset] = []
+    captured: dict[str, object] = {}
+
+    def fake_latest(settings: object, dataset: Dataset) -> object:
+        requested.append(dataset)
+        return object()
+
+    def fake_visible(settings: object, dataset: Dataset, decision_ts: object) -> pl.DataFrame:
+        loaded.append(dataset)
+        return pl.DataFrame()
+
+    def fake_run(
+        config: AllocationConfig,
+        prices: pl.DataFrame,
+        fx: pl.DataFrame,
+        cpi: pl.DataFrame,
+        factors: pl.DataFrame | None = None,
+    ) -> AllocationResult:
+        captured["config"] = config
+        captured["factors"] = factors
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=1.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=0.8,
+            xirr_real=-0.1,
+        )
+
+    monkeypatch.setattr(allocation_module, "latest_artifact", fake_latest)
+    monkeypatch.setattr(allocation_module, "load_visible", fake_visible)
+    monkeypatch.setattr(allocation_module, "run_allocation", fake_run)
+
+    plain = allocation_module.run_allocation_from_store(_allocation_config(PolicyId.S0_GLOBAL), settings=object())  # type: ignore[arg-type]
+    assert plain.terminal_wealth_krw == 1.0
+    assert Dataset.FACTORS not in requested
+    assert Dataset.FACTORS not in loaded
+    assert captured["factors"] is None
+
+    requested.clear()
+    loaded.clear()
+    captured.clear()
+    tilted = replace(_allocation_config(PolicyId.S2_REGIONAL), tilt=FactorTilt(factor="hml", intensity=0.1))
+    allocation_module.run_allocation_from_store(tilted, settings=object())  # type: ignore[arg-type]
+    assert Dataset.FACTORS in requested
+    assert Dataset.FACTORS in loaded
+    assert isinstance(captured["factors"], pl.DataFrame)
