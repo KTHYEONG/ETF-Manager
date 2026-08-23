@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P4_FACTOR_TILT",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_P4_FACTOR_TILT",
+      "domain": "policy",
+      "title": "Phase 4: Ken French factors, OLS loadings, fixed tilt, attribution",
+      "why": "Phase 3 strategic weights lacked factor data, ETF regression, bounded fixed tilt, and ex-post attribution required by next.md Phase 4.",
+      "resolution": "Expanded Dataset.FACTORS to US 5F+Mom+rf, Ken French ZIP client and ingest factors CLI, PIT OLS loadings, long-only FactorTilt overlay on any PolicyId, tilt-aware run_allocation, and attribute_factor_returns reporting; tilt=None preserves Phase 3 identity.",
+      "impact": "Closes Phase 4 factor research path under I9; unblocks Phase 5 contribution rebalancing and Phase 6 overlays without factor timing."
+    },
+    {
       "task_id": "TASK_P3_STRATEGIC_ALLOCATION",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_P3_STRATEGIC_ALLOCATION",
