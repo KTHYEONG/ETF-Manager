@@ -382,3 +382,47 @@ def test_cli_h06_ingest_factors_and_tilt_flags(scenario_id: str, monkeypatch: py
     exit_code = main(base_argv)
     assert exit_code == 0
     assert captured[1].tilt is None
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-I05-rebalance-band-flag"])
+def test_cli_i05_rebalance_band_flag(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-I05-rebalance-band-flag"""
+    captured: list[AllocationConfig] = []
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        captured.append(config)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=2.5,
+            xirr=0.12,
+            max_drawdown=-0.05,
+            terminal_wealth_real_krw=2.0,
+            xirr_real=0.09,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+
+    base_argv = [
+        "run",
+        "policy",
+        "--id",
+        "s2_regional",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-01-31",
+        "--contribution-krw",
+        "1000000",
+    ]
+    assert main([*base_argv, "--rebalance-band", "0.05"]) == 0
+    assert len(captured) == 1
+    assert captured[0].rebalance_band == pytest.approx(0.05)
+
+    assert main(base_argv) == 0
+    assert len(captured) == 2
+    assert captured[1].rebalance_band is None
+
+    for invalid in ("-0.1", "1.0"):
+        assert main([*base_argv, "--rebalance-band", invalid]) == 1
+    assert len(captured) == 2
