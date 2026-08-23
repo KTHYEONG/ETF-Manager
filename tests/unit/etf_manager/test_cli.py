@@ -10,6 +10,8 @@ from src.etf_manager import cli
 from src.etf_manager.cli import main
 from src.etf_manager.data.providers.base import ProviderError
 from src.etf_manager.data.schema import Dataset
+from src.etf_manager.policy.targets import PolicyId
+from src.etf_manager.sim.allocation import AllocationConfig, AllocationDataError, AllocationResult
 from src.etf_manager.sim.baseline import BaselineConfig, BaselineId, BaselineResult
 
 
@@ -262,3 +264,55 @@ def test_cli_f04_baseline_real_log(scenario_id: str, monkeypatch: pytest.MonkeyP
         "1000000",
     ]
     assert main(argv) == 0
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-G07-run-policy"])
+def test_cli_g07_run_policy(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-G07-run-policy"""
+    captured: list[AllocationConfig] = []
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        captured.append(config)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=2.5,
+            xirr=0.12,
+            max_drawdown=-0.05,
+            terminal_wealth_real_krw=2.0,
+            xirr_real=0.09,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+
+    argv = [
+        "run",
+        "policy",
+        "--id",
+        "s2_regional",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-01-31",
+        "--contribution-krw",
+        "1000000",
+    ]
+    exit_code = main(argv)
+
+    assert exit_code == 0
+    assert len(captured) == 1
+    assert captured[0] == AllocationConfig(
+        policy=PolicyId.S2_REGIONAL,
+        start=date(2024, 1, 1),
+        end=date(2024, 1, 31),
+        monthly_contribution_krw=1000000.0,
+    )
+    assert main(
+        ["run", "policy", "--start", "2024-01-01", "--end", "2024-01-31", "--contribution-krw", "1"]
+    ) == 2
+
+    def failing_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        raise AllocationDataError("missing sleeve price")
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", failing_run)
+    assert main(argv) == 1
