@@ -247,3 +247,67 @@ def test_sim_h04_store_loads_factors_only_for_tilt(monkeypatch: pytest.MonkeyPat
     assert Dataset.FACTORS in requested
     assert Dataset.FACTORS in loaded
     assert isinstance(captured["factors"], pl.DataFrame)
+
+
+def _vti_rally_panel(days: tuple[date, ...]) -> pl.DataFrame:
+    """Constant 100 closes except VTI jumps to 400 from 2024-02-27 onward."""
+    spec = spec_for(Dataset.PRICES)
+    tickers: list[str] = []
+    dates: list[date] = []
+    closes: list[float] = []
+    for ticker in ("VTI", "VEA", "VWO"):
+        for day in days:
+            tickers.append(ticker)
+            dates.append(day)
+            closes.append(400.0 if ticker == "VTI" and day >= date(2024, 2, 27) else 100.0)
+    n = len(dates)
+    return pl.DataFrame(
+        {
+            "ticker": tickers,
+            "date": dates,
+            "open": [close * 0.98 for close in closes],
+            "high": [close * 1.02 for close in closes],
+            "low": [close * 0.97 for close in closes],
+            "close": closes,
+            "volume": [10_000] * n,
+            "adjusted_close": closes,
+            "dividend": [0.0] * n,
+            "split_factor": [1.0] * n,
+            "source": ["synthetic"] * n,
+            "retrieved_at": [_RETRIEVED_AT] * n,
+        },
+        schema=dict(spec.columns),
+    )
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-I04-allocation-band-path"])
+def test_sim_i04_allocation_band_path(scenario_id: str) -> None:
+    """SIM-I04-allocation-band-path"""
+    window = _panel_window()
+    prices = ingest(_vti_rally_panel(window), Dataset.PRICES)
+    fx = ingest(_fx_panel(window), Dataset.FX)
+    cpi = _constant_cpi()
+    sleeves = ("VTI", "VEA", "VWO")
+
+    banded = run_allocation(
+        replace(_allocation_config(PolicyId.S2_REGIONAL), rebalance_band=0.0), prices, fx, cpi
+    )
+    identity = run_allocation(
+        replace(_allocation_config(PolicyId.S2_REGIONAL), rebalance_band=None), prices, fx, cpi
+    )
+    default = run_allocation(_allocation_config(PolicyId.S2_REGIONAL), prices, fx, cpi)
+
+    # Explicit None must reproduce the Phase 3 spend path exactly.
+    assert identity.terminal_wealth_krw == pytest.approx(default.terminal_wealth_krw, rel=1e-6)
+
+    for result in (banded, identity):
+        for previous, current in zip(result.snapshots, result.snapshots[1:], strict=False):
+            for ticker in sleeves:
+                assert current.shares[ticker] >= previous.shares[ticker]
+
+    # By month 2 VTI is overweight beyond any band, so deficit-proportional mixing
+    # routes strictly more cash to each underweight sleeve than the target mix.
+    for ticker in ("VEA", "VWO"):
+        banded_buys = banded.snapshots[-1].shares[ticker] - banded.snapshots[0].shares[ticker]
+        identity_buys = identity.snapshots[-1].shares[ticker] - identity.snapshots[0].shares[ticker]
+        assert banded_buys > identity_buys > 0.0
