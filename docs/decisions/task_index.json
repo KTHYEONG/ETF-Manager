@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P5_CONTRIBUTION_OPTIMIZER",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_P5_CONTRIBUTION_OPTIMIZER",
+      "domain": "simulation",
+      "title": "Phase 5: Rebalance band + cost-aware buy-only contribution allocator",
+      "why": "Phase 3/4 split contributions by target weights only; drift was unbounded and commission_bps did not steer cash toward underweights.",
+      "resolution": "Added allocate_contribution with rebalance_band and cost-aware deficit scoring, wired run_allocation to spend via the mixer, AllocationConfig.rebalance_band, and CLI --rebalance-band; None preserves Phase 3/4 identity.",
+      "impact": "Closes Phase 5 buy-only rebalancing path under I5; unblocks Phase 6 bounded overlays without changing external cashflows."
+    },
+    {
       "task_id": "TASK_P4_FACTOR_TILT",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_P4_FACTOR_TILT",
