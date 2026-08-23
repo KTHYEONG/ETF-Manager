@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_P6_DYNAMIC_OVERLAY",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_P6_DYNAMIC_OVERLAY",
+      "domain": "policy",
+      "title": "Phase 6: Bounded dynamic overlay (trend / vol / drawdown / optional VIX)",
+      "why": "Phase 5 buy-only rebalancing had no time-varying bounded overlay after tilt; next.md Phase 6 requires trend, vol, drawdown, and optional VIX de-risk without selling or leverage.",
+      "resolution": "Added trailing_compound_return and trailing_price_drawdown (L2), OverlayConfig and apply_bounded_overlay (trend/vol/drawdown/VIX bounded scales), wired run_allocation to apply overlay after tilt before allocate_contribution with cash residual when sum(weights)<1, MACRO load when vix_threshold set, and CLI --overlay-max-shift / --vix-threshold; overlay=None preserves Phase 5 identity.",
+      "impact": "Closes Phase 6 bounded overlay path under I7 cash residual and buy-only I5; unblocks Phase 7 currency overlay and later contrarian challenger without changing external cashflows."
+    },
+    {
       "task_id": "TASK_P5_CONTRIBUTION_OPTIMIZER",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_P5_CONTRIBUTION_OPTIMIZER",
