@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WALKFORWARD_CAMPAIGN_A",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_WALKFORWARD_CAMPAIGN_A",
+      "domain": "validation",
+      "title": "Walk-Forward Adoption Campaign (S0 vs S1)",
+      "why": "Full-path S1 win may be hindsight; need train-only adoption then OOS test wealth compounding.",
+      "resolution": "Implemented run_walk_forward_adoption, write_campaign_report, CLI run walk-forward, ExperimentSpec train/test months.",
+      "impact": "Campaign A engine locks honest S0/S1 policy via process CE gate before overlays or extra sleeves."
+    },
+    {
       "task_id": "TASK_M2_US_CORE_VALUE",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_M2_US_CORE_VALUE",
