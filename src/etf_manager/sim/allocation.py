@@ -18,6 +18,7 @@ from src.etf_manager.data.schedule import build_decision_schedule
 from src.etf_manager.data.schema import Dataset
 from src.etf_manager.policy.targets import PolicyId, resolve_targets
 from src.etf_manager.policy.tilt import resolve_tilted_targets
+from src.etf_manager.sim.contribution import allocate_contribution
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -56,6 +57,7 @@ class AllocationConfig:
     fx_spread_bps: float = 0.0
     commission_bps: float = 0.0
     tilt: FactorTilt | None = None
+    rebalance_band: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,9 +135,25 @@ def run_allocation(
         cash_krw += contribution
         investable_krw = min(cash_krw, contribution)
         fx_gross = usdkrw * (1.0 + config.fx_spread_bps / _BPS)
+        marks_krw = {
+            ticker: float(shares_by_ticker.get(ticker, 0)) * _visible_close(prices, ticker, point.execution_session, close_ts) * usdkrw
+            for ticker in targets
+        }
+        nav_krw = sum(marks_krw.values()) + cash_usd * usdkrw + cash_krw
+        spend_weights = (
+            targets
+            if config.rebalance_band is None
+            else allocate_contribution(
+                targets=targets,
+                marks_krw=marks_krw,
+                nav_krw=nav_krw,
+                commission_bps=config.commission_bps,
+                rebalance_band=config.rebalance_band,
+            )
+        )
         fees_krw = 0.0
         position_value_usd = 0.0
-        for ticker, weight in targets.items():
+        for ticker, weight in spend_weights.items():
             price = _visible_close(prices, ticker, point.execution_session, close_ts)
             spend_usd = investable_krw * weight / fx_gross
             fee_usd = spend_usd * config.commission_bps / _BPS
