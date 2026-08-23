@@ -24,6 +24,8 @@ from src.etf_manager.data.secrets import load_provider_secrets
 from src.etf_manager.data.settings import DataSettings
 from src.etf_manager.data.storage import UntrustedDatasetError
 from src.etf_manager.etf.mapping import MappingConfig
+from src.etf_manager.execution.broker import replay_paper
+from src.etf_manager.execution.orders import ExecutionError, orders_from_snapshots
 from src.etf_manager.policy.currency import CurrencyConfig
 from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.targets import PolicyError, PolicyId, policy_sleeves
@@ -192,6 +194,11 @@ def _build_parser() -> _Parser:
         help="Moving-block bootstrap paths on cohort wealths; 0 disables",
     )
     validate.add_argument("--seed", type=int, default=None, help="Required when --bootstrap-paths > 0")
+    paper = run_targets.add_parser("paper", help="Replay a stored-data policy as paper buy orders")
+    paper.add_argument("--id", choices=tuple(str(member) for member in PolicyId), required=True)
+    paper.add_argument("--start", required=True, type=_iso_date)
+    paper.add_argument("--end", required=True, type=_iso_date)
+    paper.add_argument("--contribution-krw", required=True, type=float)
     return parser
 
 
@@ -318,6 +325,14 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             cohort_step_months=int(args.cohort_step_months),
             bootstrap_paths=int(args.bootstrap_paths),
             seed=args.seed,
+        )
+    if args.target == "paper":
+        return run_paper_command(
+            policy_id=str(args.id),
+            start=args.start,
+            end=args.end,
+            contribution_krw=float(args.contribution_krw),
+            settings=DataSettings(),
         )
     raise _UsageError(f"unsupported target {args.target!r}")
 
@@ -654,6 +669,47 @@ def run_validate_command(
         bootstrap_paths,
         bootstrap_mean,
         record.experiment_id,
+    )
+    return 0
+
+
+def run_paper_command(
+    *,
+    policy_id: str,
+    start: date,
+    end: date,
+    contribution_krw: float,
+    settings: DataSettings,
+) -> int:
+    """Replay a stored-data policy onto PaperBroker and fail closed on lot mismatch."""
+    config = AllocationConfig(
+        policy=PolicyId(policy_id),
+        start=start,
+        end=end,
+        monthly_contribution_krw=float(contribution_krw),
+        fill_delay_sessions=1,
+        commission_bps=0.0,
+    )
+    try:
+        result = run_allocation_from_store(config, settings)
+        replay_paper(result)
+        order_count = len(orders_from_snapshots(result.snapshots))
+    except (
+        AllocationDataError,
+        BaselineDataError,
+        ExecutionError,
+        PolicyError,
+        UntrustedDatasetError,
+        XirrError,
+        ValueError,
+    ) as exc:
+        logger.error("[DATA] event=paper_cli_failed reason=%s", exc)
+        return 1
+    logger.info(
+        "[DATA] event=paper_cli_done policy=%s orders=%d steps=%d",
+        str(config.policy),
+        order_count,
+        len(result.snapshots),
     )
     return 0
 
