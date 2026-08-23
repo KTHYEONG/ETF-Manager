@@ -649,6 +649,8 @@ def test_val_v05_cli_validate(scenario_id: str, monkeypatch: pytest.MonkeyPatch)
         "2024-12-31",
         "--contribution-krw",
         "1000000",
+        "--horizon-months",
+        "12",
     ]
 
     assert main(base_argv) == 0
@@ -773,3 +775,33 @@ def test_cli_w1_ablation_dispatch(
     assert captured[0].monthly_contribution_krw == pytest.approx(1_000_000.0)
 
     assert main(["run", "ablation"]) == 2
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-horizon-default-36"])
+def test_cli_horizon_default_36(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-horizon-default-36"""
+    captured: list[int] = []
+
+    def fake_validate(**kwargs: object) -> int:
+        captured.append(int(kwargs["horizon_months"]))
+        return 0
+
+    monkeypatch.setattr(cli, "run_validate_command", fake_validate)
+
+    argv = [
+        "run",
+        "validate",
+        "--id",
+        "s0_global",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-12-31",
+        "--contribution-krw",
+        "1000000",
+    ]
+    assert main(argv) == 0
+    assert captured[-1] == 36
+
+    assert main([*argv, "--horizon-months", "12"]) == 0
+    assert captured[-1] == 12
