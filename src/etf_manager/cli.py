@@ -101,6 +101,12 @@ def _build_parser() -> _Parser:
         default=None,
         help="Tilt strength in (0, 0.25] (requires --tilt-factor)",
     )
+    policy.add_argument(
+        "--rebalance-band",
+        type=float,
+        default=None,
+        help="Buy-only rebalance band in [0, 1); omit for Phase 3 mix",
+    )
     return parser
 
 
@@ -209,6 +215,7 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             contribution_krw=float(args.contribution_krw),
             settings=DataSettings(),
             tilt=tilt,
+            rebalance_band=args.rebalance_band,
         )
     raise _UsageError(f"unsupported target {args.target!r}")
 
@@ -357,8 +364,15 @@ def run_policy_command(
     contribution_krw: float,
     settings: DataSettings,
     tilt: FactorTilt | None = None,
+    rebalance_band: float | None = None,
 ) -> int:
-    """Run a stored-data strategic allocation and log terminal KRW / XIRR / MDD."""
+    """Run a stored-data strategic allocation and log terminal KRW / XIRR / MDD.
+
+    Raises:
+        ValueError: When ``rebalance_band`` is set and lies outside ``[0, 1)``.
+    """
+    if rebalance_band is not None and not 0.0 <= rebalance_band < 1.0:
+        raise ValueError(f"rebalance_band must lie in [0, 1), got {rebalance_band!r}")
     config = AllocationConfig(
         policy=PolicyId(policy_id),
         start=start,
@@ -367,6 +381,7 @@ def run_policy_command(
         fill_delay_sessions=1,
         commission_bps=0.0,
         tilt=tilt,
+        rebalance_band=rebalance_band,
     )
     try:
         result = run_allocation_from_store(config, settings)
