@@ -30,5 +30,8 @@
   "src/etf_manager/sim/contribution.py": {
     "architecture": "docs/architecture/00_system_overview.md",
     "testing": "tests/unit/etf_manager/sim/test_contribution.py"
+  },
+  "src/etf_manager/policy/overlay.py": {
+    "testing": "tests/unit/etf_manager/policy/test_overlay.py"
   }
 }
