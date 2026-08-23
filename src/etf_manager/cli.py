@@ -187,7 +187,7 @@ def _build_parser() -> _Parser:
     validate.add_argument("--contribution-krw", required=True, type=float)
     validate.add_argument("--delta0", type=float, default=0.02, help="Per-module complexity margin")
     validate.add_argument("--modules", type=int, default=0, help="Count of added signal/sleeve modules")
-    validate.add_argument("--horizon-months", type=int, default=12, help="Cohort horizon in calendar months")
+    validate.add_argument("--horizon-months", type=int, default=36, help="Cohort horizon in calendar months")
     validate.add_argument(
         "--cohort-step-months",
         type=int,
