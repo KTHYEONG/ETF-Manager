@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import shutil
+import subprocess
 from datetime import date
 from typing import TYPE_CHECKING, Final, NoReturn
 
@@ -37,6 +39,11 @@ from src.etf_manager.sim.baseline import (
     BaselineId,
     run_baseline_from_store,
 )
+from src.etf_manager.validation.bootstrap import moving_block_bootstrap
+from src.etf_manager.validation.evaluate import evaluate_cohort_wealths
+from src.etf_manager.validation.gate import adoption_passes, certainty_equivalent
+from src.etf_manager.validation.registry import make_experiment
+from src.etf_manager.validation.windows import rolling_cohorts
 
 if TYPE_CHECKING:
     import httpx
@@ -51,6 +58,8 @@ _SMOKE_TICKER: Final[str] = "VT"
 _SMOKE_FX_PROVIDER: Final[str] = "fred"
 _HISTORY_TICKERS: Final[tuple[str, ...]] = ("VT", "VTI")
 _HISTORY_FX_PROVIDER: Final[str] = "fred"
+_VALIDATE_GAMMAS: Final[tuple[float, ...]] = (2.0, 5.0, 10.0)
+_VALIDATE_BASELINE_TICKER: Final[str] = "VT"
 
 
 class _UsageError(Exception):
@@ -67,6 +76,23 @@ def _iso_date(text: str) -> date:
         return date.fromisoformat(text)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"invalid ISO date {text!r}") from exc
+
+
+def _resolve_git_commit() -> str:
+    """Current HEAD commit hash; an experiment record without lineage is useless."""
+    git_path = shutil.which("git")
+    if git_path is None:
+        raise ValueError("git executable unavailable")
+    completed = subprocess.run(  # noqa: S603
+        [git_path, "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    commit = completed.stdout.strip()
+    if completed.returncode != 0 or not commit:
+        raise ValueError("git commit hash unavailable")
+    return commit
 
 
 def _build_parser() -> _Parser:
@@ -145,6 +171,27 @@ def _build_parser() -> _Parser:
         default=None,
         help="Optional hysteresis min improvement in (0, 1] (requires --map-etf)",
     )
+    validate = run_targets.add_parser("validate", help="Cohort CE gate versus B0 on catalog partitions")
+    validate.add_argument("--id", choices=tuple(str(member) for member in PolicyId), required=True)
+    validate.add_argument("--start", required=True, type=_iso_date)
+    validate.add_argument("--end", required=True, type=_iso_date)
+    validate.add_argument("--contribution-krw", required=True, type=float)
+    validate.add_argument("--delta0", type=float, default=0.02, help="Per-module complexity margin")
+    validate.add_argument("--modules", type=int, default=0, help="Count of added signal/sleeve modules")
+    validate.add_argument("--horizon-months", type=int, default=12, help="Cohort horizon in calendar months")
+    validate.add_argument(
+        "--cohort-step-months",
+        type=int,
+        default=12,
+        help="Months between cohort start dates",
+    )
+    validate.add_argument(
+        "--bootstrap-paths",
+        type=int,
+        default=0,
+        help="Moving-block bootstrap paths on cohort wealths; 0 disables",
+    )
+    validate.add_argument("--seed", type=int, default=None, help="Required when --bootstrap-paths > 0")
     return parser
 
 
@@ -257,6 +304,20 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             overlay=_resolve_overlay(args.overlay_max_shift, args.vix_threshold),
             currency=_resolve_currency(args.fx_max_defer, args.fx_expensive_percentile),
             mapping=_resolve_mapping(bool(args.map_etf), args.map_min_improvement),
+        )
+    if args.target == "validate":
+        return run_validate_command(
+            policy_id=str(args.id),
+            start=args.start,
+            end=args.end,
+            contribution_krw=float(args.contribution_krw),
+            settings=DataSettings(),
+            delta0=float(args.delta0),
+            modules=int(args.modules),
+            horizon_months=int(args.horizon_months),
+            cohort_step_months=int(args.cohort_step_months),
+            bootstrap_paths=int(args.bootstrap_paths),
+            seed=args.seed,
         )
     raise _UsageError(f"unsupported target {args.target!r}")
 
@@ -485,6 +546,114 @@ def run_policy_command(
         result.xirr_real,
         len(policy_sleeves(config.policy)),
         len(result.snapshots),
+    )
+    return 0
+
+
+def run_validate_command(
+    *,
+    policy_id: str,
+    start: date,
+    end: date,
+    contribution_krw: float,
+    settings: DataSettings,
+    delta0: float,
+    modules: int,
+    horizon_months: int,
+    cohort_step_months: int,
+    bootstrap_paths: int,
+    seed: int | None,
+) -> int:
+    """Cohort CE adoption gate versus B0; optional seeded wealth-vector bootstrap.
+
+    Raises:
+        ValueError: When validation hyperparameters are invalid or lineage is unavailable.
+    """
+    if bootstrap_paths > 0 and seed is None:
+        raise _UsageError("--bootstrap-paths requires --seed")
+
+    template = AllocationConfig(
+        policy=PolicyId(policy_id),
+        start=start,
+        end=end,
+        monthly_contribution_krw=float(contribution_krw),
+        fill_delay_sessions=1,
+        commission_bps=0.0,
+    )
+    try:
+        cohorts = rolling_cohorts(start, end, horizon_months=horizon_months, step_months=cohort_step_months)
+        candidate_wealths = evaluate_cohort_wealths(
+            template,
+            cohorts,
+            lambda config: run_allocation_from_store(config, settings),
+        )
+        baseline_wealths = tuple(
+            run_baseline_from_store(
+                BaselineConfig(
+                    baseline=BaselineId.B0_GLOBAL,
+                    ticker=_VALIDATE_BASELINE_TICKER,
+                    start=cohort_start,
+                    end=cohort_end,
+                    monthly_contribution_krw=float(contribution_krw),
+                    fill_delay_sessions=1,
+                    commission_bps=0.0,
+                ),
+                settings,
+            ).terminal_wealth_real_krw
+            for cohort_start, cohort_end in cohorts
+        )
+        candidate_ce = {gamma: certainty_equivalent(candidate_wealths, gamma=gamma) for gamma in _VALIDATE_GAMMAS}
+        baseline_ce = {gamma: certainty_equivalent(baseline_wealths, gamma=gamma) for gamma in _VALIDATE_GAMMAS}
+        adopted = adoption_passes(candidate_ce, baseline_ce, delta0=delta0, modules=modules)
+        record = make_experiment(
+            config=template,
+            manifest_hash=latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
+            git_commit=_resolve_git_commit(),
+            seed=seed,
+            metrics={
+                **{f"ce_candidate_gamma_{int(gamma)}": value for gamma, value in candidate_ce.items()},
+                **{f"ce_baseline_gamma_{int(gamma)}": value for gamma, value in baseline_ce.items()},
+                "adopted": 1.0 if adopted else 0.0,
+                "cohorts": float(len(cohorts)),
+            },
+        )
+    except (
+        AllocationDataError,
+        BaselineDataError,
+        PolicyError,
+        UntrustedDatasetError,
+        XirrError,
+        ValueError,
+    ) as exc:
+        logger.error("[DATA] event=validate_cli_failed reason=%s", exc)
+        return 1
+
+    bootstrap_mean = 0.0
+    if bootstrap_paths > 0 and seed is not None:
+        # Half-window blocks keep roughly two independent draws per resampled path.
+        resampled = moving_block_bootstrap(
+            candidate_wealths,
+            block_size=max(1, len(candidate_wealths) // 2),
+            n_paths=bootstrap_paths,
+            seed=seed,
+        )
+        resampled_means = [sum(path) / len(path) for path in resampled]
+        bootstrap_mean = sum(resampled_means) / len(resampled_means)
+
+    ratios = {gamma: candidate_ce[gamma] / baseline_ce[gamma] for gamma in candidate_ce}
+    logger.info(
+        "[DATA] event=validate_cli_done policy=%s cohorts=%d adopted=%s"
+        " ratio_gamma_2=%.6f ratio_gamma_5=%.6f ratio_gamma_10=%.6f"
+        " bootstrap_paths=%d bootstrap_mean=%.6f experiment_id=%s",
+        str(template.policy),
+        len(cohorts),
+        adopted,
+        ratios[2.0],
+        ratios[5.0],
+        ratios[10.0],
+        bootstrap_paths,
+        bootstrap_mean,
+        record.experiment_id,
     )
     return 0
 
