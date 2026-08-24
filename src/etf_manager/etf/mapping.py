@@ -26,7 +26,7 @@ DEFAULT_CANDIDATES: Final[dict[str, tuple[str, ...]]] = {
     "TLT": ("TLT",),
 }
 
-__all__ = ["DEFAULT_CANDIDATES", "MappingConfig", "apply_etf_mapping"]
+__all__ = ["DEFAULT_CANDIDATES", "MappingConfig", "apply_etf_mapping", "mapping_implementation_tickers"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +47,14 @@ class MappingConfig:
     def __post_init__(self) -> None:
         if not 0.0 < self.min_improvement <= 1.0:
             raise ValueError(f"min_improvement must lie in (0, 1], got {self.min_improvement!r}")
+
+
+def mapping_implementation_tickers(
+    candidates: Mapping[str, tuple[str, ...]] | None = None,
+) -> tuple[str, ...]:
+    """Sorted union of every implementation ticker in a sleeve catalog."""
+    catalog = DEFAULT_CANDIDATES if candidates is None else candidates
+    return tuple(sorted({ticker for implementations in catalog.values() for ticker in implementations}))
 
 
 def _argmax_lexicographic(scores: Mapping[str, float]) -> str:

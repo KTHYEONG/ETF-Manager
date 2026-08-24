@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.etf_manager.etf.mapping import MappingConfig
 from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import PolicyId
@@ -15,9 +16,11 @@ from src.etf_manager.policy.targets import PolicyId
 __all__ = [
     "CandidateSpec",
     "ExperimentSpec",
+    "MappingSpec",
     "OverlaySpec",
     "ReserveSpec",
     "load_experiment_config",
+    "resolve_mapping",
     "resolve_overlay",
     "resolve_reserve",
 ]
@@ -84,6 +87,14 @@ class ReserveSpec(BaseModel):
         return _reconcile_canonical_key(data, canonical="withhold_cap", field="max_withhold")
 
 
+class MappingSpec(BaseModel):
+    """Implementation-mapping hysteresis parameters accepted in experiment JSON."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    min_improvement: float = Field(gt=0.0, le=1.0, default=0.02)
+
+
 class ExperimentSpec(BaseModel):
     """Frozen experiment contract: shared cashflow/window plus gated arms.
 
@@ -105,6 +116,7 @@ class ExperimentSpec(BaseModel):
     test_months: int | None = Field(default=None, ge=1)
     overlay: OverlaySpec | None = None
     reserve: ReserveSpec | None = None
+    mapping: MappingSpec | None = None
     baseline: CandidateSpec
     candidates: list[CandidateSpec] = Field(min_length=1)
 
@@ -129,6 +141,11 @@ class ExperimentSpec(BaseModel):
                 raise ValueError("overlay and reserve are mutually exclusive experiment modules")
             if any(candidate.modules < 1 for candidate in self.candidates):
                 raise ValueError("reserve requires every candidate.modules >= 1")
+        if self.mapping is not None:
+            if self.overlay is not None or self.reserve is not None:
+                raise ValueError("mapping cannot be combined with overlay or reserve experiment modules")
+            if any(candidate.modules < 1 for candidate in self.candidates):
+                raise ValueError("mapping requires every candidate.modules >= 1")
         seen: set[str] = set()
         for candidate in self.candidates:
             if candidate.id in seen:
@@ -149,6 +166,13 @@ def resolve_reserve(spec: ExperimentSpec) -> ReserveConfig | None:
     if spec.reserve is None:
         return None
     return ReserveConfig(max_withhold=spec.reserve.max_withhold)
+
+
+def resolve_mapping(spec: ExperimentSpec) -> MappingConfig | None:
+    """Map the JSON mapping onto the runtime config, keeping catalog defaults."""
+    if spec.mapping is None:
+        return None
+    return MappingConfig(min_improvement=spec.mapping.min_improvement)
 
 
 def load_experiment_config(path: str | Path) -> ExperimentSpec:

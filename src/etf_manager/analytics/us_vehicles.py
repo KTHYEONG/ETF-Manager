@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
+from src.etf_manager.etf.mapping import mapping_implementation_tickers
 from src.etf_manager.features.factors import estimate_factor_loadings
 from src.etf_manager.policy.targets import all_policy_tickers
 from src.etf_manager.sim.baseline import BaselineConfig, BaselineResult, run_baseline
@@ -52,8 +53,10 @@ def diagnostic_price_tickers() -> tuple[str, ...]:
 
 
 def history_price_tickers() -> tuple[str, ...]:
-    """Sorted union of policy sleeves and diagnostic vehicles for history ingest."""
-    return tuple(sorted({*all_policy_tickers(), *diagnostic_price_tickers()}))
+    """Sorted union of policy sleeves, mapping implementations, and diagnostics for history ingest."""
+    return tuple(
+        sorted({*all_policy_tickers(), *diagnostic_price_tickers(), *mapping_implementation_tickers()})
+    )
 
 
 def profile_us_vehicles(

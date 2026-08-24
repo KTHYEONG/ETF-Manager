@@ -9,7 +9,12 @@ from typing import TYPE_CHECKING, Final
 
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.sim.allocation import AllocationConfig
-from src.etf_manager.validation.experiment import ExperimentSpec, resolve_overlay, resolve_reserve
+from src.etf_manager.validation.experiment import (
+    ExperimentSpec,
+    resolve_mapping,
+    resolve_overlay,
+    resolve_reserve,
+)
 from src.etf_manager.validation.gate import adoption_passes, certainty_equivalent
 from src.etf_manager.validation.windows import walk_forward_windows
 
@@ -18,6 +23,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from src.etf_manager.data.settings import DataSettings
+    from src.etf_manager.etf.mapping import MappingConfig
     from src.etf_manager.policy.overlay import OverlayConfig
     from src.etf_manager.policy.reserve import ReserveConfig
     from src.etf_manager.sim.allocation import AllocationResult
@@ -116,6 +122,7 @@ def _arm_config(
     end: date,
     overlay: OverlayConfig | None,
     reserve: ReserveConfig | None,
+    mapping: MappingConfig | None,
 ) -> AllocationConfig:
     """Identical cashflow/costs for every arm on one sliced window."""
     return AllocationConfig(
@@ -131,7 +138,7 @@ def _arm_config(
         overlay=overlay,
         reserve=reserve,
         currency=None,
-        mapping=None,
+        mapping=mapping,
     )
 
 
@@ -148,10 +155,10 @@ def run_walk_forward_adoption(
 
     The runner is called once per arm per phase (baseline then candidate on train;
     baseline, candidate, and chosen on test — chosen re-runs even when it repeats
-    another arm); ``spec`` is never mutated. Baseline arms stay un-overlayed and
-    un-reserved; candidate arms carry ``resolve_overlay(spec)`` and
-    ``resolve_reserve(spec)``, and the chosen test arm keeps them only when the fold
-    adopted on train.
+    another arm); ``spec`` is never mutated. Baseline arms stay un-overlayed,
+    un-reserved, and unmapped; candidate arms carry ``resolve_overlay(spec)``,
+    ``resolve_reserve(spec)``, and ``resolve_mapping(spec)``, and the chosen test
+    arm keeps them only when the fold adopted on train.
 
     Raises:
         ValueError: When train/test months are absent, the candidate count is not
@@ -172,6 +179,7 @@ def run_walk_forward_adoption(
         raise ValueError("no walk-forward folds fit the experiment window")
     candidate_overlay = resolve_overlay(spec)
     candidate_reserve = resolve_reserve(spec)
+    candidate_mapping = resolve_mapping(spec)
 
     def real_wealth(
         policy: PolicyId,
@@ -179,9 +187,10 @@ def run_walk_forward_adoption(
         end: date,
         arm_overlay: OverlayConfig | None,
         arm_reserve: ReserveConfig | None,
+        arm_mapping: MappingConfig | None,
     ) -> float:
         return runner(
-            _arm_config(spec, policy, start, end, arm_overlay, arm_reserve)
+            _arm_config(spec, policy, start, end, arm_overlay, arm_reserve, arm_mapping)
         ).terminal_wealth_real_krw
 
     folds: list[FoldOutcome] = []
@@ -189,9 +198,9 @@ def run_walk_forward_adoption(
     candidate_wealths: list[float] = []
     chosen_wealths: list[float] = []
     for train_start, train_end, test_start, test_end in windows:
-        baseline_train = real_wealth(spec.baseline.policy, train_start, train_end, None, None)
+        baseline_train = real_wealth(spec.baseline.policy, train_start, train_end, None, None, None)
         candidate_train = real_wealth(
-            candidate.policy, train_start, train_end, candidate_overlay, candidate_reserve
+            candidate.policy, train_start, train_end, candidate_overlay, candidate_reserve, candidate_mapping
         )
         train_adopted = adoption_passes(
             _singleton_ce(candidate_train),
@@ -200,12 +209,14 @@ def run_walk_forward_adoption(
             modules=candidate.modules,
         )
         chosen_policy = candidate.policy if train_adopted else spec.baseline.policy
-        keep_modules = (candidate_overlay, candidate_reserve) if train_adopted else (None, None)
-        baseline_test = real_wealth(spec.baseline.policy, test_start, test_end, None, None)
-        candidate_test = real_wealth(
-            candidate.policy, test_start, test_end, candidate_overlay, candidate_reserve
+        keep_extras = (
+            (candidate_overlay, candidate_reserve, candidate_mapping) if train_adopted else (None, None, None)
         )
-        chosen_test = real_wealth(chosen_policy, test_start, test_end, *keep_modules)
+        baseline_test = real_wealth(spec.baseline.policy, test_start, test_end, None, None, None)
+        candidate_test = real_wealth(
+            candidate.policy, test_start, test_end, candidate_overlay, candidate_reserve, candidate_mapping
+        )
+        chosen_test = real_wealth(chosen_policy, test_start, test_end, *keep_extras)
         folds.append(
             FoldOutcome(
                 train_start=train_start,
@@ -253,9 +264,10 @@ def run_walk_forward_proxy_adoption(
     ``spec`` is never mutated.
 
     Raises:
-        ValueError: When train/test months are absent, an overlay or reserve spec is
-            set, the candidate is not exactly one R1_US_MKT_FF policy, the baseline
-            itself is the proxy identity, or any transaction cost is nonzero.
+        ValueError: When train/test months are absent, an overlay, reserve, or
+            mapping spec is set, the candidate is not exactly one R1_US_MKT_FF
+            policy, the baseline itself is the proxy identity, or any transaction
+            cost is nonzero.
     """
     if spec.train_months is None or spec.test_months is None:
         raise ValueError("walk-forward proxy adoption requires both train_months and test_months")
@@ -263,6 +275,8 @@ def run_walk_forward_proxy_adoption(
         raise ValueError("walk-forward proxy adoption does not support overlay specs")
     if spec.reserve is not None:
         raise ValueError("walk-forward proxy adoption does not support reserve specs")
+    if spec.mapping is not None:
+        raise ValueError("walk-forward proxy adoption does not support mapping specs")
     if len(spec.candidates) != 1:
         raise ValueError(f"expected exactly one candidate, got {len(spec.candidates)}")
     candidate = spec.candidates[0]

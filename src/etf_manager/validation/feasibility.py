@@ -16,14 +16,19 @@ from src.etf_manager.data.pit import AVAILABLE_AT, TS_DTYPE
 from src.etf_manager.data.query import load_as_of
 from src.etf_manager.data.schedule import DecisionPoint, build_decision_schedule
 from src.etf_manager.data.schema import Dataset
+from src.etf_manager.data.storage import UntrustedDatasetError
+from src.etf_manager.etf.mapping import (
+    MappingConfig,
+    apply_etf_mapping,
+)
 from src.etf_manager.features.drawdown import trailing_price_drawdown
 from src.etf_manager.features.momentum import trailing_compound_return
 from src.etf_manager.features.returns import session_returns
 from src.etf_manager.features.risk import trailing_simple_vol
 from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.reserve import ReserveConfig
-from src.etf_manager.policy.targets import PolicyId, policy_sleeves
-from src.etf_manager.validation.experiment import resolve_overlay, resolve_reserve
+from src.etf_manager.policy.targets import PolicyError, PolicyId, policy_sleeves
+from src.etf_manager.validation.experiment import resolve_mapping, resolve_overlay, resolve_reserve
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -104,14 +109,18 @@ def resolve_feasibility(
     overlay_policies: tuple[PolicyId, ...],
     settings: DataSettings,
     reserve: ReserveConfig | None = None,
+    mapping: MappingConfig | None = None,
+    mapping_policies: tuple[PolicyId, ...] = (),
 ) -> FeasibilityReport:
     """Check that the requested window can trade without lookahead or data gaps.
 
-    Loads PRICES/FX/CPI (plus MACRO only for a VIX-gated overlay) once at the
-    requested schedule's last execution close — the allocator's own visibility
-    cutoff — then evaluates CPI visibility, first/last execution marks, and
-    the exact overlay feature stack at the first signal instant. No allocation
-    logic runs here and no input date is ever clamped.
+    Loads PRICES/FX/CPI (plus MACRO only for a VIX-gated overlay and
+    ETF_METADATA only for mapping) once at the requested schedule's last
+    execution close — the allocator's own visibility cutoff — then evaluates CPI
+    visibility, first/last execution marks (plus mapped implementations), the
+    exact overlay feature stack at the first signal instant, and a full
+    ``apply_etf_mapping`` dry run at that instant. No allocation logic runs here
+    and no input date is ever clamped.
 
     Raises:
         UntrustedDatasetError: When any required catalog partition fails its
@@ -141,8 +150,26 @@ def resolve_feasibility(
         cpi = load_visible(settings, Dataset.CPI, last_exec_close)
         need_macro = overlay is not None and overlay.vix_threshold is not None
         macro = load_visible(settings, Dataset.MACRO, last_exec_close) if need_macro else None
+        metadata: pl.DataFrame | None = None
+        if mapping is not None:
+            try:
+                metadata = load_visible(settings, Dataset.ETF_METADATA, last_exec_close)
+            except UntrustedDatasetError as exc:
+                violations.append(
+                    FeasibilityViolation(
+                        code="etf_metadata",
+                        message=f"ETF_METADATA catalog unavailable for mapping preflight: {exc}",
+                    )
+                )
         mark_tickers = _union_sleeves(mark_policies)
         overlay_tickers = _union_sleeves(overlay_policies)
+        if mapping is not None:
+            known = set(mark_tickers)
+            mapped_choices: dict[str, None] = {}
+            for sleeve in _union_sleeves(mapping_policies):
+                for ticker in mapping.candidates.get(sleeve, ()):
+                    mapped_choices.setdefault(ticker)
+            mark_tickers = (*mark_tickers, *(ticker for ticker in mapped_choices if ticker not in known))
 
         cpi_violation = _cpi_violation(cpi, first_exec_close)
         if cpi_violation is not None:
@@ -163,6 +190,13 @@ def resolve_feasibility(
                 vix_violation = _vix_violation(macro, overlay, first_point.signal_at)
                 if vix_violation is not None:
                     violations.append(vix_violation)
+
+        if mapping is not None and metadata is not None:
+            mapping_violation = _mapping_warmup_violation(
+                prices, metadata, mapping, _union_sleeves(mapping_policies), first_point.signal_at
+            )
+            if mapping_violation is not None:
+                violations.append(mapping_violation)
 
         # Informational only: never assigned back to spec.start or any config.
         ingest_recommended_start = (
@@ -211,6 +245,8 @@ def require_feasibility(
     overlay_policies: tuple[PolicyId, ...],
     settings: DataSettings,
     reserve: ReserveConfig | None = None,
+    mapping: MappingConfig | None = None,
+    mapping_policies: tuple[PolicyId, ...] = (),
 ) -> FeasibilityReport:
     """Resolve feasibility and fail closed with every violation code when blocked.
 
@@ -227,6 +263,8 @@ def require_feasibility(
         overlay_policies=overlay_policies,
         settings=settings,
         reserve=reserve,
+        mapping=mapping,
+        mapping_policies=mapping_policies,
     )
     if report.violations:
         codes = ", ".join(violation.code for violation in report.violations)
@@ -238,8 +276,8 @@ def assert_experiment_feasible(spec: ExperimentSpec, settings: DataSettings) -> 
     """Preflight an experiment JSON exactly as its arms would run.
 
     Mirrors the ablation/campaign arm configs (``fill_delay_sessions == 1``,
-    baseline plus candidate marks, candidate-only overlay sleeves); the spec is
-    never mutated.
+    baseline plus candidate marks, candidate-only overlay and mapping sleeves);
+    the spec is never mutated.
 
     Raises:
         FeasibilityError: When the experiment window cannot execute.
@@ -247,6 +285,7 @@ def assert_experiment_feasible(spec: ExperimentSpec, settings: DataSettings) -> 
     """
     overlay = resolve_overlay(spec)
     reserve = resolve_reserve(spec)
+    mapping = resolve_mapping(spec)
     return require_feasibility(
         start=spec.start,
         end=spec.end,
@@ -256,6 +295,8 @@ def assert_experiment_feasible(spec: ExperimentSpec, settings: DataSettings) -> 
         overlay_policies=tuple(candidate.policy for candidate in spec.candidates) if overlay is not None else (),
         settings=settings,
         reserve=reserve,
+        mapping=mapping,
+        mapping_policies=tuple(candidate.policy for candidate in spec.candidates) if mapping is not None else (),
     )
 
 
@@ -329,6 +370,28 @@ def _overlay_warmup_violation(
             return FeasibilityViolation(
                 code="overlay_warmup", message=f"overlay history insufficient for {ticker!r}: {exc}"
             )
+    return None
+
+
+def _mapping_warmup_violation(
+    prices: pl.DataFrame,
+    metadata: pl.DataFrame,
+    mapping: MappingConfig,
+    sleeves: tuple[str, ...],
+    signal_at: datetime,
+) -> FeasibilityViolation | None:
+    """Run the exact mapping stack on equal sleeve weights at the first signal."""
+    if not sleeves:
+        return FeasibilityViolation(
+            code="mapping_warmup", message="mapping arms own no sleeve tickers to map at the signal instant"
+        )
+    targets = dict.fromkeys(sleeves, 1.0 / len(sleeves))
+    try:
+        apply_etf_mapping(targets, prices, metadata, signal_at, mapping, {})
+    except (PolicyError, ValueError) as exc:
+        return FeasibilityViolation(
+            code="mapping_warmup", message=f"ETF mapping failed closed at the first signal: {exc}"
+        )
     return None
 
 
