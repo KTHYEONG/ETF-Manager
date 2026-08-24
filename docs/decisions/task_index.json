@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_K_S1_CURRENCY",
+      "date": "2026-08-24",
+      "adr_id": "ADR_20260824_WAVE_K_S1_CURRENCY",
+      "domain": "validation",
+      "title": "Wave K: S1 FX defer walk-forward CE gate (friction path step 3)",
+      "why": "S1 compounding lever after overlay/reserve failure is friction (mapping, costs, FX defer). conversion_fraction and CLI --fx-max-defer existed but ExperimentSpec and ablation/campaign hard-coded currency=None, blocking CE adoption for bounded KRW→USD defer under I5.",
+      "resolution": "Added CurrencySpec and resolve_currency, ExperimentSpec.currency XOR overlay/reserve/mapping, candidate-only currency wiring in ablation/campaign, proxy rejection, currency_warmup feasibility and policy CLI preflight for currency/mapping, wf_s1_currency.json, and EXP-K-/ABL-K-/WF-K-/FEAS-K-/CLI-K- contract tests.",
+      "impact": "Enables walk-forward and walk-forward-costs CE gate for S1 vs S1+FX defer under identical external cashflow; mapping and cost-grid paths remain separate experiments; operational S1 lock unchanged until process_adopted_vs_baseline passes."
+    },
+    {
       "task_id": "WAVE_J_S1_MAPPING",
       "date": "2026-08-24",
       "adr_id": "ADR_20260824_WAVE_J_S1_MAPPING",
