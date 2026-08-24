@@ -284,3 +284,20 @@ def test_sim_f02_real_deflator() -> None:
     not_yet_published = ingest(_cpi_panel({date(2024, 2, 20): 125.0}), Dataset.CPI)
     with pytest.raises(BaselineDataError):
         run_baseline(_config("AAA", _CONFIG_START, _CONFIG_END), prices, fx, not_yet_published)
+
+
+@pytest.mark.parametrize("scenario_id", ["BASE-I06-recycle-usd-dust"])
+def test_base_i06_recycle_usd_dust(scenario_id: str) -> None:
+    """BASE-I06-recycle-usd-dust"""
+    window = _sessions(date(2023, 1, 3), date(2024, 2, 28))
+    prices = ingest(_prices_panel(window, {"AAA": {}}, default_close=300.0), Dataset.PRICES)
+    fx = ingest(_fx_panel(window, {}), Dataset.FX)
+
+    result = run_baseline(_config("AAA", date(2023, 1, 17), date(2024, 2, 26)), prices, fx, ingest(_cpi_panel({date(2022, 11, 1): 100.0}), Dataset.CPI))
+
+    assert len(result.snapshots) >= 10
+    first, last = result.snapshots[0], result.snapshots[-1]
+    assert 0.0 <= last.cash_usd < 300.0
+    assert last.shares >= first.shares
+    identity = last.shares * 300.0 * 1300.0 + last.cash_usd * 1300.0 + last.cash_krw
+    assert last.mark_krw == pytest.approx(identity, rel=1e-6)
