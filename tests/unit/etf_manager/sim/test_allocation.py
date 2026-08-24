@@ -640,3 +640,51 @@ def test_exe_x03_replay_identity(scenario_id: str) -> None:
     assert isinstance(book, PaperBroker)
     assert book.position("VT") == int(result.snapshots[-1].shares["VT"])
     reconcile(book, result.snapshots[-1])
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-I06-recycle-usd-dust"])
+def test_sim_i06_recycle_usd_dust(scenario_id: str) -> None:
+    """SIM-I06-recycle-usd-dust"""
+    days = _CALENDAR.sessions(_LONG_PANEL_START, date(2024, 2, 29))
+    prices = ingest(_long_rising_panel(days), Dataset.PRICES)
+    fx = ingest(_fx_panel(days), Dataset.FX)
+    cpi = ingest(
+        pl.DataFrame(
+            {
+                "period_end": [date(2022, 11, 1)],
+                "value": [100.0],
+                "source": ["synthetic"],
+                "retrieved_at": [_RETRIEVED_AT],
+            },
+            schema=dict(spec_for(Dataset.CPI).columns),
+        ),
+        Dataset.CPI,
+    )
+    config = AllocationConfig(
+        policy=PolicyId.S1_US,
+        start=date(2023, 1, 17),
+        end=date(2024, 2, 26),
+        monthly_contribution_krw=_CONTRIBUTION_KRW,
+    )
+
+    result = run_allocation(config, prices, fx, cpi)
+
+    assert len(result.snapshots) >= 10
+    for snapshot in result.snapshots:
+        assert snapshot.contribution_krw == pytest.approx(_CONTRIBUTION_KRW)
+    for previous, current in zip(result.snapshots, result.snapshots[1:], strict=False):
+        assert current.shares["VTI"] >= previous.shares["VTI"]
+    last = result.snapshots[-1]
+    last_price = float(
+        prices.filter(
+            (pl.col("ticker") == "VTI") & (pl.col("date") == last.session)
+        ).item(0, "adjusted_close")
+    )
+    assert 0.0 <= last.cash_usd < last_price
+    expected_mark = (
+        last.shares["VTI"] * last_price * 1300.0
+        + last.cash_usd * 1300.0
+        + last.cash_krw
+        + last.reserve_krw
+    )
+    assert last.mark_krw == pytest.approx(expected_mark, rel=1e-6)
