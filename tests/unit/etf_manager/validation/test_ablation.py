@@ -10,6 +10,7 @@ from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.sim.allocation import AllocationConfig, AllocationResult
 from src.etf_manager.validation.ablation import run_ablation
 from src.etf_manager.validation.experiment import (
+    CadenceSpec,
     CandidateSpec,
     CurrencySpec,
     ExperimentSpec,
@@ -264,3 +265,36 @@ def test_abl_k_currency_candidate_only(scenario_id: str) -> None:
     plain_runner = _runner()
     run_ablation(_spec(modules=1), plain_runner)
     assert all(config.currency is None for config in plain_runner.configs)
+
+
+@pytest.mark.parametrize("scenario_id", ["ABL-L-cadence-candidate"])
+def test_abl_l_cadence_candidate(scenario_id: str) -> None:
+    """ABL-L-cadence-candidate"""
+    spec = ExperimentSpec(
+        name="abl_l_cadence",
+        start=_WINDOW[0],
+        end=_WINDOW[1],
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        cadence=CadenceSpec(anchor="month_open"),
+        baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
+        candidates=[CandidateSpec(id="s1_us_month_open", policy="s1_us", modules=1)],
+    )
+    runner = _RecordingRunner({PolicyId.S1_US: 120.0})
+
+    run_ablation(spec, runner)
+
+    assert len(runner.configs) == 2
+    baseline_config, candidate_config = runner.configs
+    assert baseline_config.cadence == "monthly"
+    assert candidate_config.cadence == "month_open"
+    for config in (baseline_config, candidate_config):
+        # Identical cashflow once per calendar month; no other module rides along.
+        assert config.overlay is None
+        assert config.reserve is None
+        assert config.mapping is None
+        assert config.currency is None
+        assert (config.start, config.end) == _WINDOW
+        assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
+        assert config.fill_delay_sessions == 1

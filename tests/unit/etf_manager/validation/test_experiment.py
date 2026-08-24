@@ -14,8 +14,10 @@ from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.validation.experiment import (
+    CadenceSpec,
     ExperimentSpec,
     load_experiment_config,
+    resolve_cadence,
     resolve_currency,
     resolve_mapping,
     resolve_overlay,
@@ -520,3 +522,48 @@ def test_exp_k_currency_json(scenario_id: str) -> None:
     unknown_key["currency"] = {"max_defer": 0.10, "bogus": True}
     with pytest.raises(ValueError, match="bogus"):
         ExperimentSpec.model_validate(unknown_key)
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-L-cadence-json"])
+def test_exp_l_cadence_json(scenario_id: str) -> None:
+    """EXP-L-cadence-json"""
+    spec = load_experiment_config("configs/experiments/wf_s1_cadence.json")
+
+    assert spec.cadence is not None
+    assert spec.cadence.anchor == "month_open"
+    assert resolve_cadence(spec) == "month_open"
+    assert spec.contribution_krw == pytest.approx(1_000_000.0)
+    assert spec.delta0 == pytest.approx(0.02)
+    assert spec.train_months == 60
+    assert spec.test_months == 36
+    assert spec.start == date(2014, 1, 3)
+    assert spec.end == date(2024, 9, 30)
+    assert spec.baseline.id == "s1_us"
+    assert spec.baseline.policy is PolicyId.S1_US
+    assert spec.baseline.modules == 0
+    assert [candidate.id for candidate in spec.candidates] == ["s1_us_month_open"]
+    assert [candidate.modules for candidate in spec.candidates] == [1]
+    assert spec.overlay is None
+    assert spec.reserve is None
+    assert spec.mapping is None
+    assert spec.currency is None
+
+    omitted = ExperimentSpec.model_validate(_payload())
+    assert omitted.cadence is None
+    assert resolve_cadence(omitted) is None
+
+    overlay_and_cadence = _payload()
+    overlay_and_cadence["overlay"] = {"max_shift": 0.10}
+    overlay_and_cadence["cadence"] = {"anchor": "month_open"}
+    with pytest.raises(ValueError, match="cadence"):
+        ExperimentSpec.model_validate(overlay_and_cadence)
+
+    zero_modules = _payload()
+    zero_modules["cadence"] = {"anchor": "month_open"}
+    for candidate in zero_modules["candidates"]:  # type: ignore[union-attr]
+        candidate["modules"] = 0
+    with pytest.raises(ValueError, match="modules"):
+        ExperimentSpec.model_validate(zero_modules)
+
+    with pytest.raises(ValueError, match="anchor"):
+        CadenceSpec(anchor="month_end")
