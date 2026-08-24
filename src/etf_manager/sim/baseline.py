@@ -6,7 +6,6 @@ import logging
 import math
 from dataclasses import dataclass
 from datetime import date
-from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 import polars as pl
@@ -17,6 +16,7 @@ from src.etf_manager.data.catalog import latest_artifact, load_visible
 from src.etf_manager.data.query import load_as_of
 from src.etf_manager.data.schedule import build_decision_schedule
 from src.etf_manager.data.schema import Dataset
+from src.etf_manager.policy.targets import BASELINE_ALIASES, BaselineId
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 _BPS: Final[float] = 10_000.0
 
 __all__ = [
+    "BASELINE_ALIASES",
     "BaselineConfig",
     "BaselineDataError",
     "BaselineId",
@@ -36,13 +37,6 @@ __all__ = [
     "run_baseline",
     "run_baseline_from_store",
 ]
-
-
-class BaselineId(StrEnum):
-    """Named one-ticker accumulation policies; weights live only in config."""
-
-    B0_GLOBAL = "b0_global"
-    B1_US = "b1_us"
 
 
 @dataclass(frozen=True, slots=True)

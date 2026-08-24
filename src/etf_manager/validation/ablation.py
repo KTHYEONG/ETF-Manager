@@ -8,13 +8,14 @@ from typing import TYPE_CHECKING, Final
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.sim.allocation import AllocationConfig
 from src.etf_manager.validation.evaluate import evaluate_cohort_wealths
-from src.etf_manager.validation.experiment import CandidateSpec, ExperimentSpec
+from src.etf_manager.validation.experiment import CandidateSpec, ExperimentSpec, resolve_overlay
 from src.etf_manager.validation.gate import adoption_passes, certainty_equivalent
 from src.etf_manager.validation.windows import rolling_cohorts
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from src.etf_manager.policy.overlay import OverlayConfig
     from src.etf_manager.sim.allocation import AllocationResult
 
 __all__ = ["AblationReport", "AblationRow", "run_ablation"]
@@ -47,8 +48,8 @@ class AblationReport:
     rows: tuple[AblationRow, ...]
 
 
-def _arm_config(spec: ExperimentSpec, policy: PolicyId) -> AllocationConfig:
-    """Identical cashflow/window/costs for every arm; only ``policy`` differs."""
+def _arm_config(spec: ExperimentSpec, policy: PolicyId, *, overlay: OverlayConfig | None) -> AllocationConfig:
+    """Identical cashflow/window/costs for every arm; only policy and overlay differ."""
     return AllocationConfig(
         policy=policy,
         start=spec.start,
@@ -59,7 +60,7 @@ def _arm_config(spec: ExperimentSpec, policy: PolicyId) -> AllocationConfig:
         commission_bps=0.0,
         tilt=None,
         rebalance_band=None,
-        overlay=None,
+        overlay=overlay,
         currency=None,
         mapping=None,
     )
@@ -89,7 +90,7 @@ def _gated_row(
     runner: Callable[[AllocationConfig], AllocationResult],
 ) -> AblationRow:
     """Simulate one candidate and apply the delta0*modules adoption gate."""
-    config = _arm_config(spec, candidate.policy)
+    config = _arm_config(spec, candidate.policy, overlay=resolve_overlay(spec))
     wealths = _wealth_vector(spec, config, runner)
     ce = {gamma: certainty_equivalent(wealths, gamma=gamma) for gamma in _CE_GAMMAS}
     ce_ratio = {gamma: ce[gamma] / baseline_ce[gamma] for gamma in _CE_GAMMAS}
@@ -117,7 +118,7 @@ def run_ablation(
     Raises:
         ValueError: When any wealth vector is empty or non-positive.
     """
-    baseline_config = _arm_config(spec, spec.baseline.policy)
+    baseline_config = _arm_config(spec, spec.baseline.policy, overlay=None)
     baseline_wealths = _wealth_vector(spec, baseline_config, runner)
     baseline_ce = {
         gamma: certainty_equivalent(baseline_wealths, gamma=gamma) for gamma in _CE_GAMMAS

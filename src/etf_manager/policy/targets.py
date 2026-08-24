@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
@@ -14,7 +15,10 @@ if TYPE_CHECKING:
     import polars as pl
 
 __all__ = [
+    "BASELINE_ALIASES",
+    "POLICY_ALIASES",
     "UNIVERSE_VEHICLE",
+    "BaselineId",
     "PolicyError",
     "PolicyId",
     "UsEquityUniverse",
@@ -27,16 +31,62 @@ __all__ = [
 class PolicyId(StrEnum):
     """Named strategic policies; static maps plus one inverse-vol rule."""
 
-    S0_GLOBAL = "s0_global"
-    S1_US = "s1_us"
-    S2_REGIONAL = "s2_regional"
-    S3_GLOBAL_BOND = "s3_global_bond"
-    S4_DEFENSIVE = "s4_defensive"
-    S5_INVVOL = "s5_invvol"
-    S6_US_CORE_VALUE = "s6_us_core_value"
-    S7_US_LARGE_CAP = "s7_us_large_cap"
+    S0_GLOBAL = "global"
+    S1_US = "us"
+    S2_REGIONAL = "regional"
+    S3_GLOBAL_BOND = "global_bond"
+    S4_DEFENSIVE = "defensive"
+    S5_INVVOL = "inv_vol"
+    S6_US_CORE_VALUE = "us_value"
+    S7_US_LARGE_CAP = "us_large"
     # Campaign identity only: never resolvable into ETF sleeve targets.
-    R1_US_MKT_FF = "r1_us_mkt_ff"
+    R1_US_MKT_FF = "us_ff"
+
+    @classmethod
+    def parse(cls, value: object) -> PolicyId:
+        """Resolve a canonical or legacy policy string to its member; unknown fails closed."""
+        key = value if isinstance(value, PolicyId) else str(value)
+        if key in POLICY_ALIASES:
+            return POLICY_ALIASES[key]
+        raise ValueError(f"unknown policy {value!r}")
+
+
+POLICY_ALIASES: Final[Mapping[str, PolicyId]] = {
+    member.value: member for member in PolicyId
+} | {
+    "s0_global": PolicyId.S0_GLOBAL,
+    "s1_us": PolicyId.S1_US,
+    "s2_regional": PolicyId.S2_REGIONAL,
+    "s3_global_bond": PolicyId.S3_GLOBAL_BOND,
+    "s4_defensive": PolicyId.S4_DEFENSIVE,
+    "s5_invvol": PolicyId.S5_INVVOL,
+    "s6_us_core_value": PolicyId.S6_US_CORE_VALUE,
+    "s7_us_large_cap": PolicyId.S7_US_LARGE_CAP,
+    "r1_us_mkt_ff": PolicyId.R1_US_MKT_FF,
+}
+
+
+class BaselineId(StrEnum):
+    """Named one-ticker accumulation policies; weights live only in config."""
+
+    B0_GLOBAL = "dca_global"
+    B1_US = "dca_us"
+
+    @classmethod
+    def parse(cls, value: object) -> BaselineId:
+        """Resolve a canonical or legacy baseline id to its member; unknown fails closed."""
+        key = value if isinstance(value, BaselineId) else str(value)
+        if key in BASELINE_ALIASES:
+            return BASELINE_ALIASES[key]
+        raise ValueError(f"unknown baseline id {value!r}")
+
+
+BASELINE_ALIASES: Final[Mapping[str, BaselineId]] = {
+    member.value: member for member in BaselineId
+} | {
+    "b0_global": BaselineId.B0_GLOBAL,
+    "b1_us": BaselineId.B1_US,
+}
 
 
 class PolicyError(RuntimeError):
