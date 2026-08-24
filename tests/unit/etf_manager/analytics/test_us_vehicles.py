@@ -63,7 +63,7 @@ def test_veh_e_history_union(scenario_id: str) -> None:
         "VTV",
         "VWO",
     )
-    assert set(history_price_tickers()) - set(all_policy_tickers()) == {"IEMG", "ITOT", "QQQ", "SCHF"}
+    assert set(history_price_tickers()) - set(all_policy_tickers()) == {"IEMG", "ITOT", "SCHF"}
 
 
 @pytest.mark.parametrize("scenario_id", ["VEH-J-history-includes-itot"])
