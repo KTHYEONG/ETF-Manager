@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_M_S8_NASDAQ",
+      "date": "2026-08-24",
+      "adr_id": "ADR_20260824_WAVE_M_S8_NASDAQ",
+      "domain": "policy",
+      "title": "Wave M: S8 Nasdaq-100 universe vs locked S1 (QQQ CE gate)",
+      "why": "Failed compounding levers (overlay, reserve, cadence, diversification) left universe as the only unused axis; identical-cashflow DCA showed QQQ +37% real terminal vs VTI while QQQ had no PolicyId.",
+      "resolution": "Added PolicyId.S8_US_NASDAQ (QQQ 100%), POLICY_ALIASES s8_us_nasdaq, all_policy_tickers includes QQQ, wf_s1_s8.json and m1_n_nasdaq.json experiment configs, and contract tests POL-N/EXP-N/NAM-A01/TGT-W1/VEH-E/CLI-D07.",
+      "impact": "Enables walk-forward and 36m ablation CE gate for S1 vs S8 under identical monthly KRW; operational S1 lock unchanged until process_adopted_vs_baseline passes; QQQ graduates from diagnostic-only sleeve to gated challenger."
+    },
+    {
       "task_id": "WAVE_L_S1_CADENCE",
       "date": "2026-08-24",
       "adr_id": "ADR_20260824_WAVE_L_S1_CADENCE",
