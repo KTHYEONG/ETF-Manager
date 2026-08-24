@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "USD_LOT_RECYCLE",
+      "date": "2026-08-24",
+      "adr_id": "ADR_20260824_USD_LOT_RECYCLE",
+      "domain": "sim",
+      "title": "USD lot dust recycle into next integer VTI buy (S1 ledger fix)",
+      "why": "S1 beat overlay/reserve/mapping/currency on CE; remaining compounding leak was integer-lot USD residue stored in cash_usd but never added to the next month's spend_usd before math.floor.",
+      "resolution": "Added sim/lots.fill_integer_buys, wired run_allocation and run_baseline to spend prior cash_usd plus new conversion each month, and LOT-R-/SIM-I06-/BASE-I06- contract tests.",
+      "impact": "Raises invested share count on the operational S1 path without changing PolicyId, monthly contribution, or CE experiment modules; idle USD drag bounded below one lot price per session."
+    },
+    {
       "task_id": "WAVE_K_S1_CURRENCY",
       "date": "2026-08-24",
       "adr_id": "ADR_20260824_WAVE_K_S1_CURRENCY",
