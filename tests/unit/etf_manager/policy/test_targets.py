@@ -13,6 +13,7 @@ from src.etf_manager.data.pipeline import ingest
 from src.etf_manager.data.pit import TS_DTYPE
 from src.etf_manager.data.schema import Dataset, spec_for
 from src.etf_manager.policy.targets import (
+    POLICY_ALIASES,
     UNIVERSE_VEHICLE,
     PolicyError,
     PolicyId,
@@ -40,7 +41,7 @@ _SIGNAL_AT = datetime(2024, 1, 31, 21, 0, tzinfo=UTC)
 )
 def test_pol_g03_static_sum_one(scenario_id: str, policy_value: str) -> None:
     """POL-G03-static-sum-one"""
-    targets = resolve_targets(PolicyId(policy_value), pl.DataFrame(), _SIGNAL_AT)
+    targets = resolve_targets(PolicyId.parse(policy_value), pl.DataFrame(), _SIGNAL_AT)
 
     weights = list(targets.values())
     assert abs(sum(weights) - 1.0) <= 1e-6
@@ -193,3 +194,26 @@ def test_pol_g04_invvol_pit(scenario_id: str) -> None:
 
     with pytest.raises(PolicyError):
         resolve_targets(PolicyId.S5_INVVOL, _delay_last_vti_bar(prices), signal_at)
+
+
+@pytest.mark.parametrize("scenario_id", ["NAM-A01-policy-aliases"])
+def test_nam_a01_policy_aliases(scenario_id: str) -> None:
+    """NAM-A01-policy-aliases"""
+    assert {member.value for member in PolicyId} == {
+        "global",
+        "us",
+        "regional",
+        "global_bond",
+        "defensive",
+        "inv_vol",
+        "us_value",
+        "us_large",
+        "us_ff",
+    }
+    assert PolicyId.parse("us") is PolicyId.parse("s1_us") is PolicyId.S1_US
+    assert PolicyId.parse("s1_us").value == "us"
+    assert POLICY_ALIASES["s1_us"] is POLICY_ALIASES["us"] is PolicyId.S1_US
+    with pytest.raises(ValueError, match="unknown policy"):
+        PolicyId.parse("not_a_policy")
+
+    assert resolve_targets(PolicyId.S1_US, pl.DataFrame(), _SIGNAL_AT)["VTI"] == 1.0
