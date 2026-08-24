@@ -37,6 +37,7 @@ from src.etf_manager.execution.orders import ExecutionError, orders_from_snapsho
 from src.etf_manager.policy.currency import CurrencyConfig
 from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.targets import (
+    POLICY_ALIASES,
     PolicyError,
     PolicyId,
     policy_sleeves,
@@ -48,6 +49,7 @@ from src.etf_manager.sim.allocation import (
     run_allocation_from_store,
 )
 from src.etf_manager.sim.baseline import (
+    BASELINE_ALIASES,
     BaselineConfig,
     BaselineDataError,
     BaselineId,
@@ -65,6 +67,7 @@ from src.etf_manager.validation.campaign import (
 )
 from src.etf_manager.validation.evaluate import evaluate_cohort_wealths
 from src.etf_manager.validation.experiment import load_experiment_config
+from src.etf_manager.validation.feasibility import assert_experiment_feasible, require_feasibility
 from src.etf_manager.validation.gate import adoption_passes, certainty_equivalent
 from src.etf_manager.validation.registry import make_experiment
 from src.etf_manager.validation.windows import rolling_cohorts
@@ -132,13 +135,23 @@ def _build_parser() -> _Parser:
     run_parser = subparsers.add_parser("run", help="Run a stored-data simulation")
     run_targets = run_parser.add_subparsers(dest="target", required=True)
     baseline = run_targets.add_parser("baseline", help="Run a B0/B1 DCA baseline on catalog partitions")
-    baseline.add_argument("--id", choices=("b0_global", "b1_us"), required=True)
+    baseline.add_argument(
+        "--id",
+        choices=tuple(BASELINE_ALIASES),
+        required=True,
+        help="Baseline id (canonical dca_global/dca_us or legacy b0_global/b1_us)",
+    )
     baseline.add_argument("--ticker", required=True)
     baseline.add_argument("--start", required=True, type=_iso_date)
     baseline.add_argument("--end", required=True, type=_iso_date)
     baseline.add_argument("--contribution-krw", required=True, type=float)
     policy = run_targets.add_parser("policy", help="Run an S-policy strategic allocation on catalog partitions")
-    policy.add_argument("--id", choices=tuple(str(member) for member in PolicyId), required=True)
+    policy.add_argument(
+        "--id",
+        choices=tuple(POLICY_ALIASES),
+        required=True,
+        help="Policy id (canonical names or legacy aliases)",
+    )
     policy.add_argument("--start", required=True, type=_iso_date)
     policy.add_argument("--end", required=True, type=_iso_date)
     policy.add_argument("--contribution-krw", required=True, type=float)
@@ -161,10 +174,12 @@ def _build_parser() -> _Parser:
         help="Buy-only rebalance band in [0, 1); omit for Phase 3 mix",
     )
     policy.add_argument(
+        "--overlay-max-tilt",
         "--overlay-max-shift",
+        dest="overlay_max_shift",
         type=float,
         default=None,
-        help="Bounded overlay max_shift in (0, 0.10]; omit to disable overlay",
+        help="Bounded overlay max tilt in (0, 0.10]; omit to disable overlay",
     )
     policy.add_argument(
         "--vix-threshold",
@@ -200,8 +215,22 @@ def _build_parser() -> _Parser:
     validate.add_argument("--start", required=True, type=_iso_date)
     validate.add_argument("--end", required=True, type=_iso_date)
     validate.add_argument("--contribution-krw", required=True, type=float)
-    validate.add_argument("--delta0", type=float, default=0.02, help="Per-module complexity margin")
-    validate.add_argument("--modules", type=int, default=0, help="Count of added signal/sleeve modules")
+    validate.add_argument(
+        "--hurdle",
+        "--delta0",
+        dest="delta0",
+        type=float,
+        default=0.02,
+        help="Per-module complexity margin (hurdle)",
+    )
+    validate.add_argument(
+        "--extra-rules",
+        "--modules",
+        dest="modules",
+        type=int,
+        default=0,
+        help="Count of added signal/sleeve modules (extra rules)",
+    )
     validate.add_argument("--horizon-months", type=int, default=36, help="Cohort horizon in calendar months")
     validate.add_argument(
         "--cohort-step-months",
@@ -255,7 +284,7 @@ def _build_parser() -> _Parser:
     walk_forward_proxy.add_argument(
         "--config",
         required=True,
-        help="Path to the experiment JSON (single r1_us_mkt_ff candidate with train/test months)",
+        help="Path to the experiment JSON (single us_ff research-proxy candidate with train/test months)",
     )
     diagnose_us = run_targets.add_parser(
         "diagnose-us-vehicles",
@@ -578,7 +607,7 @@ def run_baseline_command(
 ) -> int:
     """Run a stored-data baseline and log terminal KRW / XIRR / MDD."""
     config = BaselineConfig(
-        baseline=BaselineId(baseline_id),
+        baseline=BaselineId.parse(baseline_id),
         ticker=ticker,
         start=start,
         end=end,
@@ -685,7 +714,7 @@ def run_policy_command(
     if rebalance_band is not None and not 0.0 <= rebalance_band < 1.0:
         raise ValueError(f"rebalance_band must lie in [0, 1), got {rebalance_band!r}")
     config = AllocationConfig(
-        policy=PolicyId(policy_id),
+        policy=PolicyId.parse(policy_id),
         start=start,
         end=end,
         monthly_contribution_krw=float(contribution_krw),
@@ -698,6 +727,15 @@ def run_policy_command(
         mapping=mapping,
     )
     try:
+        require_feasibility(
+            start=config.start,
+            end=config.end,
+            fill_delay_sessions=config.fill_delay_sessions,
+            mark_policies=(config.policy,),
+            overlay=config.overlay,
+            overlay_policies=(config.policy,) if config.overlay is not None else (),
+            settings=settings,
+        )
         result = run_allocation_from_store(config, settings)
     except (
         AllocationDataError,
@@ -840,6 +878,7 @@ def run_ablation_command(*, config_path: str, settings: DataSettings) -> int:
     """
     try:
         spec = load_experiment_config(config_path)
+        assert_experiment_feasible(spec, settings)
         report = run_ablation(spec, lambda config: run_allocation_from_store(config, settings))
         metrics: dict[str, float] = {
             "candidates": float(len(report.rows)),
@@ -899,6 +938,7 @@ def run_walk_forward_command(*, config_path: str, settings: DataSettings) -> int
         spec = load_experiment_config(config_path)
         if spec.train_months is None or spec.test_months is None:
             raise ValueError("experiment JSON lacks train_months and test_months")
+        assert_experiment_feasible(spec, settings)
         report = run_walk_forward_adoption(spec, lambda config: run_allocation_from_store(config, settings))
         record = make_experiment(
             config=AllocationConfig(
@@ -942,6 +982,7 @@ def run_walk_forward_costs_command(*, config_path: str, settings: DataSettings) 
         spec = load_experiment_config(config_path)
         if spec.train_months is None or spec.test_months is None:
             raise ValueError("experiment JSON lacks train_months and test_months")
+        assert_experiment_feasible(spec, settings)
         report = run_walk_forward_cost_grid(spec, lambda config: run_allocation_from_store(config, settings))
         record = make_experiment(
             config=AllocationConfig(
@@ -986,6 +1027,7 @@ def run_walk_forward_proxy_command(*, config_path: str, settings: DataSettings) 
         spec = load_experiment_config(config_path)
         if spec.train_months is None or spec.test_months is None:
             raise ValueError("experiment JSON lacks train_months and test_months")
+        assert_experiment_feasible(spec, settings)
         report = run_walk_forward_proxy_adoption(
             spec,
             lambda config: run_allocation_from_store(config, settings),
