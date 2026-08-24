@@ -39,6 +39,7 @@ class PolicyId(StrEnum):
     S5_INVVOL = "inv_vol"
     S6_US_CORE_VALUE = "us_value"
     S7_US_LARGE_CAP = "us_large"
+    S8_US_NASDAQ = "nasdaq"
     # Campaign identity only: never resolvable into ETF sleeve targets.
     R1_US_MKT_FF = "us_ff"
 
@@ -62,6 +63,7 @@ POLICY_ALIASES: Final[Mapping[str, PolicyId]] = {
     "s5_invvol": PolicyId.S5_INVVOL,
     "s6_us_core_value": PolicyId.S6_US_CORE_VALUE,
     "s7_us_large_cap": PolicyId.S7_US_LARGE_CAP,
+    "s8_us_nasdaq": PolicyId.S8_US_NASDAQ,
     "r1_us_mkt_ff": PolicyId.R1_US_MKT_FF,
 }
 
@@ -98,8 +100,7 @@ class UsEquityUniverse(StrEnum):
 
     TOTAL_MARKET = "us_total_market"
     LARGE_CAP = "us_large_cap"
-    # Diagnostic-only bucket: resolvable to a ticker through UNIVERSE_VEHICLE,
-    # never through resolve_targets (no PolicyId owns a Nasdaq-100 sleeve).
+    # S8_US_NASDAQ resolves this bucket through UNIVERSE_VEHICLE into its single sleeve.
     NASDAQ_100 = "us_nasdaq_100"
 
 
@@ -117,6 +118,7 @@ _STATIC_TARGETS: Final[dict[PolicyId, dict[str, float]]] = {
     PolicyId.S4_DEFENSIVE: {"VT": 0.6, "IEF": 0.2, "TLT": 0.2},
     PolicyId.S6_US_CORE_VALUE: {"VTI": 0.8, "VTV": 0.2},
     PolicyId.S7_US_LARGE_CAP: {UNIVERSE_VEHICLE[UsEquityUniverse.LARGE_CAP]: 1.0},
+    PolicyId.S8_US_NASDAQ: {UNIVERSE_VEHICLE[UsEquityUniverse.NASDAQ_100]: 1.0},
 }
 _INVVOL_SLEEVES: Final[tuple[str, ...]] = ("VTI", "VEA", "VWO")
 _WEIGHT_SUM_TOLERANCE: Final[float] = 1e-6
