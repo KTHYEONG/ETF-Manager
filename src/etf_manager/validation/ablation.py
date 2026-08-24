@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal
 
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.sim.allocation import AllocationConfig
@@ -11,6 +11,7 @@ from src.etf_manager.validation.evaluate import evaluate_cohort_wealths
 from src.etf_manager.validation.experiment import (
     CandidateSpec,
     ExperimentSpec,
+    resolve_cadence,
     resolve_currency,
     resolve_mapping,
     resolve_overlay,
@@ -66,6 +67,7 @@ def _arm_config(
     reserve: ReserveConfig | None,
     mapping: MappingConfig | None,
     currency: CurrencyConfig | None,
+    cadence: Literal["monthly", "month_open"] = "monthly",
 ) -> AllocationConfig:
     """Identical cashflow/window/costs for every arm; only policy and modules differ."""
     return AllocationConfig(
@@ -82,6 +84,7 @@ def _arm_config(
         reserve=reserve,
         currency=currency,
         mapping=mapping,
+        cadence=cadence,
     )
 
 
@@ -116,6 +119,7 @@ def _gated_row(
         reserve=resolve_reserve(spec),
         mapping=resolve_mapping(spec),
         currency=resolve_currency(spec),
+        cadence=resolve_cadence(spec) or "monthly",
     )
     wealths = _wealth_vector(spec, config, runner)
     ce = {gamma: certainty_equivalent(wealths, gamma=gamma) for gamma in _CE_GAMMAS}
