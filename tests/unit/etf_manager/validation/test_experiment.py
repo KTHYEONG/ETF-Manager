@@ -9,11 +9,13 @@ from pathlib import Path
 import pytest
 
 from src.etf_manager.policy.overlay import OverlayConfig
+from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.validation.experiment import (
     ExperimentSpec,
     load_experiment_config,
     resolve_overlay,
+    resolve_reserve,
 )
 
 
@@ -249,6 +251,60 @@ def test_exp_g_overlay_fail_closed(scenario_id: str) -> None:
 
     unknown_key = _payload()
     unknown_key["overlay"] = {"max_shift": 0.10, "bogus": True}
+    with pytest.raises(ValueError, match="bogus"):
+        ExperimentSpec.model_validate(unknown_key)
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-H-reserve-json"])
+def test_exp_h_reserve_json(scenario_id: str) -> None:
+    """EXP-H-reserve-json"""
+    spec = load_experiment_config("configs/experiments/wf_s1_reserve.json")
+
+    assert spec.reserve is not None
+    assert spec.reserve.max_withhold == pytest.approx(0.10)
+    assert spec.overlay is None
+    assert spec.baseline.modules == 0
+    assert len(spec.candidates) == 1
+    assert spec.candidates[0].modules == 1
+    assert spec.baseline.policy is PolicyId.S1_US
+    assert spec.candidates[0].policy is PolicyId.S1_US
+    assert spec.train_months == 60
+    assert spec.test_months == 36
+
+    resolved = resolve_reserve(spec)
+    assert isinstance(resolved, ReserveConfig)
+    assert resolved.max_withhold == pytest.approx(0.10)
+
+    omitted = ExperimentSpec.model_validate(_payload())
+    assert omitted.reserve is None
+    assert resolve_reserve(omitted) is None
+
+    overlay_and_reserve = _payload()
+    overlay_and_reserve["overlay"] = {"max_shift": 0.10}
+    overlay_and_reserve["reserve"] = {"max_withhold": 0.05}
+    with pytest.raises(ValueError, match="overlay"):
+        ExperimentSpec.model_validate(overlay_and_reserve)
+
+    zero_modules = _payload()
+    zero_modules["reserve"] = {"max_withhold": 0.05}
+    for candidate in zero_modules["candidates"]:  # type: ignore[union-attr]
+        candidate["modules"] = 0
+    with pytest.raises(ValueError, match="modules"):
+        ExperimentSpec.model_validate(zero_modules)
+
+    too_large = _payload()
+    too_large["reserve"] = {"max_withhold": 0.11}
+    with pytest.raises(ValueError, match="max_withhold"):
+        ExperimentSpec.model_validate(too_large)
+
+    canonical = _payload()
+    canonical["reserve"] = {"withhold_cap": 0.10}
+    parsed_alias = ExperimentSpec.model_validate(canonical)
+    assert parsed_alias.reserve is not None
+    assert parsed_alias.reserve.max_withhold == pytest.approx(0.10)
+
+    unknown_key = _payload()
+    unknown_key["reserve"] = {"max_withhold": 0.05, "bogus": True}
     with pytest.raises(ValueError, match="bogus"):
         ExperimentSpec.model_validate(unknown_key)
 
