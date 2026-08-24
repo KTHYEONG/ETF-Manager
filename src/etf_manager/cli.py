@@ -9,7 +9,9 @@ import subprocess
 from datetime import date
 from typing import TYPE_CHECKING, Final, NoReturn
 
+from src.etf_manager.analytics.blends import compare_s8_blends
 from src.etf_manager.analytics.metrics import XirrError
+from src.etf_manager.analytics.regimes import compare_policy_regimes
 from src.etf_manager.analytics.us_vehicles import (
     compare_vehicle_dca,
     history_price_tickers,
@@ -39,6 +41,7 @@ from src.etf_manager.policy.currency import CurrencyConfig
 from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import (
+    OPERATIONAL_POLICY_ID,
     POLICY_ALIASES,
     PolicyError,
     PolicyId,
@@ -152,7 +155,7 @@ def _build_parser() -> _Parser:
         "--id",
         choices=tuple(POLICY_ALIASES),
         required=True,
-        help="Policy id (canonical names or legacy aliases)",
+        help=f"Policy id (operational default: {OPERATIONAL_POLICY_ID.value})",
     )
     policy.add_argument("--start", required=True, type=_iso_date)
     policy.add_argument("--end", required=True, type=_iso_date)
@@ -303,6 +306,16 @@ def _build_parser() -> _Parser:
     diagnose_us.add_argument("--start", required=True, type=_iso_date)
     diagnose_us.add_argument("--end", required=True, type=_iso_date)
     diagnose_us.add_argument("--contribution-krw", required=True, type=float)
+    diagnose_s8 = run_targets.add_parser(
+        "diagnose-s8-regimes",
+        help="S8 versus S1 regime-window ratios on identical cashflows; reporting only, never an adoption gate",
+    )
+    diagnose_s8.add_argument("--contribution-krw", required=True, type=float)
+    diagnose_s8_blends = run_targets.add_parser(
+        "diagnose-s8-blends",
+        help="S8 drawdown-blend recipe ratios versus S8/S1 anchors on identical cashflows; reporting only, never an adoption gate",
+    )
+    diagnose_s8_blends.add_argument("--contribution-krw", required=True, type=float)
     return parser
 
 
@@ -461,6 +474,16 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         return run_diagnose_us_vehicles_command(
             start=args.start,
             end=args.end,
+            contribution_krw=float(args.contribution_krw),
+            settings=DataSettings(),
+        )
+    if args.target == "diagnose-s8-regimes":
+        return run_diagnose_s8_regimes_command(
+            contribution_krw=float(args.contribution_krw),
+            settings=DataSettings(),
+        )
+    if args.target == "diagnose-s8-blends":
+        return run_diagnose_s8_blends_command(
             contribution_krw=float(args.contribution_krw),
             settings=DataSettings(),
         )
@@ -720,6 +743,61 @@ def run_diagnose_us_vehicles_command(
             path.result.terminal_wealth_real_krw,
             path.result.xirr,
             len(path.result.snapshots),
+        )
+    return 0
+
+
+def run_diagnose_s8_regimes_command(*, contribution_krw: float, settings: DataSettings) -> int:
+    """Log S8/S1 real-terminal ratios per regime window on identical cashflows.
+
+    Reporting-only diagnostics: no ablation, walk-forward gate, or adoption
+    decision may run here, and no operational policy lock changes.
+    """
+    try:
+        comparisons = compare_policy_regimes(
+            contribution_krw=float(contribution_krw),
+            runner=lambda config: run_allocation_from_store(config, settings),
+        )
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        logger.error("[DATA] event=diagnose_s8_regimes_failed reason_type=%s", type(exc).__name__)
+        return 1
+    for comparison in comparisons:
+        logger.info(
+            "[DATA] event=s8_regime_ratio name=%s start=%s end=%s ratio=%.6f s1_steps=%d s8_steps=%d",
+            comparison.name,
+            comparison.start.isoformat(),
+            comparison.end.isoformat(),
+            comparison.candidate.terminal_wealth_real_krw / comparison.baseline.terminal_wealth_real_krw,
+            len(comparison.baseline.snapshots),
+            len(comparison.candidate.snapshots),
+        )
+    return 0
+
+
+def run_diagnose_s8_blends_command(*, contribution_krw: float, settings: DataSettings) -> int:
+    """Log S8 blend-recipe real-terminal ratios per regime window on identical cashflows.
+
+    Reporting-only diagnostics: no ablation, walk-forward gate, or adoption
+    decision may run here, and no operational policy lock changes.
+    """
+    try:
+        comparisons = compare_s8_blends(
+            contribution_krw=float(contribution_krw),
+            runner=lambda config: run_allocation_from_store(config, settings),
+        )
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        logger.error("[DATA] event=diagnose_s8_blends_failed reason_type=%s", type(exc).__name__)
+        return 1
+    for comparison in comparisons:
+        logger.info(
+            "[DATA] event=s8_blend_ratio name=%s recipe=%s real_terminal_krw=%.2f mdd=%.4f"
+            " ratio_vs_s8=%.6f ratio_vs_s1=%.6f",
+            comparison.name,
+            comparison.recipe,
+            comparison.candidate.terminal_wealth_real_krw,
+            comparison.candidate.max_drawdown,
+            comparison.candidate.terminal_wealth_real_krw / comparison.s8_baseline.terminal_wealth_real_krw,
+            comparison.candidate.terminal_wealth_real_krw / comparison.s1_baseline.terminal_wealth_real_krw,
         )
     return 0
 

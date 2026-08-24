@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BASELINE_ALIASES",
+    "OPERATIONAL_POLICY_ID",
     "POLICY_ALIASES",
     "UNIVERSE_VEHICLE",
     "BaselineId",
@@ -26,7 +27,6 @@ __all__ = [
     "policy_sleeves",
     "resolve_targets",
 ]
-
 
 class PolicyId(StrEnum):
     """Named strategic policies; static maps plus one inverse-vol rule."""
@@ -66,6 +66,9 @@ POLICY_ALIASES: Final[Mapping[str, PolicyId]] = {
     "s8_us_nasdaq": PolicyId.S8_US_NASDAQ,
     "r1_us_mkt_ff": PolicyId.R1_US_MKT_FF,
 }
+
+# CE-gated production default; walk-forward S1 vs S8 passed on calendar-max window.
+OPERATIONAL_POLICY_ID: Final[PolicyId] = PolicyId.S8_US_NASDAQ
 
 
 class BaselineId(StrEnum):
