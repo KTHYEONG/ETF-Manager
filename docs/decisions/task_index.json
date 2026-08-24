@@ -1,6 +1,36 @@
 {
   "tasks": [
     {
+      "task_id": "OPERATOR_NAMING",
+      "date": "2026-08-24",
+      "adr_id": "ADR_20260824_OPERATOR_NAMING",
+      "domain": "validation",
+      "title": "Operator naming: canonical policy/overlay/experiment vocabulary",
+      "why": "Operators read s1_us, modules, delta0, max_shift as research codes; JSON/CLI vocabulary obscured sleeve meaning and CE gate parameters without changing allocator math.",
+      "resolution": "Added PolicyId/BaselineId.parse with POLICY_ALIASES and BASELINE_ALIASES; canonical strings (us, hurdle, extra_rules, max_tilt); Pydantic JSON alias keys; CLI --overlay-max-tilt/--hurdle/--extra-rules; rewrote configs/experiments/*.json; NAM-A contract tests.",
+      "impact": "Shipped experiment JSON and CLI use plain-language tokens; legacy s1_us/delta0/max_shift still parse for backward compatibility."
+    },
+    {
+      "task_id": "FEAS_EXPERIMENT_WINDOW",
+      "date": "2026-08-24",
+      "adr_id": "ADR_20260824_FEAS_EXPERIMENT_WINDOW",
+      "domain": "validation",
+      "title": "Experiment window feasibility preflight (CPI PIT + overlay warmup)",
+      "why": "Operators hit mid-campaign AllocationDataError/PolicyError when experiment.start predates CPI PIT visibility or catalog history is shorter than overlay drawdown_window (252); ingest start and evaluation start were conflated.",
+      "resolution": "Added validation/feasibility.py with resolve_feasibility, require_feasibility, assert_experiment_feasible; wired CLI ablation/walk-forward/policy preflight before simulation; FEAS-A and CLI-FEAS contract tests.",
+      "impact": "Fails fast with structured FeasibilityError before expensive walk-forward runs; preserves fail-closed runtime and never auto-clamps experiment JSON dates."
+    },
+    {
+      "task_id": "WAVE_G_S1_OVERLAY",
+      "date": "2026-08-23",
+      "adr_id": "ADR_20260823_WAVE_G_S1_OVERLAY",
+      "domain": "validation",
+      "title": "Wave G: S1 + Bounded Overlay Walk-Forward",
+      "why": "S1 locked; next lever is risk buffering without sells. Overlay engine existed but ExperimentSpec JSON hard-coded overlay=None, so S1 vs S1+overlay could not be gated.",
+      "resolution": "Added OverlaySpec and ExperimentSpec.overlay, resolve_overlay, candidate-only overlay wiring in ablation/campaign _arm_config, proxy rejection, wf_s1_overlay.json, and EXP/ABL/WF-G contract tests.",
+      "impact": "Enables walk-forward CE gate for bounded overlay vs pure S1 under identical cashflow; operational S1 lock unchanged until process_adopted_vs_baseline passes."
+    },
+    {
       "task_id": "WAVE_E_US_VEHICLE_DIAGNOSTICS",
       "date": "2026-08-23",
       "adr_id": "ADR_20260823_WAVE_E_US_VEHICLE_DIAGNOSTICS",
