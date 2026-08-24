@@ -25,10 +25,16 @@ from src.etf_manager.features.drawdown import trailing_price_drawdown
 from src.etf_manager.features.momentum import trailing_compound_return
 from src.etf_manager.features.returns import session_returns
 from src.etf_manager.features.risk import trailing_simple_vol
+from src.etf_manager.policy.currency import CurrencyConfig, conversion_fraction
 from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import PolicyError, PolicyId, policy_sleeves
-from src.etf_manager.validation.experiment import resolve_mapping, resolve_overlay, resolve_reserve
+from src.etf_manager.validation.experiment import (
+    resolve_currency,
+    resolve_mapping,
+    resolve_overlay,
+    resolve_reserve,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -45,6 +51,7 @@ __all__ = [
     "FeasibilityReport",
     "FeasibilityViolation",
     "assert_experiment_feasible",
+    "currency_warmup_sessions",
     "overlay_warmup_sessions",
     "require_feasibility",
     "reserve_warmup_sessions",
@@ -99,6 +106,13 @@ def reserve_warmup_sessions(reserve: ReserveConfig | None) -> int:
     return max(reserve.trend_window, reserve.drawdown_window)
 
 
+def currency_warmup_sessions(currency: CurrencyConfig | None) -> int:
+    """History depth in sessions the FX percentile requires; 0 without a defer policy."""
+    if currency is None:
+        return 0
+    return currency.percentile_window
+
+
 def resolve_feasibility(
     *,
     start: date,
@@ -111,6 +125,7 @@ def resolve_feasibility(
     reserve: ReserveConfig | None = None,
     mapping: MappingConfig | None = None,
     mapping_policies: tuple[PolicyId, ...] = (),
+    currency: CurrencyConfig | None = None,
 ) -> FeasibilityReport:
     """Check that the requested window can trade without lookahead or data gaps.
 
@@ -129,7 +144,11 @@ def resolve_feasibility(
     """
     calendar = load_calendar(DEFAULT_CALENDAR_NAME)
     schedule = build_decision_schedule(start, end, fill_delay_sessions=fill_delay_sessions)
-    warmup = max(overlay_warmup_sessions(overlay), reserve_warmup_sessions(reserve))
+    warmup = max(
+        overlay_warmup_sessions(overlay),
+        reserve_warmup_sessions(reserve),
+        currency_warmup_sessions(currency),
+    )
     violations: list[FeasibilityViolation] = []
     earliest_safe_start: date | None = None
     ingest_recommended_start: date | None = None
@@ -198,6 +217,11 @@ def resolve_feasibility(
             if mapping_violation is not None:
                 violations.append(mapping_violation)
 
+        if currency is not None:
+            currency_violation = _currency_warmup_violation(fx, currency, first_point.signal_at)
+            if currency_violation is not None:
+                violations.append(currency_violation)
+
         # Informational only: never assigned back to spec.start or any config.
         ingest_recommended_start = (
             _sessions_before(calendar, first_point.signal_session, warmup)
@@ -247,6 +271,7 @@ def require_feasibility(
     reserve: ReserveConfig | None = None,
     mapping: MappingConfig | None = None,
     mapping_policies: tuple[PolicyId, ...] = (),
+    currency: CurrencyConfig | None = None,
 ) -> FeasibilityReport:
     """Resolve feasibility and fail closed with every violation code when blocked.
 
@@ -265,6 +290,7 @@ def require_feasibility(
         reserve=reserve,
         mapping=mapping,
         mapping_policies=mapping_policies,
+        currency=currency,
     )
     if report.violations:
         codes = ", ".join(violation.code for violation in report.violations)
@@ -276,8 +302,8 @@ def assert_experiment_feasible(spec: ExperimentSpec, settings: DataSettings) -> 
     """Preflight an experiment JSON exactly as its arms would run.
 
     Mirrors the ablation/campaign arm configs (``fill_delay_sessions == 1``,
-    baseline plus candidate marks, candidate-only overlay and mapping sleeves);
-    the spec is never mutated.
+    baseline plus candidate marks, candidate-only overlay, mapping, and currency
+    sleeves); the spec is never mutated.
 
     Raises:
         FeasibilityError: When the experiment window cannot execute.
@@ -286,6 +312,7 @@ def assert_experiment_feasible(spec: ExperimentSpec, settings: DataSettings) -> 
     overlay = resolve_overlay(spec)
     reserve = resolve_reserve(spec)
     mapping = resolve_mapping(spec)
+    currency = resolve_currency(spec)
     return require_feasibility(
         start=spec.start,
         end=spec.end,
@@ -297,6 +324,7 @@ def assert_experiment_feasible(spec: ExperimentSpec, settings: DataSettings) -> 
         reserve=reserve,
         mapping=mapping,
         mapping_policies=tuple(candidate.policy for candidate in spec.candidates) if mapping is not None else (),
+        currency=currency,
     )
 
 
@@ -391,6 +419,21 @@ def _mapping_warmup_violation(
     except (PolicyError, ValueError) as exc:
         return FeasibilityViolation(
             code="mapping_warmup", message=f"ETF mapping failed closed at the first signal: {exc}"
+        )
+    return None
+
+
+def _currency_warmup_violation(
+    fx: pl.DataFrame,
+    currency: CurrencyConfig,
+    signal_at: datetime,
+) -> FeasibilityViolation | None:
+    """Dry-run the FX defer fraction at the first signal; windows are never shortened."""
+    try:
+        conversion_fraction(fx, signal_at=signal_at, currency=currency)
+    except (PolicyError, ValueError) as exc:
+        return FeasibilityViolation(
+            code="currency_warmup", message=f"FX percentile history insufficient at the first signal: {exc}"
         )
     return None
 
