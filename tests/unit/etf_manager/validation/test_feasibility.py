@@ -18,7 +18,7 @@ from src.etf_manager.data.settings import DataSettings
 from src.etf_manager.data.storage import RawPayload
 from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.targets import PolicyId
-from src.etf_manager.validation.experiment import ExperimentSpec
+from src.etf_manager.validation.experiment import CandidateSpec, ExperimentSpec, MappingSpec
 from src.etf_manager.validation.feasibility import (
     FeasibilityError,
     assert_experiment_feasible,
@@ -35,6 +35,7 @@ _SHORT_WINDOW: Final[tuple[date, date]] = (date(2023, 12, 20), date(2024, 1, 31)
 _SHORT_PANEL: Final[tuple[date, date]] = (date(2023, 12, 20), date(2024, 2, 1))
 _THIN_WINDOW: Final[tuple[date, date]] = (date(2024, 1, 15), date(2024, 1, 31))
 _THIN_PANEL: Final[tuple[date, date]] = (date(2024, 1, 15), date(2024, 2, 1))
+_MAPPING_PANEL: Final[tuple[date, date]] = (date(2023, 5, 1), date(2024, 2, 1))
 
 
 def _panel_days(start: date, end: date) -> tuple[date, ...]:
@@ -117,9 +118,10 @@ def _catalog(
     tickers: tuple[str, ...],
     close_of_day: Callable[[date], float],
     cpi_period_end: date,
+    name: str = "catalog",
 ) -> DataSettings:
-    root = tmp_path / "catalog"
-    root.mkdir()
+    root = tmp_path / name
+    root.mkdir(exist_ok=True)
     monkeypatch.chdir(root)
     settings = DataSettings(data_root="data")
     persist_ingest(_prices_frame(days, tickers, close_of_day), Dataset.PRICES, _payload(), settings)
@@ -268,3 +270,99 @@ def test_feas_a05_warmup_sessions_helper(scenario_id: str) -> None:
     assert overlay_warmup_sessions(None) == 0
     custom = OverlayConfig(trend_window=10, vol_window=30, drawdown_window=20)
     assert overlay_warmup_sessions(custom) == 30
+
+
+def _metadata_row(ticker: str, sleeve: str = "VTI") -> dict[str, object]:
+    return {
+        "ticker": ticker,
+        "effective_date": date(2022, 6, 1),
+        "filing_date": _RETRIEVED_AT,
+        "sleeve": sleeve,
+        "expense_ratio": 0.03,
+        "aum_usd": 5e10,
+        "avg_dollar_volume": 5e8,
+        "is_leveraged": 0,
+        "is_inverse": 0,
+        "inception_date": date(2000, 5, 1),
+        "source": "synthetic",
+        "retrieved_at": _RETRIEVED_AT,
+    }
+
+
+def _persist_metadata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tickers: tuple[str, ...], name: str = "catalog"
+) -> None:
+    """Extend the shared catalog with visible ETF_METADATA rows for ``tickers``."""
+    root = tmp_path / name
+    root.mkdir(exist_ok=True)
+    monkeypatch.chdir(root)
+    rows = [_metadata_row(ticker) for ticker in tickers]
+    frame = pl.DataFrame(rows, schema=dict(spec_for(Dataset.ETF_METADATA).columns))
+    persist_ingest(frame, Dataset.ETF_METADATA, _payload(), DataSettings(data_root="data"))
+
+
+def _mapping_spec() -> ExperimentSpec:
+    """S1 versus S1+implementation-mapping on the shared short window."""
+    return ExperimentSpec(
+        name="feas_j_mapping",
+        start=_SHORT_WINDOW[0],
+        end=_SHORT_WINDOW[1],
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        mapping=MappingSpec(min_improvement=0.02),
+        baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
+        candidates=[CandidateSpec(id="s1_us_mapping", policy="s1_us", modules=1)],
+    )
+
+
+@pytest.mark.parametrize("scenario_id", ["FEAS-J-mapping-metadata"])
+def test_feas_j_mapping_metadata(scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """FEAS-J-mapping-metadata"""
+    days = _panel_days(*_MAPPING_PANEL)
+    spec = _mapping_spec()
+
+    full_prices = _catalog(
+        monkeypatch,
+        tmp_path,
+        days=days,
+        tickers=("VTI", "ITOT"),
+        close_of_day=_constant_closes,
+        cpi_period_end=_CPI_VISIBLE_PERIOD_END,
+        name="pass",
+    )
+    _persist_metadata(monkeypatch, tmp_path, ("VTI", "ITOT"), name="pass")
+
+    report = assert_experiment_feasible(spec, full_prices)
+
+    assert report.violations == ()
+    assert report.requested_start == spec.start
+
+    no_metadata_prices = _catalog(
+        monkeypatch,
+        tmp_path,
+        days=days,
+        tickers=("VTI", "ITOT"),
+        close_of_day=_constant_closes,
+        cpi_period_end=_CPI_VISIBLE_PERIOD_END,
+        name="no_metadata",
+    )
+    with pytest.raises(FeasibilityError) as excinfo:
+        assert_experiment_feasible(spec, no_metadata_prices)
+    assert excinfo.value.report is not None
+    assert {violation.code for violation in excinfo.value.report.violations} == {"etf_metadata"}
+
+    missing_itot = _catalog(
+        monkeypatch,
+        tmp_path,
+        days=days,
+        tickers=("VTI",),
+        close_of_day=_constant_closes,
+        cpi_period_end=_CPI_VISIBLE_PERIOD_END,
+        name="missing_itot",
+    )
+    _persist_metadata(monkeypatch, tmp_path, ("VTI", "ITOT"), name="missing_itot")
+    with pytest.raises(FeasibilityError) as excinfo:
+        assert_experiment_feasible(spec, missing_itot)
+    assert excinfo.value.report is not None
+    assert any("ITOT" in violation.message for violation in excinfo.value.report.violations)

@@ -258,6 +258,9 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
         calls["research"] += 1
         return _FakeArtifact(8)
 
+    def fake_metadata(settings: object, **kwargs: object) -> _FakeArtifact:
+        return _FakeArtifact(8)
+
     def fake_latest(settings: object, dataset: Dataset) -> _FakeArtifact:
         seen_datasets.append(dataset)
         return _FakeArtifact(8)
@@ -268,6 +271,7 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(cli, "fetch_and_persist_factors", fake_factors)
     monkeypatch.setattr(cli, "fetch_and_persist_macro", fake_macro)
     monkeypatch.setattr(cli, "fetch_and_persist_research_returns", fake_research)
+    monkeypatch.setattr(cli, "persist_bootstrap_etf_metadata", fake_metadata)
     monkeypatch.setattr(cli, "latest_artifact", fake_latest)
 
     exit_code = main(["ingest", "history", "--start", "2020-01-01", "--end", "2020-12-31"])
@@ -276,9 +280,17 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
     assert calls == {"fx": 1, "prices": 1, "cpi": 1, "factors": 1, "macro": 1, "research": 1}
     assert seen_tickers == history_price_tickers()
     assert "QQQ" in seen_tickers
-    assert set(seen_tickers) - set(all_policy_tickers()) == {"QQQ"}
+    assert set(seen_tickers) - set(all_policy_tickers()) == {"IEMG", "ITOT", "QQQ", "SCHF"}
     assert seen_series_ids == ["VIXCLS"]
-    expected_datasets = {Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.FACTORS, Dataset.MACRO, Dataset.RESEARCH_RETURNS}
+    expected_datasets = {
+        Dataset.PRICES,
+        Dataset.FX,
+        Dataset.CPI,
+        Dataset.FACTORS,
+        Dataset.MACRO,
+        Dataset.RESEARCH_RETURNS,
+        Dataset.ETF_METADATA,
+    }
     assert set(seen_datasets) == expected_datasets
 
     assert main(["ingest", "history"]) == 2
@@ -949,8 +961,8 @@ def test_cli_wf_dispatch(
 
     payload = {
         "name": "wf_s0_s1",
-        "start": "2012-04-01",
-        "end": "2024-11-30",
+        "start": "2014-01-03",
+        "end": "2024-09-30",
         "contribution_krw": 1_000_000,
         "delta0": 0.02,
         "horizon_months": 0,
@@ -1034,8 +1046,8 @@ def test_cli_walk_forward_costs(
 
     payload = {
         "name": "wf_s0_s1",
-        "start": "2012-04-01",
-        "end": "2024-11-30",
+        "start": "2014-01-03",
+        "end": "2024-09-30",
         "contribution_krw": 1_000_000,
         "delta0": 0.02,
         "horizon_months": 0,
@@ -1120,8 +1132,8 @@ def test_cli_walk_forward_proxy(
 
     payload = {
         "name": "wf_s0_r1",
-        "start": "2012-04-01",
-        "end": "2024-11-30",
+        "start": "2014-01-03",
+        "end": "2024-09-30",
         "contribution_krw": 1_000_000,
         "delta0": 0.02,
         "horizon_months": 0,
@@ -1184,8 +1196,8 @@ def test_cli_feas_a05_walkforward_preflight(
 
     payload = {
         "name": "wf_s0_s1",
-        "start": "2012-04-01",
-        "end": "2024-11-30",
+        "start": "2014-01-03",
+        "end": "2024-09-30",
         "contribution_krw": 1_000_000,
         "delta0": 0.02,
         "horizon_months": 0,

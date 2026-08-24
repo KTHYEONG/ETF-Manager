@@ -12,6 +12,7 @@ from src.etf_manager.validation.ablation import run_ablation
 from src.etf_manager.validation.experiment import (
     CandidateSpec,
     ExperimentSpec,
+    MappingSpec,
     OverlaySpec,
     ReserveSpec,
 )
@@ -192,3 +193,37 @@ def test_abl_h_reserve_candidate_only(scenario_id: str) -> None:
     plain_runner = _runner()
     run_ablation(_spec(modules=1), plain_runner)
     assert all(config.reserve is None for config in plain_runner.configs)
+
+
+@pytest.mark.parametrize("scenario_id", ["ABL-J-mapping-candidate-only"])
+def test_abl_j_mapping_candidate_only(scenario_id: str) -> None:
+    """ABL-J-mapping-candidate-only"""
+    spec = ExperimentSpec(
+        name="abl_j_mapping",
+        start=_WINDOW[0],
+        end=_WINDOW[1],
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        mapping=MappingSpec(min_improvement=0.02),
+        baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
+        candidates=[CandidateSpec(id="s1_us_mapping", policy="s1_us", modules=1)],
+    )
+    runner = _RecordingRunner({PolicyId.S1_US: 120.0})
+
+    run_ablation(spec, runner)
+
+    assert len(runner.configs) == 2
+    baseline_config, candidate_config = runner.configs
+    assert baseline_config.mapping is None
+    assert candidate_config.mapping is not None
+    assert candidate_config.mapping.min_improvement == pytest.approx(0.02)
+    for config in (baseline_config, candidate_config):
+        assert config.policy is PolicyId.S1_US
+        assert (config.start, config.end) == _WINDOW
+        assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
+        assert config.fill_delay_sessions == 1
+
+    plain_runner = _runner()
+    run_ablation(_spec(modules=1), plain_runner)
+    assert all(config.mapping is None for config in plain_runner.configs)
