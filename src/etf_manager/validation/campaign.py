@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import date
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal
 
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.sim.allocation import AllocationConfig
 from src.etf_manager.validation.experiment import (
     ExperimentSpec,
+    resolve_cadence,
     resolve_currency,
     resolve_mapping,
     resolve_overlay,
@@ -126,6 +127,7 @@ def _arm_config(
     reserve: ReserveConfig | None,
     mapping: MappingConfig | None,
     currency: CurrencyConfig | None,
+    cadence: Literal["monthly", "month_open"] = "monthly",
 ) -> AllocationConfig:
     """Identical cashflow/costs for every arm on one sliced window."""
     return AllocationConfig(
@@ -142,6 +144,7 @@ def _arm_config(
         reserve=reserve,
         currency=currency,
         mapping=mapping,
+        cadence=cadence,
     )
 
 
@@ -162,7 +165,8 @@ def run_walk_forward_adoption(
     un-reserved, unmapped, and undeferred; candidate arms carry
     ``resolve_overlay(spec)``, ``resolve_reserve(spec)``, ``resolve_mapping(spec)``,
     and ``resolve_currency(spec)``, and the chosen test arm keeps them only when
-    the fold adopted on train.
+    the fold adopted on train. Baseline arms signal month-end; candidate arms
+    signal on ``resolve_cadence(spec)`` and the chosen test arm only after train adoption.
 
     Raises:
         ValueError: When train/test months are absent, the candidate count is not
@@ -185,6 +189,7 @@ def run_walk_forward_adoption(
     candidate_reserve = resolve_reserve(spec)
     candidate_mapping = resolve_mapping(spec)
     candidate_currency = resolve_currency(spec)
+    candidate_cadence = resolve_cadence(spec) or "monthly"
 
     def real_wealth(
         policy: PolicyId,
@@ -194,9 +199,12 @@ def run_walk_forward_adoption(
         arm_reserve: ReserveConfig | None,
         arm_mapping: MappingConfig | None,
         arm_currency: CurrencyConfig | None,
+        arm_cadence: Literal["monthly", "month_open"] = "monthly",
     ) -> float:
         return runner(
-            _arm_config(spec, policy, start, end, arm_overlay, arm_reserve, arm_mapping, arm_currency)
+            _arm_config(
+                spec, policy, start, end, arm_overlay, arm_reserve, arm_mapping, arm_currency, arm_cadence
+            )
         ).terminal_wealth_real_krw
 
     folds: list[FoldOutcome] = []
@@ -215,6 +223,7 @@ def run_walk_forward_adoption(
             candidate_reserve,
             candidate_mapping,
             candidate_currency,
+            candidate_cadence,
         )
         train_adopted = adoption_passes(
             _singleton_ce(candidate_train),
@@ -228,6 +237,7 @@ def run_walk_forward_adoption(
             if train_adopted
             else (None, None, None, None)
         )
+        chosen_cadence = candidate_cadence if train_adopted else "monthly"
         baseline_test = real_wealth(spec.baseline.policy, test_start, test_end, None, None, None, None)
         candidate_test = real_wealth(
             candidate.policy,
@@ -237,8 +247,9 @@ def run_walk_forward_adoption(
             candidate_reserve,
             candidate_mapping,
             candidate_currency,
+            candidate_cadence,
         )
-        chosen_test = real_wealth(chosen_policy, test_start, test_end, *keep_extras)
+        chosen_test = real_wealth(chosen_policy, test_start, test_end, *keep_extras, chosen_cadence)
         folds.append(
             FoldOutcome(
                 train_start=train_start,
@@ -287,8 +298,8 @@ def run_walk_forward_proxy_adoption(
 
     Raises:
         ValueError: When train/test months are absent, an overlay, reserve,
-            mapping, or currency spec is set, the candidate is not exactly one
-            R1_US_MKT_FF policy, the baseline itself is the proxy identity, or
+            mapping, currency, or cadence spec is set, the candidate is not exactly
+            one R1_US_MKT_FF policy, the baseline itself is the proxy identity, or
             any transaction cost is nonzero.
     """
     if spec.train_months is None or spec.test_months is None:
@@ -301,6 +312,8 @@ def run_walk_forward_proxy_adoption(
         raise ValueError("walk-forward proxy adoption does not support mapping specs")
     if spec.currency is not None:
         raise ValueError("walk-forward proxy adoption does not support currency specs")
+    if spec.cadence is not None:
+        raise ValueError("walk-forward proxy adoption does not support cadence specs")
     if len(spec.candidates) != 1:
         raise ValueError(f"expected exactly one candidate, got {len(spec.candidates)}")
     candidate = spec.candidates[0]
