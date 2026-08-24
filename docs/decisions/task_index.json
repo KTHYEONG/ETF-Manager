@@ -1,6 +1,36 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_P_S8_OPERATIONAL_LOCK",
+      "date": "2026-08-24",
+      "adr_id": "ADR_20260824_WAVE_P_S8_OPERATIONAL_LOCK",
+      "domain": "policy",
+      "title": "Wave P: Operational lock S1_US → S8_US_NASDAQ (QQQ 100%)",
+      "why": "Walk-forward 5-fold, cost-grid 4 scenarios, and 36m ablation all adopted S8 vs S1 on calendar-max window; operator requested production default aligned with compounding-max objective.",
+      "resolution": "Set OPERATIONAL_POLICY_ID=S8_US_NASDAQ in policy/targets.py; updated architecture docs and CLI policy help; S1 remains CE baseline in experiment JSON.",
+      "impact": "Operators run policy/paper with s8_us_nasdaq; wf_s1_s8 baseline unchanged for gate history; bear_2022 underperformance remains a known regime risk."
+    },
+    {
+      "task_id": "WAVE_O_S8_DRAWDOWN_BLEND",
+      "date": "2026-08-24",
+      "adr_id": "ADR_20260824_WAVE_O_S8_DRAWDOWN_BLEND",
+      "domain": "policy",
+      "title": "Wave O: S8 drawdown-blend diagnostics (QQQ+VTI/IEF static mixes)",
+      "why": "S8 maximizes real terminal on calendar-max but has higher MDD and bear_2022 underperformance; operator needs MDD-mitigation trade-offs without new PolicyIds or adoption gates.",
+      "resolution": "Added analytics/blends (S8_BLEND_RECIPES, compare_s8_blends), AllocationConfig.targets_override on run_allocation, CLI run diagnose-s8-blends, and contract tests BLD-O/SIM-O/CLI-O; empirical grid shows VTI ballast dominates IEF per MDD point.",
+      "impact": "Reporting-only blend grid on S8_REGIME_WINDOWS; qqq80_vti20 trades ~9% real terminal for ~1.7pp lower |MDD| vs S8; operational S1 lock unchanged; no walk-forward adoption."
+    },
+    {
+      "task_id": "WAVE_N_S8_EXTENDED_WINDOW",
+      "date": "2026-08-24",
+      "adr_id": "ADR_20260824_WAVE_N_S8_EXTENDED_WINDOW",
+      "domain": "policy",
+      "title": "Wave N: S8 calendar-max window (2006-10-31 .. 2026-06-30)",
+      "why": "2014-2024 was an ingest slice, not a vendor wall; CPI lag and XNYS calendar bound real-KRW CE to 2006-10-31 start and 2026-06-30 end; S8 needed regime diagnostics and experiment JSON on the longest feasible panel.",
+      "resolution": "Repointed wf_s1_s8.json and m1_n_nasdaq.json to 2006-10-31..2026-06-30; added analytics/regimes (S8_REGIME_WINDOWS, compare_policy_regimes), CLI diagnose-s8-regimes, and contract tests EXP-N/REG-N/CLI-N; operator ingest 2006-08-24..2026-08-21 refreshed prices/FX/CPI.",
+      "impact": "Walk-forward on calendar-max window yields 5 folds with process_adopted_vs_baseline; bear_2022 still loses to S1 in DCA slice; operational S1 lock unchanged until operator re-runs walk-forward-costs; dot-com 1999-2002 remains untestable."
+    },
+    {
       "task_id": "WAVE_M_S8_NASDAQ",
       "date": "2026-08-24",
       "adr_id": "ADR_20260824_WAVE_M_S8_NASDAQ",
