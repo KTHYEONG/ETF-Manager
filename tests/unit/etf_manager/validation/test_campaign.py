@@ -17,6 +17,7 @@ from src.etf_manager.validation.campaign import (
 )
 from src.etf_manager.validation.experiment import (
     CandidateSpec,
+    CurrencySpec,
     ExperimentSpec,
     MappingSpec,
     OverlaySpec,
@@ -462,3 +463,97 @@ def test_wf_j_mapping_same_policy(scenario_id: str) -> None:
     proxy_runner = _RecordingRunner(dict.fromkeys(PolicyId, 100.0))
     with pytest.raises(ValueError, match="mapping"):
         run_walk_forward_proxy_adoption(spec, etf_runner, proxy_runner)
+
+
+def _currency_spec() -> ExperimentSpec:
+    """S1 versus S1+currency on the shared walk-forward window."""
+    return ExperimentSpec(
+        name="wf_k_currency",
+        start=date(2012, 4, 1),
+        end=date(2024, 11, 30),
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        train_months=60,
+        test_months=36,
+        baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
+        candidates=[CandidateSpec(id="s1_us_currency", policy="s1_us", modules=1)],
+        currency=CurrencySpec(max_defer=0.10),
+    )
+
+
+class _CurrencyWealthRunner:
+    """Records configs; currency arms outperform to force train adoption."""
+
+    def __init__(self) -> None:
+        self.configs: list[AllocationConfig] = []
+
+    def __call__(self, config: AllocationConfig) -> AllocationResult:
+        self.configs.append(config)
+        wealth = 120.0 if config.currency is not None else 100.0
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-K-currency-same-policy"])
+def test_wf_k_currency_same_policy(scenario_id: str) -> None:
+    """WF-K-currency-same-policy"""
+    runner = _CurrencyWealthRunner()
+
+    report = run_walk_forward_adoption(_currency_spec(), runner)
+
+    assert len(report.folds) > 0
+    assert all(fold.train_adopted is True for fold in report.folds)
+    assert report.process_adopted_vs_baseline is True
+    for fold_index in range(len(report.folds)):
+        chunk = runner.configs[fold_index * 5 : (fold_index + 1) * 5]
+        assert len(chunk) == 5
+        currency_states = [config.currency is not None for config in chunk]
+        # Baseline train/test stay undeferred; candidate and chosen arms carry it.
+        assert currency_states == [False, True, False, True, True]
+        for config in chunk:
+            if config.currency is not None:
+                assert config.currency.max_defer == pytest.approx(0.10)
+            assert config.policy is PolicyId.S1_US
+            assert config.fill_delay_sessions == 1
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-K-currency-cost-grid"])
+def test_wf_k_currency_cost_grid(scenario_id: str) -> None:
+    """WF-K-currency-cost-grid"""
+    runner = _CurrencyWealthRunner()
+
+    grid = run_walk_forward_cost_grid(_currency_spec(), runner)
+
+    assert grid.all_scenarios_adopted is True
+    fold_count = len(grid.outcomes[0].campaign.folds)
+    cursor = 0
+    for outcome in grid.outcomes:
+        block = runner.configs[cursor : cursor + 5 * fold_count]
+        cursor += len(block)
+        assert len(block) == 5 * fold_count
+        for index, config in enumerate(block):
+            assert config.commission_bps == pytest.approx(outcome.scenario.commission_bps)
+            assert config.fx_spread_bps == pytest.approx(outcome.scenario.fx_spread_bps)
+            carries_currency = index % 5 in (1, 3, 4)
+            assert (config.currency is not None) is carries_currency
+            if config.currency is not None:
+                assert config.currency.max_defer == pytest.approx(0.10)
+    assert cursor == len(runner.configs)
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-K-proxy-rejects-currency"])
+def test_wf_k_proxy_rejects_currency(scenario_id: str) -> None:
+    """WF-K-proxy-rejects-currency"""
+    etf_runner = _RecordingRunner(dict.fromkeys(PolicyId, 100.0))
+    proxy_runner = _RecordingRunner(dict.fromkeys(PolicyId, 100.0))
+
+    with pytest.raises(ValueError, match="currency"):
+        run_walk_forward_proxy_adoption(_currency_spec(), etf_runner, proxy_runner)
