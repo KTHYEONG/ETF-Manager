@@ -11,6 +11,7 @@ from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.sim.allocation import AllocationConfig
 from src.etf_manager.validation.experiment import (
     ExperimentSpec,
+    resolve_currency,
     resolve_mapping,
     resolve_overlay,
     resolve_reserve,
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
 
     from src.etf_manager.data.settings import DataSettings
     from src.etf_manager.etf.mapping import MappingConfig
+    from src.etf_manager.policy.currency import CurrencyConfig
     from src.etf_manager.policy.overlay import OverlayConfig
     from src.etf_manager.policy.reserve import ReserveConfig
     from src.etf_manager.sim.allocation import AllocationResult
@@ -123,6 +125,7 @@ def _arm_config(
     overlay: OverlayConfig | None,
     reserve: ReserveConfig | None,
     mapping: MappingConfig | None,
+    currency: CurrencyConfig | None,
 ) -> AllocationConfig:
     """Identical cashflow/costs for every arm on one sliced window."""
     return AllocationConfig(
@@ -137,7 +140,7 @@ def _arm_config(
         rebalance_band=None,
         overlay=overlay,
         reserve=reserve,
-        currency=None,
+        currency=currency,
         mapping=mapping,
     )
 
@@ -156,9 +159,10 @@ def run_walk_forward_adoption(
     The runner is called once per arm per phase (baseline then candidate on train;
     baseline, candidate, and chosen on test — chosen re-runs even when it repeats
     another arm); ``spec`` is never mutated. Baseline arms stay un-overlayed,
-    un-reserved, and unmapped; candidate arms carry ``resolve_overlay(spec)``,
-    ``resolve_reserve(spec)``, and ``resolve_mapping(spec)``, and the chosen test
-    arm keeps them only when the fold adopted on train.
+    un-reserved, unmapped, and undeferred; candidate arms carry
+    ``resolve_overlay(spec)``, ``resolve_reserve(spec)``, ``resolve_mapping(spec)``,
+    and ``resolve_currency(spec)``, and the chosen test arm keeps them only when
+    the fold adopted on train.
 
     Raises:
         ValueError: When train/test months are absent, the candidate count is not
@@ -180,6 +184,7 @@ def run_walk_forward_adoption(
     candidate_overlay = resolve_overlay(spec)
     candidate_reserve = resolve_reserve(spec)
     candidate_mapping = resolve_mapping(spec)
+    candidate_currency = resolve_currency(spec)
 
     def real_wealth(
         policy: PolicyId,
@@ -188,9 +193,10 @@ def run_walk_forward_adoption(
         arm_overlay: OverlayConfig | None,
         arm_reserve: ReserveConfig | None,
         arm_mapping: MappingConfig | None,
+        arm_currency: CurrencyConfig | None,
     ) -> float:
         return runner(
-            _arm_config(spec, policy, start, end, arm_overlay, arm_reserve, arm_mapping)
+            _arm_config(spec, policy, start, end, arm_overlay, arm_reserve, arm_mapping, arm_currency)
         ).terminal_wealth_real_krw
 
     folds: list[FoldOutcome] = []
@@ -198,9 +204,17 @@ def run_walk_forward_adoption(
     candidate_wealths: list[float] = []
     chosen_wealths: list[float] = []
     for train_start, train_end, test_start, test_end in windows:
-        baseline_train = real_wealth(spec.baseline.policy, train_start, train_end, None, None, None)
+        baseline_train = real_wealth(
+            spec.baseline.policy, train_start, train_end, None, None, None, None
+        )
         candidate_train = real_wealth(
-            candidate.policy, train_start, train_end, candidate_overlay, candidate_reserve, candidate_mapping
+            candidate.policy,
+            train_start,
+            train_end,
+            candidate_overlay,
+            candidate_reserve,
+            candidate_mapping,
+            candidate_currency,
         )
         train_adopted = adoption_passes(
             _singleton_ce(candidate_train),
@@ -210,11 +224,19 @@ def run_walk_forward_adoption(
         )
         chosen_policy = candidate.policy if train_adopted else spec.baseline.policy
         keep_extras = (
-            (candidate_overlay, candidate_reserve, candidate_mapping) if train_adopted else (None, None, None)
+            (candidate_overlay, candidate_reserve, candidate_mapping, candidate_currency)
+            if train_adopted
+            else (None, None, None, None)
         )
-        baseline_test = real_wealth(spec.baseline.policy, test_start, test_end, None, None, None)
+        baseline_test = real_wealth(spec.baseline.policy, test_start, test_end, None, None, None, None)
         candidate_test = real_wealth(
-            candidate.policy, test_start, test_end, candidate_overlay, candidate_reserve, candidate_mapping
+            candidate.policy,
+            test_start,
+            test_end,
+            candidate_overlay,
+            candidate_reserve,
+            candidate_mapping,
+            candidate_currency,
         )
         chosen_test = real_wealth(chosen_policy, test_start, test_end, *keep_extras)
         folds.append(
@@ -264,10 +286,10 @@ def run_walk_forward_proxy_adoption(
     ``spec`` is never mutated.
 
     Raises:
-        ValueError: When train/test months are absent, an overlay, reserve, or
-            mapping spec is set, the candidate is not exactly one R1_US_MKT_FF
-            policy, the baseline itself is the proxy identity, or any transaction
-            cost is nonzero.
+        ValueError: When train/test months are absent, an overlay, reserve,
+            mapping, or currency spec is set, the candidate is not exactly one
+            R1_US_MKT_FF policy, the baseline itself is the proxy identity, or
+            any transaction cost is nonzero.
     """
     if spec.train_months is None or spec.test_months is None:
         raise ValueError("walk-forward proxy adoption requires both train_months and test_months")
@@ -277,6 +299,8 @@ def run_walk_forward_proxy_adoption(
         raise ValueError("walk-forward proxy adoption does not support reserve specs")
     if spec.mapping is not None:
         raise ValueError("walk-forward proxy adoption does not support mapping specs")
+    if spec.currency is not None:
+        raise ValueError("walk-forward proxy adoption does not support currency specs")
     if len(spec.candidates) != 1:
         raise ValueError(f"expected exactly one candidate, got {len(spec.candidates)}")
     candidate = spec.candidates[0]

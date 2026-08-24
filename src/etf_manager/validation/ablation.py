@@ -11,6 +11,7 @@ from src.etf_manager.validation.evaluate import evaluate_cohort_wealths
 from src.etf_manager.validation.experiment import (
     CandidateSpec,
     ExperimentSpec,
+    resolve_currency,
     resolve_mapping,
     resolve_overlay,
     resolve_reserve,
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from src.etf_manager.etf.mapping import MappingConfig
+    from src.etf_manager.policy.currency import CurrencyConfig
     from src.etf_manager.policy.overlay import OverlayConfig
     from src.etf_manager.policy.reserve import ReserveConfig
     from src.etf_manager.sim.allocation import AllocationResult
@@ -63,6 +65,7 @@ def _arm_config(
     overlay: OverlayConfig | None,
     reserve: ReserveConfig | None,
     mapping: MappingConfig | None,
+    currency: CurrencyConfig | None,
 ) -> AllocationConfig:
     """Identical cashflow/window/costs for every arm; only policy and modules differ."""
     return AllocationConfig(
@@ -77,7 +80,7 @@ def _arm_config(
         rebalance_band=None,
         overlay=overlay,
         reserve=reserve,
-        currency=None,
+        currency=currency,
         mapping=mapping,
     )
 
@@ -112,6 +115,7 @@ def _gated_row(
         overlay=resolve_overlay(spec),
         reserve=resolve_reserve(spec),
         mapping=resolve_mapping(spec),
+        currency=resolve_currency(spec),
     )
     wealths = _wealth_vector(spec, config, runner)
     ce = {gamma: certainty_equivalent(wealths, gamma=gamma) for gamma in _CE_GAMMAS}
@@ -140,7 +144,9 @@ def run_ablation(
     Raises:
         ValueError: When any wealth vector is empty or non-positive.
     """
-    baseline_config = _arm_config(spec, spec.baseline.policy, overlay=None, reserve=None, mapping=None)
+    baseline_config = _arm_config(
+        spec, spec.baseline.policy, overlay=None, reserve=None, mapping=None, currency=None
+    )
     baseline_wealths = _wealth_vector(spec, baseline_config, runner)
     baseline_ce = {
         gamma: certainty_equivalent(baseline_wealths, gamma=gamma) for gamma in _CE_GAMMAS

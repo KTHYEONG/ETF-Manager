@@ -769,6 +769,9 @@ def run_policy_command(
             overlay_policies=(config.policy,) if config.overlay is not None else (),
             settings=settings,
             reserve=config.reserve,
+            mapping=config.mapping,
+            mapping_policies=(config.policy,) if config.mapping is not None else (),
+            currency=config.currency,
         )
         result = run_allocation_from_store(config, settings)
     except (
