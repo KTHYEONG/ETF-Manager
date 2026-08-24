@@ -6,7 +6,7 @@ import logging
 import math
 from dataclasses import dataclass
 from datetime import date
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal
 
 import polars as pl
 
@@ -66,6 +66,7 @@ class AllocationConfig:
     end: date
     monthly_contribution_krw: float
     fill_delay_sessions: int = 1
+    cadence: Literal["monthly", "month_open"] = "monthly"
     fx_spread_bps: float = 0.0
     commission_bps: float = 0.0
     tilt: FactorTilt | None = None
@@ -146,7 +147,9 @@ def run_allocation(
         if not sleeves:
             raise ValueError(f"{config.policy!s} owns no sleeve ticker for reserve signals")
         reserve_ticker = sleeves[0]
-    schedule = build_decision_schedule(config.start, config.end, fill_delay_sessions=config.fill_delay_sessions)
+    schedule = build_decision_schedule(
+        config.start, config.end, frequency=config.cadence, fill_delay_sessions=config.fill_delay_sessions
+    )
     if not schedule:
         raise AllocationDataError(f"empty decision schedule over [{config.start.isoformat()}, {config.end.isoformat()}]")
     calendar = load_calendar(DEFAULT_CALENDAR_NAME)
@@ -316,7 +319,9 @@ def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) 
     # Pre-flight trust gate: fail closed before simulating on untrusted partitions.
     for dataset in datasets:
         latest_artifact(settings, dataset)
-    schedule = build_decision_schedule(config.start, config.end, fill_delay_sessions=config.fill_delay_sessions)
+    schedule = build_decision_schedule(
+        config.start, config.end, frequency=config.cadence, fill_delay_sessions=config.fill_delay_sessions
+    )
     if not schedule:
         raise AllocationDataError(f"empty decision schedule over [{config.start.isoformat()}, {config.end.isoformat()}]")
     cutoff = load_calendar(DEFAULT_CALENDAR_NAME).close_ts(schedule[-1].execution_session)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -15,6 +16,7 @@ from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import PolicyId
 
 __all__ = [
+    "CadenceSpec",
     "CandidateSpec",
     "CurrencySpec",
     "ExperimentSpec",
@@ -22,6 +24,7 @@ __all__ = [
     "OverlaySpec",
     "ReserveSpec",
     "load_experiment_config",
+    "resolve_cadence",
     "resolve_currency",
     "resolve_mapping",
     "resolve_overlay",
@@ -107,6 +110,14 @@ class CurrencySpec(BaseModel):
     expensive_percentile: float = Field(gt=0.0, lt=1.0, default=0.80)
 
 
+class CadenceSpec(BaseModel):
+    """Decision-cadence module accepted in experiment JSON; the anchor fails closed."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    anchor: Literal["month_open"]
+
+
 class ExperimentSpec(BaseModel):
     """Frozen experiment contract: shared cashflow/window plus gated arms.
 
@@ -130,6 +141,7 @@ class ExperimentSpec(BaseModel):
     reserve: ReserveSpec | None = None
     mapping: MappingSpec | None = None
     currency: CurrencySpec | None = None
+    cadence: CadenceSpec | None = None
     baseline: CandidateSpec
     candidates: list[CandidateSpec] = Field(min_length=1)
 
@@ -166,6 +178,18 @@ class ExperimentSpec(BaseModel):
                 )
             if any(candidate.modules < 1 for candidate in self.candidates):
                 raise ValueError("currency requires every candidate.modules >= 1")
+        if self.cadence is not None:
+            if (
+                self.overlay is not None
+                or self.reserve is not None
+                or self.mapping is not None
+                or self.currency is not None
+            ):
+                raise ValueError(
+                    "cadence cannot be combined with overlay, reserve, mapping, or currency experiment modules"
+                )
+            if any(candidate.modules < 1 for candidate in self.candidates):
+                raise ValueError("cadence requires every candidate.modules >= 1")
         seen: set[str] = set()
         for candidate in self.candidates:
             if candidate.id in seen:
@@ -193,6 +217,13 @@ def resolve_mapping(spec: ExperimentSpec) -> MappingConfig | None:
     if spec.mapping is None:
         return None
     return MappingConfig(min_improvement=spec.mapping.min_improvement)
+
+
+def resolve_cadence(spec: ExperimentSpec) -> Literal["month_open"] | None:
+    """Map the JSON cadence anchor onto the runtime schedule frequency."""
+    if spec.cadence is None:
+        return None
+    return spec.cadence.anchor
 
 
 def resolve_currency(spec: ExperimentSpec) -> CurrencyConfig | None:

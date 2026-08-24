@@ -57,6 +57,13 @@ class TradingCalendar:
             last_per_month[(session.year, session.month)] = session
         return tuple(sorted(last_per_month.values()))
 
+    def month_start_sessions(self, start: date, end: date) -> tuple[date, ...]:
+        """First session of each month within the inclusive range, ascending."""
+        first_per_month: dict[tuple[int, int], date] = {}
+        for session in self.sessions(start, end):
+            first_per_month.setdefault((session.year, session.month), session)
+        return tuple(sorted(first_per_month.values()))
+
 
 @cache
 def load_calendar(calendar_name: str = DEFAULT_CALENDAR_NAME) -> TradingCalendar:
