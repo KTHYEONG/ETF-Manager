@@ -17,6 +17,7 @@ from src.etf_manager.data.query import load_as_of
 from src.etf_manager.data.schedule import build_decision_schedule
 from src.etf_manager.data.schema import Dataset
 from src.etf_manager.policy.targets import BASELINE_ALIASES, BaselineId
+from src.etf_manager.sim.lots import fill_integer_buys
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -124,13 +125,18 @@ def run_baseline(
         cash_krw += contribution
         investable_krw = min(cash_krw, contribution)
         fx_gross = usdkrw * (1.0 + config.fx_spread_bps / _BPS)
-        spend_usd = investable_krw / fx_gross
-        fee_usd = spend_usd * config.commission_bps / _BPS
-        bought = math.floor((spend_usd - fee_usd) / price)
-        shares += bought
-        cash_usd += spend_usd - fee_usd - bought * price
+        # Recycled dust joins the fresh conversion as one ticket; commission bills the whole trade.
+        lots, cash_usd, commission_krw = fill_integer_buys(
+            cash_usd=cash_usd,
+            sleeve_budget_krw=investable_krw,
+            fx_gross=fx_gross,
+            weights={config.ticker: 1.0},
+            prices={config.ticker: price},
+            commission_bps=config.commission_bps,
+        )
+        shares += lots[config.ticker]
         cash_krw -= investable_krw
-        fees_krw = spend_usd * (fx_gross - usdkrw) + fee_usd * fx_gross
+        fees_krw = investable_krw * (fx_gross - usdkrw) + commission_krw
         snapshots.append(
             LedgerSnapshot(
                 session=point.execution_session,

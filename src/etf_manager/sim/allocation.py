@@ -23,6 +23,7 @@ from src.etf_manager.policy.reserve import apply_reserve_schedule
 from src.etf_manager.policy.targets import PolicyId, policy_sleeves, resolve_targets
 from src.etf_manager.policy.tilt import resolve_tilted_targets
 from src.etf_manager.sim.contribution import allocate_contribution
+from src.etf_manager.sim.lots import fill_integer_buys
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -121,8 +122,8 @@ def run_allocation(
     an explicit KRW reserve ledger withholds or redeploys part of each credited
     contribution on PIT signals; ``reserve_krw`` is booked KRW wealth inside
     ``mark_krw``, never a second external cashflow. New money follows the mapped targets
-    and no position is ever sold, so integer-lot rounding dust stays in
-    unmarked cash. Nominal marks drive the equity path; CPI levels only deflate
+    and no position is ever sold; integer-lot rounding dust recycles into the
+    next conversion instead of idling. Nominal marks drive the equity path; CPI levels only deflate
     terminal wealth and the money-weighted rate into first-snapshot purchasing power.
 
     Raises:
@@ -219,18 +220,23 @@ def run_allocation(
                 rebalance_band=config.rebalance_band,
             )
         )
-        fees_krw = 0.0
         # Overlay residual and FX defer both stay in cash: spend only the converted budget.
         convert_krw = investable_krw * fraction
         sleeve_budget_krw = convert_krw * sum(spend_weights.values())
-        for ticker, weight in spend_weights.items():
-            price = mark_prices[ticker]
-            spend_usd = sleeve_budget_krw * weight / fx_gross
-            fee_usd = spend_usd * config.commission_bps / _BPS
-            bought = math.floor((spend_usd - fee_usd) / price)
-            shares_by_ticker[ticker] = shares_by_ticker.get(ticker, 0) + bought
-            cash_usd += spend_usd - fee_usd - bought * price
-            fees_krw += spend_usd * (fx_gross - usdkrw) + fee_usd * fx_gross
+        fees_krw = sleeve_budget_krw * (fx_gross - usdkrw)
+        if sleeve_budget_krw > 0.0:
+            # Recycled dust joins the fresh conversion as one ticket; commission bills the whole trade.
+            lots, cash_usd, commission_krw = fill_integer_buys(
+                cash_usd=cash_usd,
+                sleeve_budget_krw=sleeve_budget_krw,
+                fx_gross=fx_gross,
+                weights=spend_weights,
+                prices=mark_prices,
+                commission_bps=config.commission_bps,
+            )
+            fees_krw += commission_krw
+            for ticker, lot in lots.items():
+                shares_by_ticker[ticker] = shares_by_ticker.get(ticker, 0) + lot
         position_value_usd = sum(
             float(shares_by_ticker.get(ticker, 0)) * mark_prices[ticker] for ticker in mark_keys
         )
