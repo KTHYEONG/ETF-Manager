@@ -9,9 +9,18 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.etf_manager.policy.overlay import OverlayConfig
+from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import PolicyId
 
-__all__ = ["CandidateSpec", "ExperimentSpec", "OverlaySpec", "load_experiment_config", "resolve_overlay"]
+__all__ = [
+    "CandidateSpec",
+    "ExperimentSpec",
+    "OverlaySpec",
+    "ReserveSpec",
+    "load_experiment_config",
+    "resolve_overlay",
+    "resolve_reserve",
+]
 
 
 def _reconcile_canonical_key(data: object, canonical: str, field: str) -> object:
@@ -62,6 +71,19 @@ class OverlaySpec(BaseModel):
         return _reconcile_canonical_key(data, canonical="max_tilt", field="max_shift")
 
 
+class ReserveSpec(BaseModel):
+    """Explicit reserve-ledger parameters accepted in experiment JSON."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    max_withhold: float = Field(gt=0.0, le=0.10, serialization_alias="withhold_cap")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_withhold_cap_key(cls, data: object) -> object:
+        return _reconcile_canonical_key(data, canonical="withhold_cap", field="max_withhold")
+
+
 class ExperimentSpec(BaseModel):
     """Frozen experiment contract: shared cashflow/window plus gated arms.
 
@@ -82,6 +104,7 @@ class ExperimentSpec(BaseModel):
     train_months: int | None = Field(default=None, ge=1)
     test_months: int | None = Field(default=None, ge=1)
     overlay: OverlaySpec | None = None
+    reserve: ReserveSpec | None = None
     baseline: CandidateSpec
     candidates: list[CandidateSpec] = Field(min_length=1)
 
@@ -101,6 +124,11 @@ class ExperimentSpec(BaseModel):
             raise ValueError(f"walk-forward specs require exactly one candidate, got {len(self.candidates)}")
         if self.overlay is not None and any(candidate.modules < 1 for candidate in self.candidates):
             raise ValueError("overlay requires every candidate.modules >= 1")
+        if self.reserve is not None:
+            if self.overlay is not None:
+                raise ValueError("overlay and reserve are mutually exclusive experiment modules")
+            if any(candidate.modules < 1 for candidate in self.candidates):
+                raise ValueError("reserve requires every candidate.modules >= 1")
         seen: set[str] = set()
         for candidate in self.candidates:
             if candidate.id in seen:
@@ -114,6 +142,13 @@ def resolve_overlay(spec: ExperimentSpec) -> OverlayConfig | None:
     if spec.overlay is None:
         return None
     return OverlayConfig(max_shift=spec.overlay.max_shift, vix_threshold=spec.overlay.vix_threshold)
+
+
+def resolve_reserve(spec: ExperimentSpec) -> ReserveConfig | None:
+    """Map the JSON reserve onto the runtime config, keeping window defaults."""
+    if spec.reserve is None:
+        return None
+    return ReserveConfig(max_withhold=spec.reserve.max_withhold)
 
 
 def load_experiment_config(path: str | Path) -> ExperimentSpec:
