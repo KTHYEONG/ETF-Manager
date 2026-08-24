@@ -136,8 +136,8 @@ def test_exp_n_nasdaq_json(scenario_id: str) -> None:
     m1_n = load_experiment_config("configs/experiments/m1_n_nasdaq.json")
 
     assert m1_n.name == "m1_n_nasdaq"
-    assert m1_n.start == date(2014, 1, 3)
-    assert m1_n.end == date(2024, 9, 30)
+    assert m1_n.start == date(2006, 10, 31)
+    assert m1_n.end == date(2026, 6, 30)
     assert m1_n.contribution_krw == pytest.approx(1_000_000.0)
     assert m1_n.delta0 == pytest.approx(0.02)
     assert m1_n.horizon_months == 36
@@ -156,8 +156,8 @@ def test_exp_n_nasdaq_json(scenario_id: str) -> None:
     assert wf.horizon_months == 0
     assert wf.contribution_krw == pytest.approx(1_000_000.0)
     assert wf.delta0 == pytest.approx(0.02)
-    assert wf.start == date(2014, 1, 3)
-    assert wf.end == date(2024, 9, 30)
+    assert wf.start == date(2006, 10, 31)
+    assert wf.end == date(2026, 6, 30)
     assert wf.baseline.id == "s1_us"
     assert wf.baseline.policy is PolicyId.S1_US
     assert wf.baseline.modules == 0

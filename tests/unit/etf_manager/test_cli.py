@@ -64,6 +64,31 @@ def test_cli_e_diagnose_dispatch(scenario_id: str, monkeypatch: pytest.MonkeyPat
     assert main(["run", "diagnose-us-vehicles", "--start", "2024-01-01"]) == 2
 
 
+@pytest.mark.parametrize("scenario_id", ["CLI-N-diagnose-s8-regimes"])
+def test_cli_n_diagnose_s8_regimes(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-N-diagnose-s8-regimes"""
+    assert main(["run", "diagnose-s8-regimes"]) == 2
+
+    captured: dict[str, object] = {}
+
+    def fake_diagnose(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    def forbidden_ablation(*args: object, **kwargs: object) -> int:
+        raise AssertionError("diagnostics must never invoke the adoption ablation")
+
+    def forbidden_walk_forward(*args: object, **kwargs: object) -> int:
+        raise AssertionError("diagnostics must never invoke the walk-forward campaign")
+
+    monkeypatch.setattr(cli, "run_diagnose_s8_regimes_command", fake_diagnose)
+    monkeypatch.setattr(cli, "run_ablation", forbidden_ablation)
+    monkeypatch.setattr(cli, "run_walk_forward_adoption", forbidden_walk_forward)
+
+    assert main(["run", "diagnose-s8-regimes", "--contribution-krw", "1000000"]) == 0
+    assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
+
+
 @pytest.fixture(autouse=True)
 def _provider_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     """Resolve secrets from the process env so no sops or network call happens."""
@@ -1267,3 +1292,24 @@ def test_cli_feas_a05_walkforward_preflight(
 
     assert main(["run", "walk-forward", "--config", str(wf_path)]) == 1
     assert runner_calls == []
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-O-diagnose-s8-blends"])
+def test_cli_o_diagnose_s8_blends(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-O-diagnose-s8-blends"""
+    assert main(["run", "diagnose-s8-blends"]) == 2
+
+    captured: dict[str, object] = {}
+
+    def fake_diagnose(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    def forbidden_ablation(*args: object, **kwargs: object) -> int:
+        raise AssertionError("diagnostics must never invoke the adoption ablation")
+
+    monkeypatch.setattr(cli, "run_diagnose_s8_blends_command", fake_diagnose)
+    monkeypatch.setattr(cli, "run_ablation", forbidden_ablation)
+
+    assert main(["run", "diagnose-s8-blends", "--contribution-krw", "1000000"]) == 0
+    assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
