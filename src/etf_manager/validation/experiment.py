@@ -9,17 +9,20 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.etf_manager.etf.mapping import MappingConfig
+from src.etf_manager.policy.currency import CurrencyConfig
 from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import PolicyId
 
 __all__ = [
     "CandidateSpec",
+    "CurrencySpec",
     "ExperimentSpec",
     "MappingSpec",
     "OverlaySpec",
     "ReserveSpec",
     "load_experiment_config",
+    "resolve_currency",
     "resolve_mapping",
     "resolve_overlay",
     "resolve_reserve",
@@ -95,6 +98,15 @@ class MappingSpec(BaseModel):
     min_improvement: float = Field(gt=0.0, le=1.0, default=0.02)
 
 
+class CurrencySpec(BaseModel):
+    """FX-defer parameters accepted in experiment JSON."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    max_defer: float = Field(gt=0.0, le=1.0)
+    expensive_percentile: float = Field(gt=0.0, lt=1.0, default=0.80)
+
+
 class ExperimentSpec(BaseModel):
     """Frozen experiment contract: shared cashflow/window plus gated arms.
 
@@ -117,6 +129,7 @@ class ExperimentSpec(BaseModel):
     overlay: OverlaySpec | None = None
     reserve: ReserveSpec | None = None
     mapping: MappingSpec | None = None
+    currency: CurrencySpec | None = None
     baseline: CandidateSpec
     candidates: list[CandidateSpec] = Field(min_length=1)
 
@@ -146,6 +159,13 @@ class ExperimentSpec(BaseModel):
                 raise ValueError("mapping cannot be combined with overlay or reserve experiment modules")
             if any(candidate.modules < 1 for candidate in self.candidates):
                 raise ValueError("mapping requires every candidate.modules >= 1")
+        if self.currency is not None:
+            if self.overlay is not None or self.reserve is not None or self.mapping is not None:
+                raise ValueError(
+                    "currency cannot be combined with overlay, reserve, or mapping experiment modules"
+                )
+            if any(candidate.modules < 1 for candidate in self.candidates):
+                raise ValueError("currency requires every candidate.modules >= 1")
         seen: set[str] = set()
         for candidate in self.candidates:
             if candidate.id in seen:
@@ -173,6 +193,16 @@ def resolve_mapping(spec: ExperimentSpec) -> MappingConfig | None:
     if spec.mapping is None:
         return None
     return MappingConfig(min_improvement=spec.mapping.min_improvement)
+
+
+def resolve_currency(spec: ExperimentSpec) -> CurrencyConfig | None:
+    """Map the JSON currency onto the runtime config, keeping window defaults."""
+    if spec.currency is None:
+        return None
+    return CurrencyConfig(
+        max_defer=spec.currency.max_defer,
+        expensive_percentile=spec.currency.expensive_percentile,
+    )
 
 
 def load_experiment_config(path: str | Path) -> ExperimentSpec:
