@@ -20,6 +20,7 @@ from src.etf_manager.data.calendar import load_calendar
 from src.etf_manager.data.pipeline import ingest
 from src.etf_manager.data.pit import AVAILABLE_AT
 from src.etf_manager.data.schema import Dataset, spec_for
+from src.etf_manager.etf.mapping import mapping_implementation_tickers
 from src.etf_manager.features.factors import FACTOR_COLUMNS
 from src.etf_manager.policy.targets import all_policy_tickers
 from src.etf_manager.sim.baseline import BaselineConfig, BaselineId
@@ -47,8 +48,36 @@ def _close_ts(day: date) -> datetime:
 def test_veh_e_history_union(scenario_id: str) -> None:
     """VEH-E-history-union"""
     assert diagnostic_price_tickers() == ("QQQ",)
-    assert history_price_tickers() == ("BND", "IEF", "IVV", "QQQ", "TLT", "VEA", "VT", "VTI", "VTV", "VWO")
-    assert set(history_price_tickers()) - set(all_policy_tickers()) == {"QQQ"}
+    assert history_price_tickers() == (
+        "BND",
+        "IEF",
+        "IEMG",
+        "ITOT",
+        "IVV",
+        "QQQ",
+        "SCHF",
+        "TLT",
+        "VEA",
+        "VT",
+        "VTI",
+        "VTV",
+        "VWO",
+    )
+    assert set(history_price_tickers()) - set(all_policy_tickers()) == {"IEMG", "ITOT", "QQQ", "SCHF"}
+
+
+@pytest.mark.parametrize("scenario_id", ["VEH-J-history-includes-itot"])
+def test_veh_j_history_includes_itot(scenario_id: str) -> None:
+    """VEH-J-history-includes-itot"""
+    implementations = mapping_implementation_tickers()
+    assert isinstance(implementations, tuple)
+    assert implementations == tuple(sorted(implementations))
+    assert "ITOT" in implementations
+
+    history = history_price_tickers()
+    assert "ITOT" in history
+    assert "VTI" in history
+    assert set(implementations) <= set(history)
 
 
 def _smb_factor_frame(months: list[date]) -> pl.DataFrame:

@@ -8,12 +8,14 @@ from pathlib import Path
 
 import pytest
 
+from src.etf_manager.etf.mapping import DEFAULT_CANDIDATES, MappingConfig
 from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.validation.experiment import (
     ExperimentSpec,
     load_experiment_config,
+    resolve_mapping,
     resolve_overlay,
     resolve_reserve,
 )
@@ -79,8 +81,8 @@ def test_exp_m2_json_load(scenario_id: str) -> None:
     spec = load_experiment_config("configs/experiments/m1_m2.json")
 
     assert spec.name == "m1_m2_us_core_value"
-    assert spec.start == date(2012, 4, 1)
-    assert spec.end == date(2024, 11, 30)
+    assert spec.start == date(2014, 1, 3)
+    assert spec.end == date(2024, 9, 30)
     assert spec.contribution_krw == pytest.approx(1_000_000.0)
     assert spec.delta0 == pytest.approx(0.02)
     assert spec.horizon_months == 36
@@ -98,8 +100,8 @@ def test_exp_d_universe_json(scenario_id: str) -> None:
     m1_d = load_experiment_config("configs/experiments/m1_d_universe.json")
 
     assert m1_d.name == "m1_d_universe"
-    assert m1_d.start == date(2012, 4, 1)
-    assert m1_d.end == date(2024, 11, 30)
+    assert m1_d.start == date(2014, 1, 3)
+    assert m1_d.end == date(2024, 9, 30)
     assert m1_d.contribution_krw == pytest.approx(1_000_000.0)
     assert m1_d.delta0 == pytest.approx(0.02)
     assert m1_d.horizon_months == 36
@@ -378,3 +380,71 @@ def test_nam_a03_shipped_wf_canonical(scenario_id: str) -> None:
     assert payload["overlay"]["max_tilt"] == pytest.approx(0.10)
     policies = [arm["policy"] for arm in (payload["baseline"], *payload["candidates"])]
     assert set(policies) == {"us"}
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-J-mapping-json"])
+def test_exp_j_mapping_json(scenario_id: str) -> None:
+    """EXP-J-mapping-json"""
+    spec = load_experiment_config("configs/experiments/wf_s1_mapping.json")
+
+    assert spec.mapping is not None
+    assert spec.mapping.min_improvement == pytest.approx(0.02)
+    assert spec.baseline.modules == 0
+    assert spec.candidates[0].modules == 1
+    assert spec.overlay is None
+    assert spec.reserve is None
+    assert spec.baseline.policy is PolicyId.S1_US
+    assert spec.candidates[0].policy is PolicyId.S1_US
+    assert spec.train_months == 60
+    assert spec.test_months == 36
+    assert spec.start == date(2014, 1, 3)
+    assert spec.end == date(2024, 9, 30)
+
+    resolved = resolve_mapping(spec)
+    assert isinstance(resolved, MappingConfig)
+    assert resolved.min_improvement == pytest.approx(0.02)
+    assert resolved.candidates == DEFAULT_CANDIDATES
+
+    omitted = ExperimentSpec.model_validate(_payload())
+    assert omitted.mapping is None
+    assert resolve_mapping(omitted) is None
+
+    defaulted = _payload()
+    defaulted["mapping"] = {}
+    parsed_default = ExperimentSpec.model_validate(defaulted)
+    assert parsed_default.mapping is not None
+    assert parsed_default.mapping.min_improvement == pytest.approx(0.02)
+
+    overlay_and_mapping = _payload()
+    overlay_and_mapping["overlay"] = {"max_shift": 0.10}
+    overlay_and_mapping["mapping"] = {"min_improvement": 0.02}
+    with pytest.raises(ValueError, match="overlay"):
+        ExperimentSpec.model_validate(overlay_and_mapping)
+
+    reserve_and_mapping = _payload()
+    reserve_and_mapping["reserve"] = {"max_withhold": 0.05}
+    reserve_and_mapping["mapping"] = {"min_improvement": 0.02}
+    with pytest.raises(ValueError, match="reserve"):
+        ExperimentSpec.model_validate(reserve_and_mapping)
+
+    zero_modules = _payload()
+    zero_modules["mapping"] = {"min_improvement": 0.02}
+    for candidate in zero_modules["candidates"]:  # type: ignore[union-attr]
+        candidate["modules"] = 0
+    with pytest.raises(ValueError, match="modules"):
+        ExperimentSpec.model_validate(zero_modules)
+
+    unknown_key = _payload()
+    unknown_key["mapping"] = {"min_improvement": 0.02, "bogus": True}
+    with pytest.raises(ValueError, match="bogus"):
+        ExperimentSpec.model_validate(unknown_key)
+
+    zero_min = _payload()
+    zero_min["mapping"] = {"min_improvement": 0}
+    with pytest.raises(ValueError, match="min_improvement"):
+        ExperimentSpec.model_validate(zero_min)
+
+    above_one = _payload()
+    above_one["mapping"] = {"min_improvement": 1.01}
+    with pytest.raises(ValueError, match="min_improvement"):
+        ExperimentSpec.model_validate(above_one)

@@ -18,6 +18,7 @@ from src.etf_manager.validation.campaign import (
 from src.etf_manager.validation.experiment import (
     CandidateSpec,
     ExperimentSpec,
+    MappingSpec,
     OverlaySpec,
     ReserveSpec,
 )
@@ -400,3 +401,64 @@ def test_wf_h_reserve_same_policy(scenario_id: str) -> None:
     proxy_runner = _RecordingRunner(dict.fromkeys(PolicyId, 100.0))
     with pytest.raises(ValueError, match="reserve"):
         run_walk_forward_proxy_adoption(proxy_reject, etf_runner, proxy_runner)
+
+
+class _MappingWealthRunner:
+    """Records configs; mapping arms outperform to force train adoption."""
+
+    def __init__(self) -> None:
+        self.configs: list[AllocationConfig] = []
+
+    def __call__(self, config: AllocationConfig) -> AllocationResult:
+        self.configs.append(config)
+        wealth = 120.0 if config.mapping is not None else 100.0
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-J-mapping-same-policy"])
+def test_wf_j_mapping_same_policy(scenario_id: str) -> None:
+    """WF-J-mapping-same-policy"""
+    spec = ExperimentSpec(
+        name="wf_j_mapping",
+        start=date(2012, 4, 1),
+        end=date(2024, 11, 30),
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        train_months=60,
+        test_months=36,
+        baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
+        candidates=[CandidateSpec(id="s1_us_mapping", policy="s1_us", modules=1)],
+        mapping=MappingSpec(min_improvement=0.02),
+    )
+    runner = _MappingWealthRunner()
+
+    report = run_walk_forward_adoption(spec, runner)
+
+    assert len(report.folds) > 0
+    assert all(fold.train_adopted is True for fold in report.folds)
+    assert report.process_adopted_vs_baseline is True
+    for fold_index in range(len(report.folds)):
+        chunk = runner.configs[fold_index * 5 : (fold_index + 1) * 5]
+        assert len(chunk) == 5
+        mapping_states = [config.mapping is not None for config in chunk]
+        # Baseline train/test stay unmapped; candidate and chosen arms carry it.
+        assert mapping_states == [False, True, False, True, True]
+        for config in chunk:
+            if config.mapping is not None:
+                assert config.mapping.min_improvement == pytest.approx(0.02)
+            assert config.policy is PolicyId.S1_US
+            assert config.fill_delay_sessions == 1
+
+    etf_runner = _RecordingRunner(dict.fromkeys(PolicyId, 100.0))
+    proxy_runner = _RecordingRunner(dict.fromkeys(PolicyId, 100.0))
+    with pytest.raises(ValueError, match="mapping"):
+        run_walk_forward_proxy_adoption(spec, etf_runner, proxy_runner)
