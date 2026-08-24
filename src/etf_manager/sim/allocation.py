@@ -75,6 +75,7 @@ class AllocationConfig:
     reserve: ReserveConfig | None = None
     currency: CurrencyConfig | None = None
     mapping: MappingConfig | None = None
+    targets_override: Mapping[str, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +142,10 @@ def run_allocation(
         raise ValueError("monthly_contribution_krw must be positive")
     if config.overlay is not None and config.reserve is not None:
         raise ValueError("overlay and reserve are mutually exclusive allocation modules")
+    if config.tilt is not None and config.targets_override is not None:
+        raise ValueError("targets_override and tilt are mutually exclusive allocation modules")
+    if config.targets_override is not None:
+        _check_simplex_weights(config.targets_override)
     reserve_ticker: str | None = None
     if config.reserve is not None:
         sleeves = policy_sleeves(config.policy)
@@ -165,7 +170,9 @@ def run_allocation(
         close_ts = calendar.close_ts(point.execution_session)
         usdkrw = _visible_fx(fx, point.execution_session, close_ts)
         cpi_level = _visible_cpi(cpi, point.execution_session, close_ts)
-        if config.tilt is None:
+        if config.targets_override is not None:
+            targets = dict(config.targets_override)
+        elif config.tilt is None:
             targets = resolve_targets(config.policy, prices, point.signal_at)
         else:
             if factors is None:
@@ -332,6 +339,18 @@ def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) 
     macro = load_visible(settings, Dataset.MACRO, cutoff) if need_macro else None
     metadata = load_visible(settings, Dataset.ETF_METADATA, cutoff) if need_metadata else None
     return run_allocation(config, prices, fx, cpi, factors=factors, macro=macro, metadata=metadata)
+
+
+def _check_simplex_weights(weights: Mapping[str, float]) -> None:
+    """Fail closed on negative or non-simplex explicit target overrides."""
+    total = 0.0
+    for ticker, weight in weights.items():
+        value = float(weight)
+        if not math.isfinite(value) or value < 0.0:
+            raise ValueError(f"targets_override[{ticker!r}] must be finite nonnegative, got {weight!r}")
+        total += value
+    if not math.isfinite(total) or abs(total - 1.0) > 1e-6:
+        raise ValueError(f"targets_override weights must sum to 1.0 within 1e-6, got {total!r}")
 
 
 def _visible_close(prices: pl.DataFrame, ticker: str, session: date, close_ts: datetime) -> float:
