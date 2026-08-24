@@ -17,6 +17,7 @@ from src.etf_manager.analytics.us_vehicles import (
 )
 from src.etf_manager.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
 from src.etf_manager.data.catalog import latest_artifact, load_visible
+from src.etf_manager.data.etf_metadata_bootstrap import persist_bootstrap_etf_metadata
 from src.etf_manager.data.fetch import (
     fetch_and_persist_cpi,
     fetch_and_persist_factors,
@@ -576,7 +577,7 @@ def run_ingest_history(
     """Persist FX, prices, CPI, factors, VIXCLS macro, and research returns over a long window.
 
     ``tickers`` defaults to the policy sleeves plus the diagnostic vehicles (QQQ).
-    Returns 0 only when every fetch persists and each of the six latest catalog
+    Returns 0 only when every fetch persists and each of the seven latest catalog
     partitions holds row_count >= 1; vendor/catalog messages never reach the log.
     """
     price_tickers = tickers if tickers is not None else history_price_tickers()
@@ -591,9 +592,18 @@ def run_ingest_history(
             _HISTORY_MACRO_SERIES, start, end, secrets=secrets, settings=settings, client=client
         )
         research = fetch_and_persist_research_returns(start, end, settings=settings, client=client)
+        metadata = persist_bootstrap_etf_metadata(settings)
         row_counts = {
             str(dataset): latest_artifact(settings, dataset).manifest.row_count
-            for dataset in (Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.FACTORS, Dataset.MACRO, Dataset.RESEARCH_RETURNS)
+            for dataset in (
+                Dataset.PRICES,
+                Dataset.FX,
+                Dataset.CPI,
+                Dataset.FACTORS,
+                Dataset.MACRO,
+                Dataset.RESEARCH_RETURNS,
+                Dataset.ETF_METADATA,
+            )
         }
     except (ProviderError, ValueError, UntrustedDatasetError, OSError) as exc:
         # Vendor/catalog messages may echo api_key query strings; expose the failure class only.
@@ -604,7 +614,7 @@ def run_ingest_history(
         logger.error("[DATA] event=history_failed reason=empty_catalog dataset=%s", ",".join(underfilled))
         return 1
     logger.info(
-        "[DATA] event=history_ok tickers=%s price_rows=%d fx_rows=%d cpi_rows=%d factor_rows=%d macro_rows=%d research_rows=%d",
+        "[DATA] event=history_ok tickers=%s price_rows=%d fx_rows=%d cpi_rows=%d factor_rows=%d macro_rows=%d research_rows=%d metadata_rows=%d",
         ",".join(price_tickers),
         prices.manifest.row_count,
         fx.manifest.row_count,
@@ -612,6 +622,7 @@ def run_ingest_history(
         factors.manifest.row_count,
         macro.manifest.row_count,
         research.manifest.row_count,
+        metadata.manifest.row_count,
     )
     return 0
 
