@@ -25,9 +25,9 @@ Default history tickers: sorted union of `all_policy_tickers()` and diagnostic `
 | Command | Purpose |
 | --- | --- |
 | `run baseline --id b0_global\|b1_us --ticker T --start --end --contribution-krw` | Single-sleeve fast DCA |
-| `run policy --id <PolicyId> --start --end --contribution-krw` | Multi-sleeve allocation (operational: `s1_us`) |
+| `run policy --id <PolicyId> --start --end --contribution-krw` | Multi-sleeve allocation (operational: `s8_us_nasdaq`) |
 | `run validate --id --start --end --contribution-krw --delta0 --modules --horizon-months` | Cohort CE vs B0 |
-| `run paper --id s1_us --start --end --contribution-krw` | Buy-only paper replay |
+| `run paper --id s8_us_nasdaq --start --end --contribution-krw` | Buy-only paper replay |
 
 Optional policy flags: `--tilt-factor`, `--overlay-max-shift`, `--vix-threshold`,
 `--fx-max-defer`, `--rebalance-band`, `--map-etf`.
@@ -109,7 +109,7 @@ uv run python -m src.etf_manager.cli ingest history \
 
 # 2. Operational policy smoke
 uv run python -m src.etf_manager.cli run policy \
-  --id s1_us --start 2012-06-01 --end 2024-10-31 \
+  --id s8_us_nasdaq --start 2012-06-01 --end 2024-10-31 \
   --contribution-krw 1000000
 
 # 3. Next validation wave (cost robustness)
