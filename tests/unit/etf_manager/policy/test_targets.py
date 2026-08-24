@@ -15,6 +15,7 @@ from src.etf_manager.data.schema import Dataset, spec_for
 from src.etf_manager.policy.targets import (
     POLICY_ALIASES,
     UNIVERSE_VEHICLE,
+    OPERATIONAL_POLICY_ID,
     PolicyError,
     PolicyId,
     UsEquityUniverse,
@@ -69,6 +70,13 @@ def test_pol_d_s7_large_cap_ivv(scenario_id: str) -> None:
 
     banned = {"s9_voo_qqq", "qqqm"}
     assert banned.isdisjoint(member.value for member in PolicyId)
+
+
+@pytest.mark.parametrize("scenario_id", ["POL-O-operational-s8"])
+def test_pol_o_operational_s8(scenario_id: str) -> None:
+    """POL-O-operational-s8"""
+    assert OPERATIONAL_POLICY_ID is PolicyId.S8_US_NASDAQ
+    assert resolve_targets(OPERATIONAL_POLICY_ID, pl.DataFrame(), _SIGNAL_AT) == {"QQQ": 1.0}
 
 
 @pytest.mark.parametrize("scenario_id", ["POL-N-s8-nasdaq-qqq"])

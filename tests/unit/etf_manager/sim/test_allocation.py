@@ -724,3 +724,45 @@ def test_sim_l_forwards_cadence(scenario_id: str, monkeypatch: pytest.MonkeyPatc
         )
     assert captured_kwargs[-1]["frequency"] == "month_open"
     assert Dataset.PRICES in requested
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-O-targets-override"])
+def test_sim_o_targets_override(scenario_id: str) -> None:
+    """SIM-O-targets-override"""
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, ("QQQ", "VTI")), Dataset.PRICES)
+    fx = ingest(_fx_panel(window), Dataset.FX)
+    cpi = _constant_cpi()
+
+    result = run_allocation(
+        replace(
+            _allocation_config(PolicyId.S8_US_NASDAQ),
+            targets_override={"QQQ": 0.8, "VTI": 0.2},
+        ),
+        prices,
+        fx,
+        cpi,
+    )
+
+    first_shares = result.snapshots[0].shares
+    assert set(first_shares) == {"QQQ", "VTI"}
+    assert all(first_shares[ticker] > 0 for ticker in ("QQQ", "VTI"))
+
+    tilted = replace(
+        _allocation_config(PolicyId.S8_US_NASDAQ),
+        targets_override={"QQQ": 0.8, "VTI": 0.2},
+        tilt=FactorTilt(factor="hml", intensity=0.1),
+    )
+    with pytest.raises(ValueError, match="tilt"):
+        run_allocation(tilted, prices, fx, cpi)
+
+    non_simplex = replace(_allocation_config(PolicyId.S8_US_NASDAQ), targets_override={"QQQ": 0.5})
+    with pytest.raises(ValueError, match="sum"):
+        run_allocation(non_simplex, prices, fx, cpi)
+
+    negative = replace(
+        _allocation_config(PolicyId.S8_US_NASDAQ),
+        targets_override={"QQQ": 1.2, "VTI": -0.2},
+    )
+    with pytest.raises(ValueError, match="nonnegative"):
+        run_allocation(negative, prices, fx, cpi)
