@@ -11,17 +11,18 @@ statistical validation, ETF implementation mapping, reporting diagnostics.
 Out of scope (deferred): live broker connectivity, sell-based rebalancing in production,
 variable external cashflow without an explicit reserve ledger.
 
-### Operational lock (2026-08-23)
+### Operational lock (2026-08-24)
 
 | Field | Value |
 | --- | --- |
-| Policy | `S1_US` — US total market, VTI 100% |
+| Policy | `S8_US_NASDAQ` — Nasdaq-100, QQQ 100% |
 | Contribution | Fixed monthly KRW |
 | Rebalancing | Buy-only via `allocate_contribution` |
 | Active modules | Strategic targets only (`modules = 0`) |
 
-All other `PolicyId` values and optional layers (tilt, overlay, currency, mapping) remain
-**research challengers** until they pass the CE adoption gate under walk-forward or cohort ablation.
+`S1_US` (VTI) remains the CE baseline in walk-forward and ablation configs. All other
+`PolicyId` values and optional layers (tilt, overlay, currency, mapping) remain **research
+challengers** until they pass the CE adoption gate under walk-forward or cohort ablation.
 
 ## 2. Layer Topology
 
@@ -100,7 +101,7 @@ realized inside `L4`, not added as objective penalties.
 
 | Mode | Entry | Adoption gate | Overlay in JSON experiments |
 | --- | --- | --- | --- |
-| **Operations** | `run policy --id s1_us` | N/A (locked policy) | CLI flags only (`--overlay-max-shift`) |
+| **Operations** | `run policy --id s8_us_nasdaq` | N/A (locked policy) | CLI flags only (`--overlay-max-shift`) |
 | **Ablation** | `run ablation --config` | CE on cohort wealths | Disabled (`overlay=None` in `_arm_config`) |
 | **Walk-forward** | `run walk-forward --config` | Train select → test CE | Disabled (pending Wave G) |
 | **Diagnostics** | `run diagnose-us-vehicles` | Never | Never |
