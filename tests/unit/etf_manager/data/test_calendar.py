@@ -27,3 +27,18 @@ def test_cal_a09_fill_delay_lower_bound() -> None:
             next_execution_session(calendar, date(2024, 1, 31), invalid_delay)
     assert next_execution_session(calendar, date(2024, 1, 31), 2) == date(2024, 2, 2)
     assert load_calendar("XNYS") is load_calendar("XNYS")
+
+
+@pytest.mark.parametrize("scenario_id", ["CAL-L-month-start"])
+def test_cal_l_month_start_sessions(scenario_id: str) -> None:
+    """CAL-L-month-start"""
+    calendar = load_calendar("XNYS")
+
+    starts = calendar.month_start_sessions(date(2024, 1, 1), date(2024, 12, 31))
+
+    assert len(starts) == 12
+    assert starts == tuple(sorted(starts))
+    for start in starts:
+        month_sessions = calendar.sessions(start.replace(day=1), date(start.year, start.month, 28))
+        assert start == month_sessions[0]
+    assert {(start.year, start.month) for start in starts} == {(2024, month) for month in range(1, 13)}
