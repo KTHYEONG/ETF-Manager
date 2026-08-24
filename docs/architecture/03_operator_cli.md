@@ -90,13 +90,13 @@ Partitions without a matching manifest are rejected (fail-closed).
 
 ## 5. Operator Date Window
 
-Shipped JSON files use `2012-04-01` / `2024-11-30`. With the current ECOS CPI fixed-lag
+Shipped JSON files use `2014-01-03` / `2024-09-30`. With the current ECOS CPI fixed-lag
 availability model and Tiingo price coverage, operators should prefer:
 
 | Constraint | Safe bound |
 | --- | --- |
-| Start | `2012-06-01` or later (first CPI visible at May 2012 execution) |
-| End | `2024-10-31` or earlier (avoid execution session after last price bar) |
+| Start | `2012-08-31` or later (CPI PIT visible at first execution) |
+| End | `2024-09-30` or earlier (avoid execution session after last price bar) |
 
 Failures surface as `BaselineDataError` / `AllocationDataError` with explicit missing-row messages.
 
