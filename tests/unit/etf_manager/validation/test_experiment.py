@@ -8,8 +8,13 @@ from pathlib import Path
 
 import pytest
 
+from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.targets import PolicyId
-from src.etf_manager.validation.experiment import ExperimentSpec, load_experiment_config
+from src.etf_manager.validation.experiment import (
+    ExperimentSpec,
+    load_experiment_config,
+    resolve_overlay,
+)
 
 
 def _payload() -> dict[str, object]:
@@ -193,3 +198,127 @@ def test_exp_wf_b_json_costs(scenario_id: str, tmp_path: Path) -> None:
     negative.update(commission_bps=-0.1)
     with pytest.raises(ValueError, match="commission_bps"):
         load_experiment_config(_write(tmp_path, negative))
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-G-overlay-json"])
+def test_exp_g_overlay_json(scenario_id: str) -> None:
+    """EXP-G-overlay-json"""
+    spec = load_experiment_config("configs/experiments/wf_s1_overlay.json")
+
+    assert spec.overlay is not None
+    assert spec.overlay.max_shift == pytest.approx(0.10)
+    assert spec.overlay.vix_threshold is None
+    assert spec.baseline.policy is PolicyId.S1_US
+    assert spec.baseline.modules == 0
+    assert len(spec.candidates) == 1
+    assert spec.candidates[0].policy is PolicyId.S1_US
+    assert spec.candidates[0].modules == 1
+    assert spec.train_months == 60
+    assert spec.test_months == 36
+    assert spec.start == date(2014, 1, 3)
+    assert spec.end == date(2024, 9, 30)
+
+    omitted = ExperimentSpec.model_validate(_payload())
+    assert omitted.overlay is None
+
+    resolved = resolve_overlay(spec)
+    assert isinstance(resolved, OverlayConfig)
+    assert resolved.max_shift == pytest.approx(0.10)
+    assert resolve_overlay(omitted) is None
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-G-overlay-fail-closed"])
+def test_exp_g_overlay_fail_closed(scenario_id: str) -> None:
+    """EXP-G-overlay-fail-closed"""
+    too_large = _payload()
+    too_large["overlay"] = {"max_shift": 0.11}
+    with pytest.raises(ValueError, match="max_shift"):
+        ExperimentSpec.model_validate(too_large)
+
+    zero_shift = _payload()
+    zero_shift["overlay"] = {"max_shift": 0}
+    with pytest.raises(ValueError, match="max_shift"):
+        ExperimentSpec.model_validate(zero_shift)
+
+    zero_modules = _payload()
+    zero_modules["overlay"] = {"max_shift": 0.10}
+    for candidate in zero_modules["candidates"]:  # type: ignore[union-attr]
+        candidate["modules"] = 0
+    with pytest.raises(ValueError, match="modules"):
+        ExperimentSpec.model_validate(zero_modules)
+
+    unknown_key = _payload()
+    unknown_key["overlay"] = {"max_shift": 0.10, "bogus": True}
+    with pytest.raises(ValueError, match="bogus"):
+        ExperimentSpec.model_validate(unknown_key)
+
+
+def _alias_payload(canonical: bool) -> dict[str, object]:
+    """Same experiment expressed with canonical or legacy JSON keys and policy ids."""
+    policy = "us" if canonical else "s1_us"
+    module_key = "extra_rules" if canonical else "modules"
+    return {
+        "name": "naming_alias",
+        "start": "2012-01-03",
+        "end": "2024-12-31",
+        "contribution_krw": 1_000_000,
+        "hurdle" if canonical else "delta0": 0.02,
+        "horizon_months": 0,
+        "baseline": {"id": "base", "policy": policy, module_key: 0},
+        "candidates": [{"id": "cand", "policy": policy, module_key: 1}],
+        "overlay": {"max_tilt" if canonical else "max_shift": 0.10},
+    }
+
+
+@pytest.mark.parametrize("scenario_id", ["NAM-A02-experiment-json-aliases"])
+def test_nam_a02_experiment_json_aliases(scenario_id: str, tmp_path: Path) -> None:
+    """NAM-A02-experiment-json-aliases"""
+    legacy = load_experiment_config(_write(tmp_path, _alias_payload(canonical=False)))
+    assert legacy.delta0 == pytest.approx(0.02)
+    assert legacy.candidates[0].modules == 1
+    assert legacy.overlay is not None
+    assert legacy.overlay.max_shift == pytest.approx(0.10)
+    assert legacy.baseline.policy is PolicyId.S1_US
+    assert legacy.candidates[0].policy is PolicyId.S1_US
+
+    canonical = load_experiment_config(_write(tmp_path, _alias_payload(canonical=True)))
+    assert canonical.delta0 == pytest.approx(0.02)
+    assert canonical.candidates[0].modules == 1
+    assert canonical.overlay is not None
+    assert canonical.overlay.max_shift == pytest.approx(0.10)
+    assert canonical.baseline.policy is PolicyId.S1_US
+    assert canonical.candidates[0].policy is PolicyId.S1_US
+
+    dumped = json.loads(canonical.model_dump_json(by_alias=True))
+    assert dumped["hurdle"] == pytest.approx(0.02)
+    assert dumped["baseline"]["extra_rules"] == 0
+    assert dumped["candidates"][0]["extra_rules"] == 1
+    assert dumped["overlay"]["max_tilt"] == pytest.approx(0.10)
+    assert dumped["candidates"][0]["policy"] == "us"
+
+    conflict = _payload()
+    conflict["hurdle"] = 0.02
+    conflict["delta0"] = 0.03
+    with pytest.raises(ValueError, match="hurdle"):
+        load_experiment_config(_write(tmp_path, conflict))
+
+
+@pytest.mark.parametrize("scenario_id", ["NAM-A03-shipped-wf-canonical"])
+def test_nam_a03_shipped_wf_canonical(scenario_id: str) -> None:
+    """NAM-A03-shipped-wf-canonical"""
+    spec = load_experiment_config("configs/experiments/wf_s1_overlay.json")
+
+    assert spec.baseline.policy is PolicyId.S1_US
+    assert spec.overlay is not None
+    assert spec.overlay.max_shift == pytest.approx(0.10)
+    assert spec.start == date(2014, 1, 3)
+
+    text = Path("configs/experiments/wf_s1_overlay.json").read_text(encoding="utf-8")
+    for key in ("hurdle", "extra_rules", "max_tilt"):
+        assert key in text
+    assert "delta0" not in text
+    assert "max_shift" not in text
+    payload = json.loads(text)
+    assert payload["overlay"]["max_tilt"] == pytest.approx(0.10)
+    policies = [arm["policy"] for arm in (payload["baseline"], *payload["candidates"])]
+    assert set(policies) == {"us"}

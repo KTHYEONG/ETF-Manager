@@ -24,6 +24,7 @@ from src.etf_manager.sim.allocation import (
     AllocationSnapshot,
 )
 from src.etf_manager.sim.baseline import BaselineConfig, BaselineId, BaselineResult
+from src.etf_manager.validation.feasibility import FeasibilityError
 
 
 @pytest.mark.parametrize("scenario_id", ["CLI-E-diagnose-dispatch"])
@@ -356,6 +357,7 @@ def test_cli_g07_run_policy(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -
         )
 
     monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "require_feasibility", lambda **kwargs: None)
 
     argv = [
         "run",
@@ -425,6 +427,7 @@ def test_cli_h06_ingest_factors_and_tilt_flags(scenario_id: str, monkeypatch: py
         )
 
     monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "require_feasibility", lambda **kwargs: None)
 
     base_argv = [
         "run",
@@ -474,6 +477,7 @@ def test_cli_i05_rebalance_band_flag(scenario_id: str, monkeypatch: pytest.Monke
         )
 
     monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "require_feasibility", lambda **kwargs: None)
 
     base_argv = [
         "run",
@@ -518,6 +522,7 @@ def test_cli_j05_overlay_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch
         )
 
     monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "require_feasibility", lambda **kwargs: None)
 
     base_argv = [
         "run",
@@ -567,6 +572,7 @@ def test_cli_k05_fx_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> 
         )
 
     monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "require_feasibility", lambda **kwargs: None)
 
     base_argv = [
         "run",
@@ -620,6 +626,7 @@ def test_cli_m05_map_etf_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch
         )
 
     monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "require_feasibility", lambda **kwargs: None)
 
     base_argv = [
         "run",
@@ -688,7 +695,7 @@ def test_val_v05_cli_validate(scenario_id: str, monkeypatch: pytest.MonkeyPatch)
         "run",
         "validate",
         "--id",
-        "s0_global",
+        "global",
         "--start",
         "2024-01-01",
         "--end",
@@ -708,6 +715,44 @@ def test_val_v05_cli_validate(scenario_id: str, monkeypatch: pytest.MonkeyPatch)
 
     assert main([*base_argv, "--bootstrap-paths", "2"]) == 2
     assert main([*base_argv, "--bootstrap-paths", "2", "--seed", "1"]) == 0
+
+
+@pytest.mark.parametrize("scenario_id", ["NAM-A04-cli-canonical-id"])
+def test_nam_a04_cli_canonical_id(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """NAM-A04-cli-canonical-id"""
+    captured: list[AllocationConfig] = []
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        captured.append(config)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=1.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=1.0,
+            xirr_real=0.0,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "require_feasibility", lambda **kwargs: None)
+
+    argv = ["run", "policy", "--id", "us", "--start", "2024-01-01",
+            "--end", "2024-01-31", "--contribution-krw", "1"]
+    assert main(argv) == 0
+    assert len(captured) == 1
+    assert captured[-1].policy is PolicyId.S1_US
+
+    legacy_argv = ["run", "policy", "--id", "s1_us", "--start", "2024-01-01",
+                   "--end", "2024-01-31", "--contribution-krw", "1"]
+    assert main(legacy_argv) == 0
+    assert len(captured) == 2
+    assert captured[-1].policy is PolicyId.S1_US
+
+    baseline_argv = ["run", "policy", "--id", "b0_global", "--start", "2024-01-01",
+                     "--end", "2024-01-31", "--contribution-krw", "1"]
+    assert main(baseline_argv) == 2
+    assert len(captured) == 2
 
 
 @pytest.mark.parametrize("scenario_id", ["CLI-X04-paper-flags"])
@@ -743,7 +788,7 @@ def test_cli_x04_paper_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch) 
         "run",
         "paper",
         "--id",
-        "s0_global",
+        "global",
         "--start",
         "2024-01-01",
         "--end",
@@ -789,6 +834,7 @@ def test_cli_w1_ablation_dispatch(
             xirr_real=0.0,
         )
 
+    monkeypatch.setattr(cli, "assert_experiment_feasible", lambda spec, settings: None)
     monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
     monkeypatch.setattr(cli, "latest_artifact", lambda settings, dataset: _FakeArtifact(8))
 
@@ -842,6 +888,7 @@ def test_cli_wf_dispatch(
             xirr_real=0.0,
         )
 
+    monkeypatch.setattr(cli, "assert_experiment_feasible", lambda spec, settings: None)
     monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
     monkeypatch.setattr(cli, "latest_artifact", lambda settings, dataset: _FakeArtifact(8))
 
@@ -891,7 +938,7 @@ def test_cli_horizon_default_36(scenario_id: str, monkeypatch: pytest.MonkeyPatc
         "run",
         "validate",
         "--id",
-        "s0_global",
+        "global",
         "--start",
         "2024-01-01",
         "--end",
@@ -926,6 +973,7 @@ def test_cli_walk_forward_costs(
             xirr_real=0.0,
         )
 
+    monkeypatch.setattr(cli, "assert_experiment_feasible", lambda spec, settings: None)
     monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
     monkeypatch.setattr(cli, "latest_artifact", lambda settings, dataset: _FakeArtifact(8))
 
@@ -1011,6 +1059,7 @@ def test_cli_walk_forward_proxy(
         )
 
     monkeypatch.setattr(cli, "run_allocation_from_store", fake_etf_run)
+    monkeypatch.setattr(cli, "assert_experiment_feasible", lambda spec, settings: None)
     monkeypatch.setattr(cli, "run_research_proxy_from_store", fake_proxy_run)
     monkeypatch.setattr(cli, "latest_artifact", lambda settings, dataset: _FakeArtifact(8))
 
@@ -1058,3 +1107,42 @@ def test_cli_walk_forward_proxy(
     m0_m1_path = tmp_path / "m0_m1.json"
     m0_m1_path.write_text(json.dumps(multi_payload), encoding="utf-8")
     assert main(["run", "walk-forward-proxy", "--config", str(m0_m1_path)]) == 1
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-FEAS-A05-walkforward-preflight"])
+def test_cli_feas_a05_walkforward_preflight(
+    scenario_id: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI-FEAS-A05-walkforward-preflight"""
+
+    def fake_preflight(spec: object, settings: object) -> object:
+        raise FeasibilityError("cpi")
+
+    runner_calls: list[AllocationConfig] = []
+
+    def forbidden_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        runner_calls.append(config)
+        raise AssertionError("allocation runner must not run after a failed preflight")
+
+    monkeypatch.setattr(cli, "assert_experiment_feasible", fake_preflight)
+    monkeypatch.setattr(cli, "run_allocation_from_store", forbidden_run)
+
+    payload = {
+        "name": "wf_s0_s1",
+        "start": "2012-04-01",
+        "end": "2024-11-30",
+        "contribution_krw": 1_000_000,
+        "delta0": 0.02,
+        "horizon_months": 0,
+        "train_months": 60,
+        "test_months": 36,
+        "baseline": {"id": "s0_global", "policy": "s0_global", "modules": 0},
+        "candidates": [{"id": "s1_us", "policy": "s1_us", "modules": 1}],
+    }
+    wf_path = tmp_path / "wf_s0_s1.json"
+    wf_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert main(["run", "walk-forward", "--config", str(wf_path)]) == 1
+    assert runner_calls == []
