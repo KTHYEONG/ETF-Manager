@@ -17,6 +17,7 @@ from src.etf_manager.data.pipeline import ingest
 from src.etf_manager.data.schema import Dataset, spec_for
 from src.etf_manager.policy.currency import CurrencyConfig
 from src.etf_manager.policy.overlay import OverlayConfig
+from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.policy.tilt import FactorTilt
 from src.etf_manager.sim.allocation import AllocationConfig, AllocationDataError, AllocationResult, run_allocation
@@ -587,6 +588,42 @@ def test_val_v04_cohort_identity(scenario_id: str) -> None:
             (),
             lambda config: run_allocation(config, prices, fx, cpi),
         )
+
+
+@pytest.mark.parametrize("scenario_id", ["RSV-B-allocation-conservation"])
+def test_rsv_b_allocation_conservation(scenario_id: str) -> None:
+    """RSV-B-allocation-conservation"""
+    days = _CALENDAR.sessions(_LONG_PANEL_START, date(2024, 2, 29))
+    prices = ingest(_long_rising_panel(days), Dataset.PRICES)
+    fx = ingest(_fx_panel(days), Dataset.FX)
+    cpi = _constant_cpi()
+    reserved = replace(
+        _allocation_config(PolicyId.S1_US),
+        reserve=ReserveConfig(max_withhold=0.10),
+    )
+
+    result = run_allocation(reserved, prices, fx, cpi)
+
+    for index, snapshot in enumerate(result.snapshots):
+        assert snapshot.contribution_krw == pytest.approx(_CONTRIBUTION_KRW)
+        assert snapshot.reserve_krw >= 0.0
+        assert snapshot.mark_krw >= snapshot.cash_krw + snapshot.reserve_krw
+        # Rising prices keep withholding exactly one cap per month.
+        assert snapshot.reserve_krw == pytest.approx((index + 1) * 0.10 * _CONTRIBUTION_KRW)
+
+    plain = run_allocation(_allocation_config(PolicyId.S1_US), prices, fx, cpi)
+    assert all(snapshot.reserve_krw == 0.0 for snapshot in plain.snapshots)
+    assert all(
+        snapshot.contribution_krw == pytest.approx(_CONTRIBUTION_KRW) for snapshot in plain.snapshots
+    )
+
+    both = replace(
+        _allocation_config(PolicyId.S0_GLOBAL),
+        overlay=OverlayConfig(max_shift=0.10),
+        reserve=ReserveConfig(max_withhold=0.10),
+    )
+    with pytest.raises(ValueError, match="overlay"):
+        run_allocation(both, pl.DataFrame(), pl.DataFrame(), pl.DataFrame())
 
 
 @pytest.mark.parametrize("scenario_id", ["EXE-X03-replay-identity"])
