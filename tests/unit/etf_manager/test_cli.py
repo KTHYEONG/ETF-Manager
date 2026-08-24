@@ -16,6 +16,7 @@ from src.etf_manager.data.providers.base import ProviderError
 from src.etf_manager.data.schema import Dataset
 from src.etf_manager.data.settings import DataSettings
 from src.etf_manager.etf.mapping import MappingConfig
+from src.etf_manager.policy.currency import CurrencyConfig
 from src.etf_manager.policy.targets import PolicyId, all_policy_tickers
 from src.etf_manager.sim.allocation import (
     AllocationConfig,
@@ -720,6 +721,61 @@ def test_cli_m05_map_etf_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch
 
     assert main(base_argv) == 0
     assert captured[-1].mapping is None
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-K-policy-feas-currency"])
+def test_cli_k_policy_feas_currency(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-K-policy-feas-currency"""
+    captured: list[AllocationConfig] = []
+    captured_kwargs: list[dict[str, object]] = []
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        captured.append(config)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=2.5,
+            xirr=0.12,
+            max_drawdown=-0.05,
+            terminal_wealth_real_krw=2.0,
+            xirr_real=0.09,
+        )
+
+    def fake_feasibility(**kwargs: object) -> None:
+        captured_kwargs.append(kwargs)
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "require_feasibility", fake_feasibility)
+
+    base_argv = [
+        "run",
+        "policy",
+        "--id",
+        "s2_regional",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-01-31",
+        "--contribution-krw",
+        "1000000",
+    ]
+
+    assert main([*base_argv, "--fx-max-defer", "0.2"]) == 0
+    assert len(captured_kwargs) == 1
+    currency = captured_kwargs[0]["currency"]
+    assert isinstance(currency, CurrencyConfig)
+    assert currency.max_defer == pytest.approx(0.2)
+
+    assert main([*base_argv, "--map-etf"]) == 0
+    assert len(captured_kwargs) == 2
+    mapping = captured_kwargs[1]["mapping"]
+    assert isinstance(mapping, MappingConfig)
+    assert mapping.min_improvement == pytest.approx(0.02)
+    assert captured_kwargs[1]["currency"] is None
+    assert captured_kwargs[1]["mapping_policies"] == (PolicyId.S2_REGIONAL,)
+
+    assert main([*base_argv, "--overlay-max-shift", "0.1", "--reserve-max-withhold", "0.1"]) == 2
+    assert len(captured_kwargs) == 2
 
 
 @pytest.mark.parametrize("scenario_id", ["VAL-V05-cli-validate"])

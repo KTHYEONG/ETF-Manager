@@ -16,12 +16,19 @@ from src.etf_manager.data.pipeline import persist_ingest
 from src.etf_manager.data.schema import Dataset, spec_for
 from src.etf_manager.data.settings import DataSettings
 from src.etf_manager.data.storage import RawPayload
+from src.etf_manager.policy.currency import CurrencyConfig
 from src.etf_manager.policy.overlay import OverlayConfig
 from src.etf_manager.policy.targets import PolicyId
-from src.etf_manager.validation.experiment import CandidateSpec, ExperimentSpec, MappingSpec
+from src.etf_manager.validation.experiment import (
+    CandidateSpec,
+    CurrencySpec,
+    ExperimentSpec,
+    MappingSpec,
+)
 from src.etf_manager.validation.feasibility import (
     FeasibilityError,
     assert_experiment_feasible,
+    currency_warmup_sessions,
     overlay_warmup_sessions,
     require_feasibility,
     resolve_feasibility,
@@ -366,3 +373,42 @@ def test_feas_j_mapping_metadata(scenario_id: str, tmp_path: Path, monkeypatch: 
         assert_experiment_feasible(spec, missing_itot)
     assert excinfo.value.report is not None
     assert any("ITOT" in violation.message for violation in excinfo.value.report.violations)
+
+
+def _currency_spec() -> ExperimentSpec:
+    """S1 versus S1+currency on the shared short window."""
+    return ExperimentSpec(
+        name="feas_k_currency",
+        start=_SHORT_WINDOW[0],
+        end=_SHORT_WINDOW[1],
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        currency=CurrencySpec(max_defer=0.10),
+        baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
+        candidates=[CandidateSpec(id="s1_us_currency", policy="s1_us", modules=1)],
+    )
+
+
+@pytest.mark.parametrize("scenario_id", ["FEAS-K-currency-warmup"])
+def test_feas_k_currency_warmup(scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """FEAS-K-currency-warmup"""
+    assert currency_warmup_sessions(None) == 0
+    assert currency_warmup_sessions(CurrencyConfig(max_defer=0.10)) == 252
+
+    days = _panel_days(*_SHORT_PANEL)
+    settings = _catalog(
+        monkeypatch,
+        tmp_path,
+        days=days,
+        tickers=("VTI",),
+        close_of_day=_constant_closes,
+        cpi_period_end=_CPI_VISIBLE_PERIOD_END,
+    )
+
+    with pytest.raises(FeasibilityError) as excinfo:
+        assert_experiment_feasible(_currency_spec(), settings)
+
+    assert excinfo.value.report is not None
+    codes = {violation.code for violation in excinfo.value.report.violations}
+    assert "currency_warmup" in codes
