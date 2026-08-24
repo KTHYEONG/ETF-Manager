@@ -11,6 +11,7 @@ from src.etf_manager.sim.allocation import AllocationConfig, AllocationResult
 from src.etf_manager.validation.ablation import run_ablation
 from src.etf_manager.validation.experiment import (
     CandidateSpec,
+    CurrencySpec,
     ExperimentSpec,
     MappingSpec,
     OverlaySpec,
@@ -227,3 +228,39 @@ def test_abl_j_mapping_candidate_only(scenario_id: str) -> None:
     plain_runner = _runner()
     run_ablation(_spec(modules=1), plain_runner)
     assert all(config.mapping is None for config in plain_runner.configs)
+
+
+@pytest.mark.parametrize("scenario_id", ["ABL-K-currency-candidate-only"])
+def test_abl_k_currency_candidate_only(scenario_id: str) -> None:
+    """ABL-K-currency-candidate-only"""
+    spec = ExperimentSpec(
+        name="abl_k_currency",
+        start=_WINDOW[0],
+        end=_WINDOW[1],
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        currency=CurrencySpec(max_defer=0.10),
+        baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
+        candidates=[CandidateSpec(id="s1_us_currency", policy="s1_us", modules=1)],
+    )
+    runner = _RecordingRunner({PolicyId.S1_US: 120.0})
+
+    run_ablation(spec, runner)
+
+    assert len(runner.configs) == 2
+    baseline_config, candidate_config = runner.configs
+    assert baseline_config.currency is None
+    assert candidate_config.currency is not None
+    assert candidate_config.currency.max_defer == pytest.approx(0.10)
+    for config in (baseline_config, candidate_config):
+        assert config.policy is PolicyId.S1_US
+        assert (config.start, config.end) == _WINDOW
+        assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
+        assert config.fill_delay_sessions == 1
+        assert config.commission_bps == pytest.approx(0.0)
+        assert config.fx_spread_bps == pytest.approx(0.0)
+
+    plain_runner = _runner()
+    run_ablation(_spec(modules=1), plain_runner)
+    assert all(config.currency is None for config in plain_runner.configs)
