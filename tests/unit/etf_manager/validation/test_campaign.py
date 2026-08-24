@@ -15,7 +15,7 @@ from src.etf_manager.validation.campaign import (
     run_walk_forward_cost_grid,
     run_walk_forward_proxy_adoption,
 )
-from src.etf_manager.validation.experiment import CandidateSpec, ExperimentSpec
+from src.etf_manager.validation.experiment import CandidateSpec, ExperimentSpec, OverlaySpec
 
 
 def _spec() -> ExperimentSpec:
@@ -272,3 +272,64 @@ def test_wf_b_grid_stress_can_flip(scenario_id: str) -> None:
     stress = grid.outcomes[-1]
     assert stress.scenario.id == "stress"
     assert stress.campaign.process_adopted_vs_baseline is False
+
+
+class _OverlayWealthRunner:
+    """Records configs; overlay arms outperform to force train adoption."""
+
+    def __init__(self) -> None:
+        self.configs: list[AllocationConfig] = []
+
+    def __call__(self, config: AllocationConfig) -> AllocationResult:
+        self.configs.append(config)
+        wealth = 120.0 if config.overlay is not None else 100.0
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-G-overlay-same-policy"])
+def test_wf_g_overlay_same_policy(scenario_id: str) -> None:
+    """WF-G-overlay-same-policy"""
+    spec = ExperimentSpec(
+        name="wf_g_overlay",
+        start=date(2012, 4, 1),
+        end=date(2024, 11, 30),
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        train_months=60,
+        test_months=36,
+        baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
+        candidates=[CandidateSpec(id="s1_us_overlay", policy="s1_us", modules=1)],
+        overlay=OverlaySpec(max_shift=0.10),
+    )
+    runner = _OverlayWealthRunner()
+
+    report = run_walk_forward_adoption(spec, runner)
+
+    assert len(report.folds) > 0
+    assert all(fold.train_adopted is True for fold in report.folds)
+    assert report.process_adopted_vs_baseline is True
+    for fold_index in range(len(report.folds)):
+        chunk = runner.configs[fold_index * 5 : (fold_index + 1) * 5]
+        assert len(chunk) == 5
+        overlay_states = [config.overlay is not None for config in chunk]
+        # Baseline train/test stay un-overlayed; candidate and chosen arms carry it.
+        assert overlay_states == [False, True, False, True, True]
+        for config in chunk:
+            if config.overlay is not None:
+                assert config.overlay.max_shift == pytest.approx(0.10)
+            assert config.policy is PolicyId.S1_US
+            assert config.fill_delay_sessions == 1
+
+    etf_runner = _RecordingRunner(dict.fromkeys(PolicyId, 100.0))
+    proxy_runner = _RecordingRunner(dict.fromkeys(PolicyId, 100.0))
+    with pytest.raises(ValueError, match="overlay"):
+        run_walk_forward_proxy_adoption(spec, etf_runner, proxy_runner)

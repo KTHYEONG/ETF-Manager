@@ -9,7 +9,7 @@ import pytest
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.sim.allocation import AllocationConfig, AllocationResult
 from src.etf_manager.validation.ablation import run_ablation
-from src.etf_manager.validation.experiment import CandidateSpec, ExperimentSpec
+from src.etf_manager.validation.experiment import CandidateSpec, ExperimentSpec, OverlaySpec
 
 _WINDOW = (date(2012, 1, 3), date(2024, 12, 31))
 
@@ -119,3 +119,37 @@ def test_abl_w1_candidate_order(scenario_id: str) -> None:
         PolicyId.S4_DEFENSIVE,
         PolicyId.S1_US,
     ]
+
+
+@pytest.mark.parametrize("scenario_id", ["ABL-G-overlay-candidate-only"])
+def test_abl_g_overlay_candidate_only(scenario_id: str) -> None:
+    """ABL-G-overlay-candidate-only"""
+    spec = ExperimentSpec(
+        name="abl_g_overlay",
+        start=_WINDOW[0],
+        end=_WINDOW[1],
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        overlay=OverlaySpec(max_shift=0.10),
+        baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
+        candidates=[CandidateSpec(id="s1_us_overlay", policy="s1_us", modules=1)],
+    )
+    runner = _RecordingRunner({PolicyId.S1_US: 120.0})
+
+    run_ablation(spec, runner)
+
+    assert len(runner.configs) == 2
+    baseline_config, candidate_config = runner.configs
+    assert baseline_config.overlay is None
+    assert candidate_config.overlay is not None
+    assert candidate_config.overlay.max_shift == pytest.approx(0.10)
+    for config in (baseline_config, candidate_config):
+        assert config.policy is PolicyId.S1_US
+        assert (config.start, config.end) == _WINDOW
+        assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
+        assert config.fill_delay_sessions == 1
+
+    plain_runner = _runner()
+    run_ablation(_spec(modules=1), plain_runner)
+    assert all(config.overlay is None for config in plain_runner.configs)
