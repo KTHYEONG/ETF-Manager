@@ -1,0 +1,20 @@
+{
+  "name": "m1_n_nasdaq",
+  "start": "2014-01-03",
+  "end": "2024-09-30",
+  "contribution_krw": 1000000,
+  "hurdle": 0.02,
+  "horizon_months": 36,
+  "baseline": {
+    "id": "s1_us",
+    "policy": "us",
+    "extra_rules": 0
+  },
+  "candidates": [
+    {
+      "id": "s8_us_nasdaq",
+      "policy": "nasdaq",
+      "extra_rules": 1
+    }
+  ]
+}
