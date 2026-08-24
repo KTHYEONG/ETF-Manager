@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_H_RESERVE_LEDGER",
+      "date": "2026-08-24",
+      "adr_id": "ADR_20260824_WAVE_H_RESERVE_LEDGER",
+      "domain": "validation",
+      "title": "Wave H: S1 explicit reserve ledger (I5-safe contribution schedule)",
+      "why": "next.md Wave H requires varying invested KRW via an explicit reserve without new external cash; run_allocation only capped investable at monthly contribution with no labeled withhold/deploy bucket.",
+      "resolution": "Added ReserveConfig/ReserveDecision/apply_reserve_schedule, AllocationConfig.reserve and snapshot reserve_krw with I6 NAV conservation, ReserveSpec/resolve_reserve and candidate-only ablation/campaign wiring, reserve_warmup feasibility, CLI --reserve-withhold-cap, wf_s1_reserve.json, and RSV-/EXP-H-/ABL-H-/WF-H-/CLI-H- contract tests.",
+      "impact": "Enables walk-forward CE gate for S1 vs S1+bounded reserve under identical external cashflow; operational S1 lock unchanged until process_adopted_vs_baseline passes; overlay and reserve remain mutually exclusive."
+    },
+    {
       "task_id": "OPERATOR_NAMING",
       "date": "2026-08-24",
       "adr_id": "ADR_20260824_OPERATOR_NAMING",
