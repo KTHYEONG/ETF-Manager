@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_L_S1_CADENCE",
+      "date": "2026-08-24",
+      "adr_id": "ADR_20260824_WAVE_L_S1_CADENCE",
+      "domain": "policy",
+      "title": "Wave L: S1 month-open cadence walk-forward CE gate",
+      "why": "S1 locked on month-end DCA; overlay/reserve/mapping/currency failed CE. Time-in-market deploy timing (month-open vs month-end) was never a gated module under I5 identical monthly cashflow.",
+      "resolution": "Added month_start_sessions, build_decision_schedule frequency month_open, AllocationConfig.cadence, CadenceSpec/resolve_cadence on ExperimentSpec, ablation/campaign wiring, wf_s1_cadence.json, and contract tests CAL-L/SCH-L/EXP-L/WF-L/ABL-L/SIM-L.",
+      "impact": "Enables walk-forward CE gate for S1 vs S1+month_open under identical per-month KRW; operational S1 month-end lock unchanged until process_adopted_vs_baseline passes; cadence mutually exclusive with overlay/reserve/mapping/currency."
+    },
+    {
       "task_id": "USD_LOT_RECYCLE",
       "date": "2026-08-24",
       "adr_id": "ADR_20260824_USD_LOT_RECYCLE",
