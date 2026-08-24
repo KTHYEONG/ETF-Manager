@@ -67,26 +67,31 @@ def test_pol_d_s7_large_cap_ivv(scenario_id: str) -> None:
         assert min(weights) >= 0.0
         assert abs(sum(weights) - 1.0) <= 1e-6
 
-    banned = {"s8_us_nasdaq", "s9_voo_qqq", "qqqm"}
+    banned = {"s9_voo_qqq", "qqqm"}
     assert banned.isdisjoint(member.value for member in PolicyId)
 
 
-@pytest.mark.parametrize("scenario_id", ["VEH-E-nasdaq-not-policy"])
-def test_veh_e_nasdaq_not_policy(scenario_id: str) -> None:
-    """VEH-E-nasdaq-not-policy"""
+@pytest.mark.parametrize("scenario_id", ["POL-N-s8-nasdaq-qqq"])
+def test_pol_n_s8_nasdaq_qqq(scenario_id: str) -> None:
+    """POL-N-s8-nasdaq-qqq"""
     assert UNIVERSE_VEHICLE[UsEquityUniverse.NASDAQ_100] == "QQQ"
-    assert "QQQ" not in all_policy_tickers()
 
-    banned = {"s8_us_nasdaq", "s9_voo_qqq", "qqqm"}
+    targets = resolve_targets(PolicyId.S8_US_NASDAQ, pl.DataFrame(), _SIGNAL_AT)
+
+    assert targets == {"QQQ": 1.0}
+    assert min(targets.values()) >= 0.0
+    assert abs(sum(targets.values()) - 1.0) <= 1e-6
+    assert PolicyId.parse("s8_us_nasdaq") is PolicyId.S8_US_NASDAQ
+    assert "QQQ" in all_policy_tickers()
+
+    banned = {"s9_voo_qqq", "qqqm"}
     assert banned.isdisjoint(member.value for member in PolicyId)
-    assert resolve_targets(PolicyId.S1_US, pl.DataFrame(), _SIGNAL_AT) == {"VTI": 1.0}
-    assert resolve_targets(PolicyId.S7_US_LARGE_CAP, pl.DataFrame(), _SIGNAL_AT) == {"IVV": 1.0}
 
 
 @pytest.mark.parametrize("scenario_id", ["TGT-W1-sleeve-universe"])
 def test_tgt_w1_sleeve_universe(scenario_id: str) -> None:
     """TGT-W1-sleeve-universe"""
-    assert all_policy_tickers() == ("BND", "IEF", "IVV", "TLT", "VEA", "VT", "VTI", "VTV", "VWO")
+    assert all_policy_tickers() == ("BND", "IEF", "IVV", "QQQ", "TLT", "VEA", "VT", "VTI", "VTV", "VWO")
     union: set[str] = set()
     for member in PolicyId:
         union.update(policy_sleeves(member))
@@ -121,7 +126,7 @@ def test_i9_c_resolve_targets_rejects_r1(scenario_id: str) -> None:
     union: set[str] = set()
     for member in PolicyId:
         union.update(policy_sleeves(member))
-    expected = ("BND", "IEF", "IVV", "TLT", "VEA", "VT", "VTI", "VTV", "VWO")
+    expected = ("BND", "IEF", "IVV", "QQQ", "TLT", "VEA", "VT", "VTI", "VTV", "VWO")
     assert all_policy_tickers() == tuple(sorted(union)) == expected
 
 
@@ -208,6 +213,7 @@ def test_nam_a01_policy_aliases(scenario_id: str) -> None:
         "inv_vol",
         "us_value",
         "us_large",
+        "nasdaq",
         "us_ff",
     }
     assert PolicyId.parse("us") is PolicyId.parse("s1_us") is PolicyId.S1_US

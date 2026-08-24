@@ -130,6 +130,42 @@ def test_exp_d_universe_json(scenario_id: str) -> None:
     assert [candidate.modules for candidate in wf.candidates] == [1]
 
 
+@pytest.mark.parametrize("scenario_id", ["EXP-N-nasdaq-json"])
+def test_exp_n_nasdaq_json(scenario_id: str) -> None:
+    """EXP-N-nasdaq-json"""
+    m1_n = load_experiment_config("configs/experiments/m1_n_nasdaq.json")
+
+    assert m1_n.name == "m1_n_nasdaq"
+    assert m1_n.start == date(2014, 1, 3)
+    assert m1_n.end == date(2024, 9, 30)
+    assert m1_n.contribution_krw == pytest.approx(1_000_000.0)
+    assert m1_n.delta0 == pytest.approx(0.02)
+    assert m1_n.horizon_months == 36
+    assert m1_n.baseline.id == "s1_us"
+    assert m1_n.baseline.policy is PolicyId.S1_US
+    assert m1_n.baseline.modules == 0
+    assert [candidate.id for candidate in m1_n.candidates] == ["s8_us_nasdaq"]
+    assert [candidate.policy for candidate in m1_n.candidates] == [PolicyId.S8_US_NASDAQ]
+    assert [candidate.modules for candidate in m1_n.candidates] == [1]
+
+    wf = load_experiment_config("configs/experiments/wf_s1_s8.json")
+
+    assert wf.name == "wf_s1_s8"
+    assert wf.train_months == 60
+    assert wf.test_months == 36
+    assert wf.horizon_months == 0
+    assert wf.contribution_krw == pytest.approx(1_000_000.0)
+    assert wf.delta0 == pytest.approx(0.02)
+    assert wf.start == date(2014, 1, 3)
+    assert wf.end == date(2024, 9, 30)
+    assert wf.baseline.id == "s1_us"
+    assert wf.baseline.policy is PolicyId.S1_US
+    assert wf.baseline.modules == 0
+    assert [candidate.id for candidate in wf.candidates] == ["s8_us_nasdaq"]
+    assert [candidate.policy for candidate in wf.candidates] == [PolicyId.S8_US_NASDAQ]
+    assert [candidate.modules for candidate in wf.candidates] == [1]
+
+
 @pytest.mark.parametrize("scenario_id", ["EXP-WF-optional-months"])
 def test_exp_wf_optional_months(scenario_id: str) -> None:
     """EXP-WF-optional-months"""
