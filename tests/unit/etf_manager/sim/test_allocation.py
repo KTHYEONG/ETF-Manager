@@ -688,3 +688,39 @@ def test_sim_i06_recycle_usd_dust(scenario_id: str) -> None:
         + last.reserve_krw
     )
     assert last.mark_krw == pytest.approx(expected_mark, rel=1e-6)
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-L-forwards-cadence"])
+def test_sim_l_forwards_cadence(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SIM-L-forwards-cadence"""
+    plain = _allocation_config(PolicyId.S0_GLOBAL)
+    assert plain.cadence == "monthly"
+
+    captured_kwargs: list[dict[str, object]] = []
+
+    def stub_schedule(start: date, end: date, **kwargs: object) -> tuple[object, ...]:
+        captured_kwargs.append(kwargs)
+        return ()
+
+    monkeypatch.setattr(allocation_module, "build_decision_schedule", stub_schedule)
+
+    with pytest.raises(AllocationDataError, match="empty decision schedule"):
+        run_allocation(replace(plain, cadence="month_open"), pl.DataFrame(), pl.DataFrame(), pl.DataFrame())
+    assert captured_kwargs[0]["frequency"] == "month_open"
+    assert captured_kwargs[0]["fill_delay_sessions"] == 1
+
+    captured_kwargs.clear()
+    requested: list[Dataset] = []
+
+    def fake_latest(settings: object, dataset: Dataset) -> object:
+        requested.append(dataset)
+        return object()
+
+    monkeypatch.setattr(allocation_module, "latest_artifact", fake_latest)
+
+    with pytest.raises(AllocationDataError, match="empty decision schedule"):
+        allocation_module.run_allocation_from_store(  # type: ignore[arg-type]
+            replace(plain, cadence="month_open"), settings=object()
+        )
+    assert captured_kwargs[-1]["frequency"] == "month_open"
+    assert Dataset.PRICES in requested
