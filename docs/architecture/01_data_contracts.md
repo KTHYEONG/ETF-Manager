@@ -117,5 +117,5 @@ NYSE fill-delay semantics, the following windows are known-good with the current
 | `start < 2012-06-01` | `missing positive CPI row` at early execution sessions |
 | `end > 2024-10-31` (with current Tiingo pull) | `missing price row` on last execution session after signal month-end |
 
-Experiment JSON under `configs/experiments/` may still list `2012-04-01` / `2024-11-30`; operators
-should override dates or maintain scratch copies for reproducible runs.
+Experiment JSON under `configs/experiments/` uses `2014-01-03` / `2024-09-30` (catalog-feasible).
+For longer panels use ingest `2012-08-31` / `2024-09-30`; avoid `2024-11-30` (missing last-session marks).

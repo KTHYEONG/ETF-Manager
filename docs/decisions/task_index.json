@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_J_S1_MAPPING",
+      "date": "2026-08-24",
+      "adr_id": "ADR_20260824_WAVE_J_S1_MAPPING",
+      "domain": "validation",
+      "title": "Wave J: S1 ETF implementation mapping walk-forward (VTI vs ITOT)",
+      "why": "Overlay and reserve CE gates failed; next.md lever is implementation choice. MappingConfig/apply_etf_mapping existed but ExperimentSpec and ablation/campaign hard-coded mapping=None, blocking S1 vs S1+mapping CE adoption.",
+      "resolution": "Added MappingSpec and resolve_mapping, mapping_implementation_tickers, candidate-only mapping wiring in ablation/campaign, mapping feasibility (metadata + implementation marks), history_price_tickers union for ITOT, wf_s1_mapping.json, and EXP-J-/ABL-J-/WF-J-/VEH-J-/FEAS-J- contract tests.",
+      "impact": "Enables walk-forward CE gate for bounded PIT ETF mapping vs pure VTI under identical cashflow; overlay/reserve/mapping remain mutually exclusive; operational S1 lock unchanged until process_adopted_vs_baseline passes."
+    },
+    {
       "task_id": "WAVE_H_RESERVE_LEDGER",
       "date": "2026-08-24",
       "adr_id": "ADR_20260824_WAVE_H_RESERVE_LEDGER",
