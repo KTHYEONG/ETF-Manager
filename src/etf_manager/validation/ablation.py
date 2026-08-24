@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING, Final
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.sim.allocation import AllocationConfig
 from src.etf_manager.validation.evaluate import evaluate_cohort_wealths
-from src.etf_manager.validation.experiment import CandidateSpec, ExperimentSpec, resolve_overlay
+from src.etf_manager.validation.experiment import (
+    CandidateSpec,
+    ExperimentSpec,
+    resolve_overlay,
+    resolve_reserve,
+)
 from src.etf_manager.validation.gate import adoption_passes, certainty_equivalent
 from src.etf_manager.validation.windows import rolling_cohorts
 
@@ -16,6 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from src.etf_manager.policy.overlay import OverlayConfig
+    from src.etf_manager.policy.reserve import ReserveConfig
     from src.etf_manager.sim.allocation import AllocationResult
 
 __all__ = ["AblationReport", "AblationRow", "run_ablation"]
@@ -48,8 +54,14 @@ class AblationReport:
     rows: tuple[AblationRow, ...]
 
 
-def _arm_config(spec: ExperimentSpec, policy: PolicyId, *, overlay: OverlayConfig | None) -> AllocationConfig:
-    """Identical cashflow/window/costs for every arm; only policy and overlay differ."""
+def _arm_config(
+    spec: ExperimentSpec,
+    policy: PolicyId,
+    *,
+    overlay: OverlayConfig | None,
+    reserve: ReserveConfig | None,
+) -> AllocationConfig:
+    """Identical cashflow/window/costs for every arm; only policy and modules differ."""
     return AllocationConfig(
         policy=policy,
         start=spec.start,
@@ -61,6 +73,7 @@ def _arm_config(spec: ExperimentSpec, policy: PolicyId, *, overlay: OverlayConfi
         tilt=None,
         rebalance_band=None,
         overlay=overlay,
+        reserve=reserve,
         currency=None,
         mapping=None,
     )
@@ -90,7 +103,9 @@ def _gated_row(
     runner: Callable[[AllocationConfig], AllocationResult],
 ) -> AblationRow:
     """Simulate one candidate and apply the delta0*modules adoption gate."""
-    config = _arm_config(spec, candidate.policy, overlay=resolve_overlay(spec))
+    config = _arm_config(
+        spec, candidate.policy, overlay=resolve_overlay(spec), reserve=resolve_reserve(spec)
+    )
     wealths = _wealth_vector(spec, config, runner)
     ce = {gamma: certainty_equivalent(wealths, gamma=gamma) for gamma in _CE_GAMMAS}
     ce_ratio = {gamma: ce[gamma] / baseline_ce[gamma] for gamma in _CE_GAMMAS}
@@ -118,7 +133,7 @@ def run_ablation(
     Raises:
         ValueError: When any wealth vector is empty or non-positive.
     """
-    baseline_config = _arm_config(spec, spec.baseline.policy, overlay=None)
+    baseline_config = _arm_config(spec, spec.baseline.policy, overlay=None, reserve=None)
     baseline_wealths = _wealth_vector(spec, baseline_config, runner)
     baseline_ce = {
         gamma: certainty_equivalent(baseline_wealths, gamma=gamma) for gamma in _CE_GAMMAS

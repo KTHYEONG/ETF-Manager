@@ -21,8 +21,9 @@ from src.etf_manager.features.momentum import trailing_compound_return
 from src.etf_manager.features.returns import session_returns
 from src.etf_manager.features.risk import trailing_simple_vol
 from src.etf_manager.policy.overlay import OverlayConfig
+from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import PolicyId, policy_sleeves
-from src.etf_manager.validation.experiment import resolve_overlay
+from src.etf_manager.validation.experiment import resolve_overlay, resolve_reserve
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -41,6 +42,7 @@ __all__ = [
     "assert_experiment_feasible",
     "overlay_warmup_sessions",
     "require_feasibility",
+    "reserve_warmup_sessions",
     "resolve_feasibility",
 ]
 
@@ -85,6 +87,13 @@ def overlay_warmup_sessions(overlay: OverlayConfig | None) -> int:
     return max(overlay.trend_window, overlay.vol_window, overlay.drawdown_window)
 
 
+def reserve_warmup_sessions(reserve: ReserveConfig | None) -> int:
+    """History depth in sessions the reserve features require; 0 without a reserve."""
+    if reserve is None:
+        return 0
+    return max(reserve.trend_window, reserve.drawdown_window)
+
+
 def resolve_feasibility(
     *,
     start: date,
@@ -94,6 +103,7 @@ def resolve_feasibility(
     overlay: OverlayConfig | None,
     overlay_policies: tuple[PolicyId, ...],
     settings: DataSettings,
+    reserve: ReserveConfig | None = None,
 ) -> FeasibilityReport:
     """Check that the requested window can trade without lookahead or data gaps.
 
@@ -110,7 +120,7 @@ def resolve_feasibility(
     """
     calendar = load_calendar(DEFAULT_CALENDAR_NAME)
     schedule = build_decision_schedule(start, end, fill_delay_sessions=fill_delay_sessions)
-    warmup = overlay_warmup_sessions(overlay)
+    warmup = max(overlay_warmup_sessions(overlay), reserve_warmup_sessions(reserve))
     violations: list[FeasibilityViolation] = []
     earliest_safe_start: date | None = None
     ingest_recommended_start: date | None = None
@@ -200,6 +210,7 @@ def require_feasibility(
     overlay: OverlayConfig | None,
     overlay_policies: tuple[PolicyId, ...],
     settings: DataSettings,
+    reserve: ReserveConfig | None = None,
 ) -> FeasibilityReport:
     """Resolve feasibility and fail closed with every violation code when blocked.
 
@@ -215,6 +226,7 @@ def require_feasibility(
         overlay=overlay,
         overlay_policies=overlay_policies,
         settings=settings,
+        reserve=reserve,
     )
     if report.violations:
         codes = ", ".join(violation.code for violation in report.violations)
@@ -234,6 +246,7 @@ def assert_experiment_feasible(spec: ExperimentSpec, settings: DataSettings) -> 
         UntrustedDatasetError: Propagated untouched from the catalog read path.
     """
     overlay = resolve_overlay(spec)
+    reserve = resolve_reserve(spec)
     return require_feasibility(
         start=spec.start,
         end=spec.end,
@@ -242,6 +255,7 @@ def assert_experiment_feasible(spec: ExperimentSpec, settings: DataSettings) -> 
         overlay=overlay,
         overlay_policies=tuple(candidate.policy for candidate in spec.candidates) if overlay is not None else (),
         settings=settings,
+        reserve=reserve,
     )
 
 

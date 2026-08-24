@@ -19,7 +19,8 @@ from src.etf_manager.data.schema import Dataset
 from src.etf_manager.etf.mapping import MappingConfig, apply_etf_mapping
 from src.etf_manager.policy.currency import conversion_fraction
 from src.etf_manager.policy.overlay import apply_bounded_overlay
-from src.etf_manager.policy.targets import PolicyId, resolve_targets
+from src.etf_manager.policy.reserve import apply_reserve_schedule
+from src.etf_manager.policy.targets import PolicyId, policy_sleeves, resolve_targets
 from src.etf_manager.policy.tilt import resolve_tilted_targets
 from src.etf_manager.sim.contribution import allocate_contribution
 
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from src.etf_manager.data.settings import DataSettings
     from src.etf_manager.policy.currency import CurrencyConfig
     from src.etf_manager.policy.overlay import OverlayConfig
+    from src.etf_manager.policy.reserve import ReserveConfig
     from src.etf_manager.policy.tilt import FactorTilt
 
 logger = logging.getLogger(__name__)
@@ -68,6 +70,7 @@ class AllocationConfig:
     tilt: FactorTilt | None = None
     rebalance_band: float | None = None
     overlay: OverlayConfig | None = None
+    reserve: ReserveConfig | None = None
     currency: CurrencyConfig | None = None
     mapping: MappingConfig | None = None
 
@@ -83,6 +86,7 @@ class AllocationSnapshot:
     mark_krw: float
     contribution_krw: float
     fees_krw: float
+    reserve_krw: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +117,10 @@ def run_allocation(
     execution-session close prices and FX. When ``config.mapping`` is set the
     economic sleeve weights are remapped onto implementation tickers after the
     overlay, and marks iterate held lots plus spend keys so leftover positions
-    of a switched-away ticker stay in NAV. New money follows the mapped targets
+    of a switched-away ticker stay in NAV. When ``config.reserve`` is set,
+    an explicit KRW reserve ledger withholds or redeploys part of each credited
+    contribution on PIT signals; ``reserve_krw`` is booked KRW wealth inside
+    ``mark_krw``, never a second external cashflow. New money follows the mapped targets
     and no position is ever sold, so integer-lot rounding dust stays in
     unmarked cash. Nominal marks drive the equity path; CPI levels only deflate
     terminal wealth and the money-weighted rate into first-snapshot purchasing power.
@@ -130,6 +137,14 @@ def run_allocation(
         raise ValueError(_RESEARCH_PROXY_REJECT)
     if config.monthly_contribution_krw <= 0:
         raise ValueError("monthly_contribution_krw must be positive")
+    if config.overlay is not None and config.reserve is not None:
+        raise ValueError("overlay and reserve are mutually exclusive allocation modules")
+    reserve_ticker: str | None = None
+    if config.reserve is not None:
+        sleeves = policy_sleeves(config.policy)
+        if not sleeves:
+            raise ValueError(f"{config.policy!s} owns no sleeve ticker for reserve signals")
+        reserve_ticker = sleeves[0]
     schedule = build_decision_schedule(config.start, config.end, fill_delay_sessions=config.fill_delay_sessions)
     if not schedule:
         raise AllocationDataError(f"empty decision schedule over [{config.start.isoformat()}, {config.end.isoformat()}]")
@@ -137,6 +152,7 @@ def run_allocation(
 
     cash_krw = 0.0
     cash_usd = 0.0
+    reserve_krw = 0.0
     shares_by_ticker: dict[str, int] = {}
     incumbents_by_sleeve: dict[str, str] = {}
     snapshots: list[AllocationSnapshot] = []
@@ -165,7 +181,21 @@ def run_allocation(
 
         contribution = config.monthly_contribution_krw
         cash_krw += contribution
-        investable_krw = min(cash_krw, contribution)
+        if config.reserve is None or reserve_ticker is None:
+            investable_krw = min(cash_krw, contribution)
+        else:
+            decision = apply_reserve_schedule(
+                contribution_krw=contribution,
+                reserve_krw=reserve_krw,
+                prices=prices,
+                ticker=reserve_ticker,
+                signal_at=point.signal_at,
+                config=config.reserve,
+            )
+            # The ledger splits the fresh credit: withheld KRW leaves cash, deployed KRW returns.
+            cash_krw += decision.investable_krw - contribution
+            reserve_krw = decision.reserve_krw
+            investable_krw = min(cash_krw, decision.investable_krw)
         fx_gross = usdkrw * (1.0 + config.fx_spread_bps / _BPS)
         # Marks cover held leftovers plus spend keys so remapped lots stay in NAV.
         mark_keys = sorted(set(shares_by_ticker) | set(targets))
@@ -211,9 +241,10 @@ def run_allocation(
                 cash_krw=cash_krw,
                 cash_usd=cash_usd,
                 shares=dict(shares_by_ticker),
-                mark_krw=position_value_usd * usdkrw + cash_usd * usdkrw + cash_krw,
+                mark_krw=position_value_usd * usdkrw + cash_usd * usdkrw + cash_krw + reserve_krw,
                 contribution_krw=contribution,
                 fees_krw=fees_krw,
+                reserve_krw=reserve_krw,
             )
         )
         cpi_levels.append(cpi_level)
