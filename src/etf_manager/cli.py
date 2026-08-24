@@ -36,6 +36,7 @@ from src.etf_manager.execution.broker import replay_paper
 from src.etf_manager.execution.orders import ExecutionError, orders_from_snapshots
 from src.etf_manager.policy.currency import CurrencyConfig
 from src.etf_manager.policy.overlay import OverlayConfig
+from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import (
     POLICY_ALIASES,
     PolicyError,
@@ -186,6 +187,14 @@ def _build_parser() -> _Parser:
         type=float,
         default=None,
         help="Optional VIX de-risk threshold (requires --overlay-max-shift)",
+    )
+    policy.add_argument(
+        "--reserve-withhold-cap",
+        "--reserve-max-withhold",
+        dest="reserve_max_withhold",
+        type=float,
+        default=None,
+        help="Reserve ledger withhold cap in (0, 0.10]; omit to disable the reserve",
     )
     policy.add_argument(
         "--fx-max-defer",
@@ -403,6 +412,7 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         )
     if args.target == "policy":
         tilt = _resolve_tilt(args.tilt_factor, args.tilt_intensity)
+        overlay = _resolve_overlay(args.overlay_max_shift, args.vix_threshold)
         return run_policy_command(
             policy_id=str(args.id),
             start=args.start,
@@ -411,7 +421,8 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             settings=DataSettings(),
             tilt=tilt,
             rebalance_band=args.rebalance_band,
-            overlay=_resolve_overlay(args.overlay_max_shift, args.vix_threshold),
+            overlay=overlay,
+            reserve=_resolve_reserve(args.reserve_max_withhold, overlay),
             currency=_resolve_currency(args.fx_max_defer, args.fx_expensive_percentile),
             mapping=_resolve_mapping(bool(args.map_etf), args.map_min_improvement),
         )
@@ -471,6 +482,15 @@ def _resolve_overlay(max_shift: float | None, vix_threshold: float | None) -> Ov
     if max_shift is None:
         return None
     return OverlayConfig(max_shift=max_shift, vix_threshold=vix_threshold)
+
+
+def _resolve_reserve(withhold_cap: float | None, overlay: OverlayConfig | None) -> ReserveConfig | None:
+    """Accept a reserve cap only without any overlay flag; omitting it keeps the identity."""
+    if withhold_cap is not None and overlay is not None:
+        raise _UsageError("--reserve-withhold-cap cannot be combined with overlay flags")
+    if withhold_cap is None:
+        return None
+    return ReserveConfig(max_withhold=withhold_cap)
 
 
 def _resolve_currency(max_defer: float | None, expensive_percentile: float | None) -> CurrencyConfig | None:
@@ -703,6 +723,7 @@ def run_policy_command(
     tilt: FactorTilt | None = None,
     rebalance_band: float | None = None,
     overlay: OverlayConfig | None = None,
+    reserve: ReserveConfig | None = None,
     currency: CurrencyConfig | None = None,
     mapping: MappingConfig | None = None,
 ) -> int:
@@ -723,6 +744,7 @@ def run_policy_command(
         tilt=tilt,
         rebalance_band=rebalance_band,
         overlay=overlay,
+        reserve=reserve,
         currency=currency,
         mapping=mapping,
     )
@@ -735,6 +757,7 @@ def run_policy_command(
             overlay=config.overlay,
             overlay_policies=(config.policy,) if config.overlay is not None else (),
             settings=settings,
+            reserve=config.reserve,
         )
         result = run_allocation_from_store(config, settings)
     except (
