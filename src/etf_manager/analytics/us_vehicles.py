@@ -48,7 +48,7 @@ class VehicleDcaPath:
 
 
 def diagnostic_price_tickers() -> tuple[str, ...]:
-    """Diagnostic-only price tickers; QQQ stays outside every PolicyId sleeve map."""
+    """Diagnostic-only price tickers kept in history ingest alongside policy sleeves."""
     return ("QQQ",)
 
 
