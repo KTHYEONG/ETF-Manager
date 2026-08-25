@@ -82,5 +82,8 @@
   },
   "src/etf_manager/analytics/reserve_usage.py": {
     "testing": "tests/unit/etf_manager/analytics/test_reserve_usage.py"
+  },
+  "src/etf_manager/analytics/cadence.py": {
+    "testing": "tests/unit/etf_manager/analytics/test_cadence.py"
   }
 }
