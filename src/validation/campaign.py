@@ -17,7 +17,12 @@ from src.validation.experiment import (
     resolve_overlay,
     resolve_reserve,
 )
-from src.validation.gate import adoption_passes, certainty_equivalent
+from src.validation.gate import (
+    adoption_passes,
+    certainty_equivalent,
+    growth_first_process_passes,
+    growth_first_train_passes,
+)
 from src.validation.windows import walk_forward_windows
 
 if TYPE_CHECKING:
@@ -168,14 +173,23 @@ def run_walk_forward_adoption(
     the fold adopted on train. Baseline arms signal month-end; candidate arms
     signal on ``resolve_cadence(spec)`` and the chosen test arm only after train adoption.
 
+    With ``objective == 'growth_first'`` the train gate adopts on any strict
+    real-TW gain whose MDD (``AllocationResult.max_drawdown``) deepens at most
+    0.02, and the process verdict requires pooled chosen-over-baseline gain with
+    every fold ratio at least 0.97; the complexity-penalized CE hurdle applies
+    only to ``ce``.
+
     Raises:
         ValueError: When train/test months are absent, the candidate count is not
-            one, or no walk-forward fold fits the window.
+            one, no walk-forward fold fits the window, or a growth_first objective
+            lacks a cadence module.
     """
     if spec.train_months is None or spec.test_months is None:
         raise ValueError("walk-forward adoption requires both train_months and test_months")
     if len(spec.candidates) != 1:
         raise ValueError(f"expected exactly one candidate, got {len(spec.candidates)}")
+    if spec.objective == "growth_first" and spec.cadence is None:
+        raise ValueError("objective 'growth_first' requires a cadence module")
     candidate = spec.candidates[0]
     windows = walk_forward_windows(
         spec.start,
@@ -191,6 +205,22 @@ def run_walk_forward_adoption(
     candidate_currency = resolve_currency(spec)
     candidate_cadence = resolve_cadence(spec) or "monthly"
 
+    def arm_result(
+        policy: PolicyId,
+        start: date,
+        end: date,
+        arm_overlay: OverlayConfig | None,
+        arm_reserve: ReserveConfig | None,
+        arm_mapping: MappingConfig | None,
+        arm_currency: CurrencyConfig | None,
+        arm_cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
+    ) -> AllocationResult:
+        return runner(
+            _arm_config(
+                spec, policy, start, end, arm_overlay, arm_reserve, arm_mapping, arm_currency, arm_cadence
+            )
+        )
+
     def real_wealth(
         policy: PolicyId,
         start: date,
@@ -201,10 +231,8 @@ def run_walk_forward_adoption(
         arm_currency: CurrencyConfig | None,
         arm_cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
     ) -> float:
-        return runner(
-            _arm_config(
-                spec, policy, start, end, arm_overlay, arm_reserve, arm_mapping, arm_currency, arm_cadence
-            )
+        return arm_result(
+            policy, start, end, arm_overlay, arm_reserve, arm_mapping, arm_currency, arm_cadence
         ).terminal_wealth_real_krw
 
     folds: list[FoldOutcome] = []
@@ -212,10 +240,10 @@ def run_walk_forward_adoption(
     candidate_wealths: list[float] = []
     chosen_wealths: list[float] = []
     for train_start, train_end, test_start, test_end in windows:
-        baseline_train = real_wealth(
+        baseline_train_arm = arm_result(
             spec.baseline.policy, train_start, train_end, None, None, None, None
         )
-        candidate_train = real_wealth(
+        candidate_train_arm = arm_result(
             candidate.policy,
             train_start,
             train_end,
@@ -225,12 +253,20 @@ def run_walk_forward_adoption(
             candidate_currency,
             candidate_cadence,
         )
-        train_adopted = adoption_passes(
-            _singleton_ce(candidate_train),
-            _singleton_ce(baseline_train),
-            delta0=spec.hurdle,
-            modules=candidate.modules,
-        )
+        if spec.objective == "growth_first":
+            train_adopted = growth_first_train_passes(
+                candidate_tw=candidate_train_arm.terminal_wealth_real_krw,
+                baseline_tw=baseline_train_arm.terminal_wealth_real_krw,
+                candidate_mdd=candidate_train_arm.max_drawdown,
+                baseline_mdd=baseline_train_arm.max_drawdown,
+            )
+        else:
+            train_adopted = adoption_passes(
+                _singleton_ce(candidate_train_arm.terminal_wealth_real_krw),
+                _singleton_ce(baseline_train_arm.terminal_wealth_real_krw),
+                delta0=spec.hurdle,
+                modules=candidate.modules,
+            )
         chosen_policy = candidate.policy if train_adopted else spec.baseline.policy
         keep_extras = (
             (candidate_overlay, candidate_reserve, candidate_mapping, candidate_currency)
@@ -270,9 +306,15 @@ def run_walk_forward_adoption(
     baseline_ce = {gamma: certainty_equivalent(baseline_wealths, gamma=gamma) for gamma in _CE_GAMMAS}
     candidate_ce = {gamma: certainty_equivalent(candidate_wealths, gamma=gamma) for gamma in _CE_GAMMAS}
     chosen_ce = {gamma: certainty_equivalent(chosen_wealths, gamma=gamma) for gamma in _CE_GAMMAS}
-    process_adopted_vs_baseline = adoption_passes(
-        chosen_ce, baseline_ce, delta0=spec.hurdle, modules=candidate.modules
-    )
+    if spec.objective == "growth_first":
+        process_adopted_vs_baseline = growth_first_process_passes(
+            chosen_test=tuple(chosen_wealths),
+            baseline_test=tuple(baseline_wealths),
+        )
+    else:
+        process_adopted_vs_baseline = adoption_passes(
+            chosen_ce, baseline_ce, delta0=spec.hurdle, modules=candidate.modules
+        )
     return CampaignReport(
         name=spec.name,
         candidate_id=candidate.id,
