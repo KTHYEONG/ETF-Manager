@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.etf_manager.validation.bootstrap import moving_block_bootstrap
+from src.validation.bootstrap import moving_block_bootstrap
 
 
 @pytest.mark.parametrize("scenario_id", ["VAL-V03-bootstrap-seed"])

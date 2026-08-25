@@ -7,8 +7,8 @@ from datetime import date, datetime
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.features.fx import trailing_fx_percentile
+from src.data.calendar import load_calendar
+from src.features.fx import trailing_fx_percentile
 
 _CALENDAR = load_calendar("XNYS")
 

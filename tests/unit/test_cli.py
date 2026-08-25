@@ -9,23 +9,23 @@ from pathlib import Path
 
 import pytest
 
-from src.etf_manager.analytics.us_vehicles import history_price_tickers
-from src.etf_manager import cli
-from src.etf_manager.cli import main
-from src.etf_manager.data.providers.base import ProviderError
-from src.etf_manager.data.schema import Dataset
-from src.etf_manager.data.settings import DataSettings
-from src.etf_manager.etf.mapping import MappingConfig
-from src.etf_manager.policy.currency import CurrencyConfig
-from src.etf_manager.policy.targets import PolicyId, all_policy_tickers
-from src.etf_manager.sim.allocation import (
+from src.analytics.us_vehicles import history_price_tickers
+from src import cli
+from src.cli import main
+from src.data.providers.base import ProviderError
+from src.data.schema import Dataset
+from src.data.settings import DataSettings
+from src.etf.mapping import MappingConfig
+from src.policy.currency import CurrencyConfig
+from src.policy.targets import PolicyId, all_policy_tickers
+from src.sim.allocation import (
     AllocationConfig,
     AllocationDataError,
     AllocationResult,
     AllocationSnapshot,
 )
-from src.etf_manager.sim.baseline import BaselineConfig, BaselineId, BaselineResult
-from src.etf_manager.validation.feasibility import FeasibilityError
+from src.sim.baseline import BaselineConfig, BaselineId, BaselineResult
+from src.validation.feasibility import FeasibilityError
 
 
 @pytest.mark.parametrize("scenario_id", ["CLI-E-diagnose-dispatch"])
@@ -64,10 +64,10 @@ def test_cli_e_diagnose_dispatch(scenario_id: str, monkeypatch: pytest.MonkeyPat
     assert main(["run", "diagnose-us-vehicles", "--start", "2024-01-01"]) == 2
 
 
-@pytest.mark.parametrize("scenario_id", ["CLI-N-diagnose-s8-regimes"])
-def test_cli_n_diagnose_s8_regimes(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """CLI-N-diagnose-s8-regimes"""
-    assert main(["run", "diagnose-s8-regimes"]) == 2
+@pytest.mark.parametrize("scenario_id", ["CLI-N-diagnose-qqq-regimes"])
+def test_cli_n_diagnose_qqq_regimes(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-N-diagnose-qqq-regimes"""
+    assert main(["run", "diagnose-qqq-regimes"]) == 2
 
     captured: dict[str, object] = {}
 
@@ -81,11 +81,34 @@ def test_cli_n_diagnose_s8_regimes(scenario_id: str, monkeypatch: pytest.MonkeyP
     def forbidden_walk_forward(*args: object, **kwargs: object) -> int:
         raise AssertionError("diagnostics must never invoke the walk-forward campaign")
 
-    monkeypatch.setattr(cli, "run_diagnose_s8_regimes_command", fake_diagnose)
+    monkeypatch.setattr(cli, "run_diagnose_qqq_regimes_command", fake_diagnose)
     monkeypatch.setattr(cli, "run_ablation", forbidden_ablation)
     monkeypatch.setattr(cli, "run_walk_forward_adoption", forbidden_walk_forward)
 
-    assert main(["run", "diagnose-s8-regimes", "--contribution-krw", "1000000"]) == 0
+    assert main(["run", "diagnose-qqq-regimes", "--contribution-krw", "1000000"]) == 0
+    assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-A-diagnose-qqq"])
+def test_cli_a_diagnose_qqq(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-A-diagnose-qqq"""
+    assert main(["run", "diagnose-qqq-cadence"]) == 2
+    # The old s8 target name is absent from the parser, so it is also a usage error.
+    assert main(["run", "diagnose-s8-cadence"]) == 2
+
+    captured: dict[str, object] = {}
+
+    def fake_diagnose(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    def forbidden_ablation(*args: object, **kwargs: object) -> int:
+        raise AssertionError("diagnostics must never invoke the adoption ablation")
+
+    monkeypatch.setattr(cli, "run_diagnose_qqq_cadence_command", fake_diagnose)
+    monkeypatch.setattr(cli, "run_ablation", forbidden_ablation)
+
+    assert main(["run", "diagnose-qqq-cadence", "--contribution-krw", "1000000"]) == 0
     assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
 
 
@@ -414,7 +437,7 @@ def test_cli_g07_run_policy(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -
     assert exit_code == 0
     assert len(captured) == 1
     assert captured[0] == AllocationConfig(
-        policy=PolicyId.S2_REGIONAL,
+        policy=PolicyId.WORLD_SPLIT,
         start=date(2024, 1, 1),
         end=date(2024, 1, 31),
         monthly_contribution_krw=1000000.0,
@@ -797,7 +820,7 @@ def test_cli_k_policy_feas_currency(scenario_id: str, monkeypatch: pytest.Monkey
     assert isinstance(mapping, MappingConfig)
     assert mapping.min_improvement == pytest.approx(0.02)
     assert captured_kwargs[1]["currency"] is None
-    assert captured_kwargs[1]["mapping_policies"] == (PolicyId.S2_REGIONAL,)
+    assert captured_kwargs[1]["mapping_policies"] == (PolicyId.WORLD_SPLIT,)
 
     assert main([*base_argv, "--overlay-max-shift", "0.1", "--reserve-max-withhold", "0.1"]) == 2
     assert len(captured_kwargs) == 2
@@ -841,7 +864,7 @@ def test_val_v05_cli_validate(scenario_id: str, monkeypatch: pytest.MonkeyPatch)
         "run",
         "validate",
         "--id",
-        "global",
+        "vt",
         "--start",
         "2024-01-01",
         "--end",
@@ -887,13 +910,13 @@ def test_nam_a04_cli_canonical_id(scenario_id: str, monkeypatch: pytest.MonkeyPa
             "--end", "2024-01-31", "--contribution-krw", "1"]
     assert main(argv) == 0
     assert len(captured) == 1
-    assert captured[-1].policy is PolicyId.S1_US
+    assert captured[-1].policy is PolicyId.VTI
 
     legacy_argv = ["run", "policy", "--id", "s1_us", "--start", "2024-01-01",
                    "--end", "2024-01-31", "--contribution-krw", "1"]
     assert main(legacy_argv) == 0
     assert len(captured) == 2
-    assert captured[-1].policy is PolicyId.S1_US
+    assert captured[-1].policy is PolicyId.VTI
 
     baseline_argv = ["run", "policy", "--id", "b0_global", "--start", "2024-01-01",
                      "--end", "2024-01-31", "--contribution-krw", "1"]
@@ -934,7 +957,7 @@ def test_cli_x04_paper_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch) 
         "run",
         "paper",
         "--id",
-        "global",
+        "vt",
         "--start",
         "2024-01-01",
         "--end",
@@ -945,7 +968,7 @@ def test_cli_x04_paper_flags(scenario_id: str, monkeypatch: pytest.MonkeyPatch) 
     assert main(argv) == 0
     assert len(captured) == 1
     assert captured[0] == AllocationConfig(
-        policy=PolicyId.S0_GLOBAL,
+        policy=PolicyId.VT,
         start=date(2024, 1, 1),
         end=date(2024, 1, 31),
         monthly_contribution_krw=1000000.0,
@@ -964,7 +987,7 @@ def test_cli_w1_ablation_dispatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """CLI-W1-ablation-dispatch"""
-    wealth_by_policy = {PolicyId.S0_GLOBAL: 100.0, PolicyId.S1_US: 110.0, PolicyId.S4_DEFENSIVE: 120.0}
+    wealth_by_policy = {PolicyId.VT: 100.0, PolicyId.VTI: 110.0, PolicyId.VT_TREAS: 120.0}
     captured: list[AllocationConfig] = []
 
     def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
@@ -1005,9 +1028,9 @@ def test_cli_w1_ablation_dispatch(
     assert exit_code == 0
     assert len(captured) == 1 + len(payload["candidates"])
     assert [config.policy for config in captured] == [
-        PolicyId.S0_GLOBAL,
-        PolicyId.S1_US,
-        PolicyId.S4_DEFENSIVE,
+        PolicyId.VT,
+        PolicyId.VTI,
+        PolicyId.VT_TREAS,
     ]
     assert len({config.monthly_contribution_krw for config in captured}) == 1
     assert captured[0].monthly_contribution_krw == pytest.approx(1_000_000.0)
@@ -1084,7 +1107,7 @@ def test_cli_horizon_default_36(scenario_id: str, monkeypatch: pytest.MonkeyPatc
         "run",
         "validate",
         "--id",
-        "global",
+        "vt",
         "--start",
         "2024-01-01",
         "--end",
@@ -1108,7 +1131,7 @@ def test_cli_walk_forward_costs(
     """CLI-walk-forward-costs"""
 
     def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
-        wealth = 120.0 if config.policy is PolicyId.S1_US else 100.0
+        wealth = 120.0 if config.policy is PolicyId.VTI else 100.0
         return AllocationResult(
             config=config,
             snapshots=(),
@@ -1294,10 +1317,10 @@ def test_cli_feas_a05_walkforward_preflight(
     assert runner_calls == []
 
 
-@pytest.mark.parametrize("scenario_id", ["CLI-O-diagnose-s8-blends"])
-def test_cli_o_diagnose_s8_blends(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """CLI-O-diagnose-s8-blends"""
-    assert main(["run", "diagnose-s8-blends"]) == 2
+@pytest.mark.parametrize("scenario_id", ["CLI-O-diagnose-qqq-blends"])
+def test_cli_o_diagnose_qqq_blends(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-O-diagnose-qqq-blends"""
+    assert main(["run", "diagnose-qqq-blends"]) == 2
 
     captured: dict[str, object] = {}
 
@@ -1308,17 +1331,17 @@ def test_cli_o_diagnose_s8_blends(scenario_id: str, monkeypatch: pytest.MonkeyPa
     def forbidden_ablation(*args: object, **kwargs: object) -> int:
         raise AssertionError("diagnostics must never invoke the adoption ablation")
 
-    monkeypatch.setattr(cli, "run_diagnose_s8_blends_command", fake_diagnose)
+    monkeypatch.setattr(cli, "run_diagnose_qqq_blends_command", fake_diagnose)
     monkeypatch.setattr(cli, "run_ablation", forbidden_ablation)
 
-    assert main(["run", "diagnose-s8-blends", "--contribution-krw", "1000000"]) == 0
+    assert main(["run", "diagnose-qqq-blends", "--contribution-krw", "1000000"]) == 0
     assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
 
 
-@pytest.mark.parametrize("scenario_id", ["CLI-O-diagnose-s8-reserve"])
-def test_cli_o_diagnose_s8_reserve(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """CLI-O-diagnose-s8-reserve"""
-    assert main(["run", "diagnose-s8-reserve"]) == 2
+@pytest.mark.parametrize("scenario_id", ["CLI-O-diagnose-qqq-reserve"])
+def test_cli_o_diagnose_qqq_reserve(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-O-diagnose-qqq-reserve"""
+    assert main(["run", "diagnose-qqq-reserve"]) == 2
 
     captured: dict[str, object] = {}
 
@@ -1329,23 +1352,23 @@ def test_cli_o_diagnose_s8_reserve(scenario_id: str, monkeypatch: pytest.MonkeyP
     def forbidden_ablation(*args: object, **kwargs: object) -> int:
         raise AssertionError("diagnostics must never invoke the adoption ablation")
 
-    monkeypatch.setattr(cli, "run_diagnose_s8_reserve_command", fake_diagnose)
+    monkeypatch.setattr(cli, "run_diagnose_qqq_reserve_command", fake_diagnose)
     monkeypatch.setattr(cli, "run_ablation", forbidden_ablation)
 
-    assert main(["run", "diagnose-s8-reserve", "--contribution-krw", "1000000"]) == 0
+    assert main(["run", "diagnose-qqq-reserve", "--contribution-krw", "1000000"]) == 0
     assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
     assert captured["reserve_schedule"] == "v1"
     assert (
-        main(["run", "diagnose-s8-reserve", "--contribution-krw", "1000000", "--reserve-schedule", "v2"])
+        main(["run", "diagnose-qqq-reserve", "--contribution-krw", "1000000", "--reserve-schedule", "v2"])
         == 0
     )
     assert captured["reserve_schedule"] == "v2"
 
 
-@pytest.mark.parametrize("scenario_id", ["CLI-O-diagnose-s8-cadence"])
-def test_cli_o_diagnose_s8_cadence(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """CLI-O-diagnose-s8-cadence"""
-    assert main(["run", "diagnose-s8-cadence"]) == 2
+@pytest.mark.parametrize("scenario_id", ["CLI-O-diagnose-qqq-cadence"])
+def test_cli_o_diagnose_qqq_cadence(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-O-diagnose-qqq-cadence"""
+    assert main(["run", "diagnose-qqq-cadence"]) == 2
 
     captured: dict[str, object] = {}
 
@@ -1356,8 +1379,8 @@ def test_cli_o_diagnose_s8_cadence(scenario_id: str, monkeypatch: pytest.MonkeyP
     def forbidden_ablation(*args: object, **kwargs: object) -> int:
         raise AssertionError("diagnostics must never invoke the adoption ablation")
 
-    monkeypatch.setattr(cli, "run_diagnose_s8_cadence_command", fake_diagnose)
+    monkeypatch.setattr(cli, "run_diagnose_qqq_cadence_command", fake_diagnose)
     monkeypatch.setattr(cli, "run_ablation", forbidden_ablation)
 
-    assert main(["run", "diagnose-s8-cadence", "--contribution-krw", "1000000"]) == 0
+    assert main(["run", "diagnose-qqq-cadence", "--contribution-krw", "1000000"]) == 0
     assert captured["contribution_krw"] == pytest.approx(1_000_000.0)

@@ -6,10 +6,10 @@ from datetime import UTC, date, datetime, timedelta
 
 import polars as pl
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.data.pipeline import ingest
-from src.etf_manager.data.query import load_as_of
-from src.etf_manager.data.schema import Dataset, spec_for
+from src.data.calendar import load_calendar
+from src.data.pipeline import ingest
+from src.data.query import load_as_of
+from src.data.schema import Dataset, spec_for
 
 
 def _prices_frame(dates: list[date], closes: list[float], ticker: str = "AAA") -> pl.DataFrame:

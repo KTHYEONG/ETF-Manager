@@ -8,13 +8,13 @@ from datetime import UTC, date, datetime
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.data.pipeline import ingest
-from src.etf_manager.data.pit import TS_DTYPE
-from src.etf_manager.data.schema import Dataset, spec_for
-from src.etf_manager.features.risk import trailing_simple_vol
-from src.etf_manager.features.returns import session_returns
-from src.etf_manager.policy.targets import PolicyError
+from src.data.calendar import load_calendar
+from src.data.pipeline import ingest
+from src.data.pit import TS_DTYPE
+from src.data.schema import Dataset, spec_for
+from src.features.risk import trailing_simple_vol
+from src.features.returns import session_returns
+from src.policy.targets import PolicyError
 
 _CALENDAR = load_calendar("XNYS")
 _RETRIEVED_AT = datetime(2024, 4, 1, 5, 0, tzinfo=UTC)

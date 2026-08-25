@@ -12,8 +12,8 @@ import httpx
 import polars as pl
 import pytest
 
-from src.etf_manager.data.providers.base import ProviderError
-from src.etf_manager.data.providers.french import FrenchClient
+from src.data.providers.base import ProviderError
+from src.data.providers.french import FrenchClient
 
 _WINDOW: tuple[date, date] = (date(2010, 1, 1), date(2010, 12, 31))
 

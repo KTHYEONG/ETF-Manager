@@ -7,10 +7,10 @@ from datetime import date, datetime, timedelta
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.data.pit import AVAILABLE_AT
-from src.etf_manager.policy.overlay import OverlayConfig, apply_bounded_overlay
-from src.etf_manager.policy.targets import PolicyError
+from src.data.calendar import load_calendar
+from src.data.pit import AVAILABLE_AT
+from src.policy.overlay import OverlayConfig, apply_bounded_overlay
+from src.policy.targets import PolicyError
 
 _CALENDAR = load_calendar("XNYS")
 _SLEEVES = ("VTI", "VEA", "VWO")

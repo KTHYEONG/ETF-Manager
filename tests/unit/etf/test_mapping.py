@@ -8,10 +8,10 @@ from typing import Final
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.data.pipeline import ingest
-from src.etf_manager.data.schema import Dataset, spec_for
-from src.etf_manager.etf.mapping import MappingConfig, apply_etf_mapping
+from src.data.calendar import load_calendar
+from src.data.pipeline import ingest
+from src.data.schema import Dataset, spec_for
+from src.etf.mapping import MappingConfig, apply_etf_mapping
 
 _CALENDAR = load_calendar("XNYS")
 _RETRIEVED_AT = datetime(2023, 11, 1, 5, 0, tzinfo=UTC)

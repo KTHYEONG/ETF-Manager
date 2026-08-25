@@ -10,11 +10,11 @@ import httpx
 import polars as pl
 import pytest
 
-from src.etf_manager.data.providers.base import ProviderError
-from src.etf_manager.data.providers.tiingo import TiingoClient
-from src.etf_manager.data.schema import TS_DTYPE, Dataset, spec_for
+from src.data.providers.base import ProviderError
+from src.data.providers.tiingo import TiingoClient
+from src.data.schema import TS_DTYPE, Dataset, spec_for
 
-FIXTURES = Path(__file__).resolve().parents[3] / "fixtures" / "providers"
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "providers"
 _TOKEN = "test-tiingo-token"
 _WINDOW: tuple[date, date] = (date(2024, 1, 30), date(2024, 1, 31))
 

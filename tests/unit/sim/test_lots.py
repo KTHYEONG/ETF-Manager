@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.etf_manager.sim.lots import fill_integer_buys
+from src.sim.lots import fill_integer_buys
 
 _FX_GROSS = 1300.0
 

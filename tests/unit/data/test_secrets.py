@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from src.etf_manager.data.secrets import ProviderSecrets, load_provider_secrets
+from src.data.secrets import ProviderSecrets, load_provider_secrets
 
 _NAMES = ("TIINGO_API", "FRED_API", "ECOS_API")
 

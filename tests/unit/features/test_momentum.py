@@ -7,8 +7,8 @@ from datetime import date, datetime
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.features.momentum import trailing_compound_return
+from src.data.calendar import load_calendar
+from src.features.momentum import trailing_compound_return
 
 _CALENDAR = load_calendar("XNYS")
 
