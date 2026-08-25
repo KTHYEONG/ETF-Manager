@@ -1,6 +1,26 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_R_S8_OVERLAY_RESEARCH",
+      "date": "2026-08-25",
+      "adr_id": "ADR_20260825_WAVE_R_S8_OVERLAY_RESEARCH",
+      "domain": "quant",
+      "title": "Wave R: S8 overlay WF baseline + reserve diagnose warmup skip",
+      "why": "Reserve V1 failed OOS on S8; next independent hypothesis is defensive overlay on QQQ. compare_s8_reserve aborted on calendar_max QQQ warmup, blocking reporting on usable regime windows.",
+      "resolution": "Added wf_s8_overlay.json (S8 vs S8+overlay V1, 2007-08-31 start, max_tilt 0.10, no VIX), compare_s8_reserve PolicyError per-window skip with empty-result fail-closed, and contract tests RSV-U-skip-warmup/EXP-G-s8-overlay-json.",
+      "impact": "Enables walk-forward on S8 overlay challenger; diagnose-s8-reserve completes on warmup-safe windows; operational S8 lock unchanged; overlay adoption still gated on OOS terminal wealth vs MDD tradeoff."
+    },
+    {
+      "task_id": "WAVE_Q_S8_RESERVE_V1",
+      "date": "2026-08-24",
+      "adr_id": "ADR_20260824_WAVE_Q_S8_RESERVE_V1",
+      "domain": "quant",
+      "title": "Wave Q: S8 reserve V1 research baseline + usage diagnostics",
+      "why": "Growth-first roadmap requires QQQ-centric reserve validation on identical monthly KRW; S1-based wf_s1_reserve and snapshot-only reserve_krw cannot attribute compounding vs cash drag.",
+      "resolution": "Added analytics/reserve_usage (summarize_reserve_usage, compare_s8_reserve), wf_s8_reserve.json (S8 vs S8+reserve V1), CLI run diagnose-s8-reserve, and contract tests RSV-U/EXP-H-s8-reserve-json/CLI-O-diagnose-s8-reserve.",
+      "impact": "Enables S8_REGIME_WINDOWS reporting for fixed DCA vs 10% withhold cap; wf_s8_reserve ready for walk-forward-costs; operational S8 lock unchanged; Reserve V1 adoption still gated on OOS wealth and worst-cohort constraints."
+    },
+    {
       "task_id": "WAVE_P_S8_OPERATIONAL_LOCK",
       "date": "2026-08-24",
       "adr_id": "ADR_20260824_WAVE_P_S8_OPERATIONAL_LOCK",
