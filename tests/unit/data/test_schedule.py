@@ -6,8 +6,8 @@ from datetime import date
 
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.data.schedule import DecisionPoint, build_decision_schedule
+from src.data.calendar import load_calendar
+from src.data.schedule import DecisionPoint, build_decision_schedule
 
 
 def test_sch_a10_monthly_schedule_no_same_bar() -> None:

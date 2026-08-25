@@ -8,12 +8,12 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from src.etf_manager.data.pipeline import ingest, persist_ingest
-from src.etf_manager.data.pit import AVAILABLE_AT
-from src.etf_manager.data.quality import DataQualityError, FindingSeverity
-from src.etf_manager.data.schema import Dataset, spec_for
-from src.etf_manager.data.settings import DataSettings
-from src.etf_manager.data.storage import RawPayload
+from src.data.pipeline import ingest, persist_ingest
+from src.data.pit import AVAILABLE_AT
+from src.data.quality import DataQualityError, FindingSeverity
+from src.data.schema import Dataset, spec_for
+from src.data.settings import DataSettings
+from src.data.storage import RawPayload
 
 TS_DTYPE = pl.Datetime("us", "UTC")
 _RETRIEVED_AT = datetime(2024, 2, 1, 5, 0, tzinfo=UTC)

@@ -7,14 +7,14 @@ from datetime import date, datetime
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.policy.currency import (
+from src.data.calendar import load_calendar
+from src.policy.currency import (
     CurrencyConfig,
     conversion_fraction,
     economic_currency,
     trading_currency,
 )
-from src.etf_manager.policy.targets import PolicyError
+from src.policy.targets import PolicyError
 
 _CALENDAR = load_calendar("XNYS")
 

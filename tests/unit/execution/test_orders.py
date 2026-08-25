@@ -6,8 +6,8 @@ from datetime import date
 
 import pytest
 
-from src.etf_manager.execution.orders import BuyOrder, ExecutionError, orders_from_snapshots
-from src.etf_manager.sim.allocation import AllocationSnapshot
+from src.execution.orders import BuyOrder, ExecutionError, orders_from_snapshots
+from src.sim.allocation import AllocationSnapshot
 
 
 def _snapshot(session: date, shares: dict[str, float]) -> AllocationSnapshot:

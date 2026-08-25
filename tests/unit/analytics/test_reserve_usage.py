@@ -1,4 +1,4 @@
-"""Unit tests for S8 reserve usage reconstruction (reporting only; no adoption gate)."""
+"""Unit tests for QQQ reserve usage reconstruction (reporting only; no adoption gate)."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ from datetime import date, timedelta
 
 import pytest
 
-from src.etf_manager.analytics.regimes import S8_REGIME_WINDOWS
-from src.etf_manager.analytics.reserve_usage import (
-    compare_s8_reserve,
+from src.analytics.regimes import QQQ_REGIME_WINDOWS
+from src.analytics.reserve_usage import (
+    compare_qqq_reserve,
     summarize_reserve_usage,
 )
-from src.etf_manager.policy.reserve import ReserveConfig
-from src.etf_manager.policy.targets import PolicyError, PolicyId
-from src.etf_manager.sim.allocation import AllocationConfig, AllocationResult, AllocationSnapshot
+from src.policy.reserve import ReserveConfig
+from src.policy.targets import PolicyError, PolicyId
+from src.sim.allocation import AllocationConfig, AllocationResult, AllocationSnapshot
 
 _WINDOW: tuple[tuple[str, date, date], ...] = (
     ("calendar_max", date(2006, 10, 31), date(2026, 6, 30)),
@@ -156,7 +156,7 @@ def test_rsv_u_compare_same_length(scenario_id: str) -> None:
     """RSV-U-compare-same-length"""
     runner = _FakeRunner(count=3)
 
-    comparisons = compare_s8_reserve(runner=runner, contribution_krw=1_000_000.0, windows=_WINDOW)
+    comparisons = compare_qqq_reserve(runner=runner, contribution_krw=1_000_000.0, windows=_WINDOW)
 
     assert len(comparisons) == 1
     comparison = comparisons[0]
@@ -168,7 +168,7 @@ def test_rsv_u_compare_same_length(scenario_id: str) -> None:
     assert comparison.reserved_usage.redeployed_total > 0.0
     assert len(runner.configs) == 2
     for config in runner.configs:
-        assert config.policy is PolicyId.S8_US_NASDAQ
+        assert config.policy is PolicyId.QQQ
         assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
         assert config.start == _WINDOW[0][1]
         assert config.end == _WINDOW[0][2]
@@ -176,14 +176,14 @@ def test_rsv_u_compare_same_length(scenario_id: str) -> None:
     assert runner.configs[1].reserve is not None
     assert runner.configs[1].reserve.max_withhold == pytest.approx(0.10)
 
-    default_comparisons = compare_s8_reserve(runner=_FakeRunner(count=2), contribution_krw=1.0)
-    assert len(default_comparisons) == len(S8_REGIME_WINDOWS)
+    default_comparisons = compare_qqq_reserve(runner=_FakeRunner(count=2), contribution_krw=1.0)
+    assert len(default_comparisons) == len(QQQ_REGIME_WINDOWS)
 
     with pytest.raises(ValueError, match="contribution"):
-        compare_s8_reserve(runner=_FakeRunner(count=3), contribution_krw=0.0, windows=_WINDOW)
+        compare_qqq_reserve(runner=_FakeRunner(count=3), contribution_krw=0.0, windows=_WINDOW)
 
     with pytest.raises(ValueError, match="snapshot"):
-        compare_s8_reserve(runner=_DivergingRunner(), contribution_krw=1_000_000.0, windows=_WINDOW)
+        compare_qqq_reserve(runner=_DivergingRunner(), contribution_krw=1_000_000.0, windows=_WINDOW)
 
 
 @pytest.mark.parametrize("scenario_id", ["RSV-U-skip-warmup"])
@@ -191,7 +191,7 @@ def test_rsv_u_skip_warmup(scenario_id: str) -> None:
     """RSV-U-skip-warmup"""
     runner = _WarmupBlockedRunner()
 
-    comparisons = compare_s8_reserve(runner=runner, contribution_krw=1_000_000.0, windows=_SKIP_WINDOWS)
+    comparisons = compare_qqq_reserve(runner=runner, contribution_krw=1_000_000.0, windows=_SKIP_WINDOWS)
 
     assert [comparison.name for comparison in comparisons] == [_SKIP_WINDOWS[1][0]]
     assert len(comparisons) == 1
@@ -199,13 +199,13 @@ def test_rsv_u_skip_warmup(scenario_id: str) -> None:
     assert comparisons[0].end == _SKIP_WINDOWS[1][2]
 
     with pytest.raises(ValueError, match="usable"):
-        compare_s8_reserve(runner=_AlwaysBlockedRunner(), contribution_krw=1_000_000.0, windows=_SKIP_WINDOWS)
+        compare_qqq_reserve(runner=_AlwaysBlockedRunner(), contribution_krw=1_000_000.0, windows=_SKIP_WINDOWS)
 
     with pytest.raises(ValueError, match="snapshot"):
-        compare_s8_reserve(runner=_DivergingRunner(), contribution_krw=1_000_000.0, windows=_SKIP_WINDOWS)
+        compare_qqq_reserve(runner=_DivergingRunner(), contribution_krw=1_000_000.0, windows=_SKIP_WINDOWS)
 
     with pytest.raises(ValueError, match="contribution"):
-        compare_s8_reserve(runner=_AlwaysBlockedRunner(), contribution_krw=-1.0, windows=_SKIP_WINDOWS)
+        compare_qqq_reserve(runner=_AlwaysBlockedRunner(), contribution_krw=-1.0, windows=_SKIP_WINDOWS)
 
 
 
@@ -213,7 +213,7 @@ def test_rsv_u_skip_warmup(scenario_id: str) -> None:
 def test_rsv_u_compare_v2(scenario_id: str) -> None:
     """RSV-U-compare-v2"""
     runner = _FakeRunner(count=3)
-    comparisons = compare_s8_reserve(
+    comparisons = compare_qqq_reserve(
         runner=runner,
         contribution_krw=1_000_000.0,
         windows=_WINDOW,
@@ -226,7 +226,7 @@ def test_rsv_u_compare_v2(scenario_id: str) -> None:
     assert runner.configs[1].reserve.max_withhold == pytest.approx(0.10)
 
     default_runner = _FakeRunner(count=3)
-    compare_s8_reserve(runner=default_runner, contribution_krw=1_000_000.0, windows=_WINDOW)
+    compare_qqq_reserve(runner=default_runner, contribution_krw=1_000_000.0, windows=_WINDOW)
     assert default_runner.configs[1].reserve is not None
     assert default_runner.configs[1].reserve.schedule == "v1"
     assert default_runner.configs[1].reserve.max_withhold == pytest.approx(0.10)

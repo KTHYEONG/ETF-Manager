@@ -1,4 +1,4 @@
-"""Unit tests for S8 drawdown-blend diagnostics (reporting only; no adoption gate)."""
+"""Unit tests for QQQ drawdown-blend diagnostics (reporting only; no adoption gate)."""
 
 from __future__ import annotations
 
@@ -7,23 +7,23 @@ from math import isclose
 
 import pytest
 
-from src.etf_manager.analytics.blends import (
-    S8_BLEND_RECIPES,
-    compare_s8_blends,
+from src.analytics.blends import (
+    QQQ_BLEND_RECIPES,
+    compare_qqq_blends,
 )
-from src.etf_manager.analytics.regimes import S8_REGIME_WINDOWS
-from src.etf_manager.policy.targets import PolicyId
-from src.etf_manager.sim.allocation import AllocationConfig, AllocationResult, AllocationSnapshot
+from src.analytics.regimes import QQQ_REGIME_WINDOWS
+from src.policy.targets import PolicyId
+from src.sim.allocation import AllocationConfig, AllocationResult, AllocationSnapshot
 
 _EXPECTED_IDS: tuple[str, ...] = (
-    "s8_qqq",
+    "qqq",
     "qqq90_vti10",
     "qqq80_vti20",
     "qqq70_vti30",
     "qqq60_vti40",
     "qqq80_ief20",
     "qqq70_ief30",
-    "s1_vti",
+    "vti",
 )
 
 
@@ -80,20 +80,20 @@ def _result(config: AllocationConfig, count: int) -> AllocationResult:
 @pytest.mark.parametrize("scenario_id", ["BLD-O-recipes"])
 def test_bld_o_recipes(scenario_id: str) -> None:
     """BLD-O-recipes"""
-    assert len(S8_BLEND_RECIPES) == 8
-    assert tuple(recipe_id for recipe_id, _ in S8_BLEND_RECIPES) == _EXPECTED_IDS
+    assert len(QQQ_BLEND_RECIPES) == 8
+    assert tuple(recipe_id for recipe_id, _ in QQQ_BLEND_RECIPES) == _EXPECTED_IDS
 
-    by_id = dict(S8_BLEND_RECIPES)
-    assert by_id["s8_qqq"] == {"QQQ": 1.0}
+    by_id = dict(QQQ_BLEND_RECIPES)
+    assert by_id["qqq"] == {"QQQ": 1.0}
     assert by_id["qqq90_vti10"] == {"QQQ": 0.90, "VTI": 0.10}
     assert by_id["qqq80_vti20"] == {"QQQ": 0.80, "VTI": 0.20}
     assert by_id["qqq70_vti30"] == {"QQQ": 0.70, "VTI": 0.30}
     assert by_id["qqq60_vti40"] == {"QQQ": 0.60, "VTI": 0.40}
     assert by_id["qqq80_ief20"] == {"QQQ": 0.80, "IEF": 0.20}
     assert by_id["qqq70_ief30"] == {"QQQ": 0.70, "IEF": 0.30}
-    assert by_id["s1_vti"] == {"VTI": 1.0}
+    assert by_id["vti"] == {"VTI": 1.0}
 
-    for _, weights in S8_BLEND_RECIPES:
+    for _, weights in QQQ_BLEND_RECIPES:
         assert all(weight >= 0.0 for weight in weights.values())
         assert isclose(sum(weights.values()), 1.0, rel_tol=0.0, abs_tol=1e-6)
 
@@ -103,30 +103,30 @@ def test_bld_o_equal_cashflow(scenario_id: str) -> None:
     """BLD-O-equal-cashflow"""
     runner = _FakeRunner(count=3)
 
-    comparisons = compare_s8_blends(runner=runner, contribution_krw=1_000_000.0)
+    comparisons = compare_qqq_blends(runner=runner, contribution_krw=1_000_000.0)
 
-    assert len(comparisons) == len(S8_REGIME_WINDOWS) * len(S8_BLEND_RECIPES)
+    assert len(comparisons) == len(QQQ_REGIME_WINDOWS) * len(QQQ_BLEND_RECIPES)
     assert {config.monthly_contribution_krw for config in runner.configs} == {1_000_000.0}
 
-    first_window = comparisons[: len(S8_BLEND_RECIPES)]
+    first_window = comparisons[: len(QQQ_BLEND_RECIPES)]
     assert [comparison.recipe for comparison in first_window] == list(_EXPECTED_IDS)
-    assert all(comparison.name == S8_REGIME_WINDOWS[0][0] for comparison in first_window)
-    assert all(comparison.start == S8_REGIME_WINDOWS[0][1] for comparison in first_window)
-    assert all(comparison.end == S8_REGIME_WINDOWS[0][2] for comparison in first_window)
+    assert all(comparison.name == QQQ_REGIME_WINDOWS[0][0] for comparison in first_window)
+    assert all(comparison.start == QQQ_REGIME_WINDOWS[0][1] for comparison in first_window)
+    assert all(comparison.end == QQQ_REGIME_WINDOWS[0][2] for comparison in first_window)
 
-    configs = runner.configs[: len(S8_BLEND_RECIPES)]
-    s8_config = configs[_EXPECTED_IDS.index("s8_qqq")]
-    assert s8_config.policy is PolicyId.S8_US_NASDAQ
-    assert s8_config.targets_override is None
-    s1_config = configs[_EXPECTED_IDS.index("s1_vti")]
-    assert s1_config.policy is PolicyId.S1_US
-    assert s1_config.targets_override is None
+    configs = runner.configs[: len(QQQ_BLEND_RECIPES)]
+    qqq_config = configs[_EXPECTED_IDS.index("qqq")]
+    assert qqq_config.policy is PolicyId.QQQ
+    assert qqq_config.targets_override is None
+    vti_config = configs[_EXPECTED_IDS.index("vti")]
+    assert vti_config.policy is PolicyId.VTI
+    assert vti_config.targets_override is None
     mix_config = configs[_EXPECTED_IDS.index("qqq80_vti20")]
-    assert mix_config.policy is PolicyId.S8_US_NASDAQ
+    assert mix_config.policy is PolicyId.QQQ
     assert mix_config.targets_override == {"QQQ": 0.80, "VTI": 0.20}
 
     with pytest.raises(ValueError, match="contribution"):
-        compare_s8_blends(runner=_FakeRunner(count=3), contribution_krw=0.0)
+        compare_qqq_blends(runner=_FakeRunner(count=3), contribution_krw=0.0)
 
     with pytest.raises(ValueError, match="snapshot"):
-        compare_s8_blends(runner=_DivergingRunner(), contribution_krw=1_000_000.0)
+        compare_qqq_blends(runner=_DivergingRunner(), contribution_krw=1_000_000.0)

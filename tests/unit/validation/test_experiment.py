@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from src.etf_manager.etf.mapping import DEFAULT_CANDIDATES, MappingConfig
-from src.etf_manager.policy.currency import CurrencyConfig
-from src.etf_manager.policy.overlay import OverlayConfig
-from src.etf_manager.policy.reserve import ReserveConfig
-from src.etf_manager.policy.targets import PolicyId
-from src.etf_manager.validation.experiment import (
+from src.etf.mapping import DEFAULT_CANDIDATES, MappingConfig
+from src.policy.currency import CurrencyConfig
+from src.policy.overlay import OverlayConfig
+from src.policy.reserve import ReserveConfig
+from src.policy.targets import PolicyId
+from src.validation.experiment import (
     CadenceSpec,
     ExperimentSpec,
     load_experiment_config,
@@ -31,14 +31,14 @@ def _payload() -> dict[str, object]:
         "start": "2012-01-03",
         "end": "2024-12-31",
         "contribution_krw": 1_000_000,
-        "delta0": 0.02,
+        "hurdle": 0.02,
         "horizon_months": 0,
-        "baseline": {"id": "m0_global", "policy": "s0_global", "modules": 0},
+        "baseline": {"id": "m0_global", "policy": "vt", "modules": 0},
         "candidates": [
-            {"id": "s1_us", "policy": "s1_us", "modules": 1},
-            {"id": "s2_regional", "policy": "s2_regional", "modules": 1},
-            {"id": "s3_global_bond", "policy": "s3_global_bond", "modules": 1},
-            {"id": "s4_defensive", "policy": "s4_defensive", "modules": 1},
+            {"id": "s1_us", "policy": "vti", "modules": 1},
+            {"id": "s2_regional", "policy": "world_split", "modules": 1},
+            {"id": "s3_global_bond", "policy": "vt_bnd", "modules": 1},
+            {"id": "s4_defensive", "policy": "vt_treas", "modules": 1},
         ],
     }
 
@@ -59,10 +59,10 @@ def test_exp_w1_load_round_trip(scenario_id: str, tmp_path: Path) -> None:
     assert spec.start == date(2012, 1, 3)
     assert spec.end == date(2024, 12, 31)
     assert spec.contribution_krw == pytest.approx(1_000_000.0)
-    assert spec.delta0 == pytest.approx(0.02)
+    assert spec.hurdle == pytest.approx(0.02)
     assert spec.horizon_months == 0
     assert spec.baseline.id == "m0_global"
-    assert spec.baseline.policy is PolicyId.S0_GLOBAL
+    assert spec.baseline.policy is PolicyId.VT
     assert spec.baseline.modules == 0
     assert [candidate.id for candidate in spec.candidates] == [
         "s1_us",
@@ -71,10 +71,10 @@ def test_exp_w1_load_round_trip(scenario_id: str, tmp_path: Path) -> None:
         "s4_defensive",
     ]
     assert [candidate.policy for candidate in spec.candidates] == [
-        PolicyId.S1_US,
-        PolicyId.S2_REGIONAL,
-        PolicyId.S3_GLOBAL_BOND,
-        PolicyId.S4_DEFENSIVE,
+        PolicyId.VTI,
+        PolicyId.WORLD_SPLIT,
+        PolicyId.VT_BND,
+        PolicyId.VT_TREAS,
     ]
     assert all(candidate.modules == 1 for candidate in spec.candidates)
 
@@ -88,13 +88,13 @@ def test_exp_m2_json_load(scenario_id: str) -> None:
     assert spec.start == date(2014, 1, 3)
     assert spec.end == date(2024, 9, 30)
     assert spec.contribution_krw == pytest.approx(1_000_000.0)
-    assert spec.delta0 == pytest.approx(0.02)
+    assert spec.hurdle == pytest.approx(0.02)
     assert spec.horizon_months == 36
     assert spec.baseline.id == "s1_us"
-    assert spec.baseline.policy is PolicyId.S1_US
+    assert spec.baseline.policy is PolicyId.VTI
     assert spec.baseline.modules == 0
     assert [candidate.id for candidate in spec.candidates] == ["s6_us_core_value"]
-    assert [candidate.policy for candidate in spec.candidates] == [PolicyId.S6_US_CORE_VALUE]
+    assert [candidate.policy for candidate in spec.candidates] == [PolicyId.VTI_VTV]
     assert [candidate.modules for candidate in spec.candidates] == [1]
 
 
@@ -107,26 +107,26 @@ def test_exp_d_universe_json(scenario_id: str) -> None:
     assert m1_d.start == date(2014, 1, 3)
     assert m1_d.end == date(2024, 9, 30)
     assert m1_d.contribution_krw == pytest.approx(1_000_000.0)
-    assert m1_d.delta0 == pytest.approx(0.02)
+    assert m1_d.hurdle == pytest.approx(0.02)
     assert m1_d.horizon_months == 36
     assert m1_d.baseline.id == "s1_us"
-    assert m1_d.baseline.policy is PolicyId.S1_US
+    assert m1_d.baseline.policy is PolicyId.VTI
     assert m1_d.baseline.modules == 0
     assert [candidate.id for candidate in m1_d.candidates] == ["s7_us_large_cap"]
-    assert [candidate.policy for candidate in m1_d.candidates] == [PolicyId.S7_US_LARGE_CAP]
+    assert [candidate.policy for candidate in m1_d.candidates] == [PolicyId.IVV]
     assert [candidate.modules for candidate in m1_d.candidates] == [1]
 
-    wf = load_experiment_config("configs/experiments/wf_s1_s7.json")
+    wf = load_experiment_config("configs/experiments/wf_vti_ivv.json")
 
-    assert wf.name == "wf_s1_s7"
+    assert wf.name == "wf_vti_ivv"
     assert wf.train_months == 60
     assert wf.test_months == 36
     assert wf.horizon_months == 0
     assert wf.baseline.id == "s1_us"
-    assert wf.baseline.policy is PolicyId.S1_US
+    assert wf.baseline.policy is PolicyId.VTI
     assert wf.baseline.modules == 0
     assert [candidate.id for candidate in wf.candidates] == ["s7_us_large_cap"]
-    assert [candidate.policy for candidate in wf.candidates] == [PolicyId.S7_US_LARGE_CAP]
+    assert [candidate.policy for candidate in wf.candidates] == [PolicyId.IVV]
     assert [candidate.modules for candidate in wf.candidates] == [1]
 
 
@@ -139,30 +139,30 @@ def test_exp_n_nasdaq_json(scenario_id: str) -> None:
     assert m1_n.start == date(2006, 10, 31)
     assert m1_n.end == date(2026, 6, 30)
     assert m1_n.contribution_krw == pytest.approx(1_000_000.0)
-    assert m1_n.delta0 == pytest.approx(0.02)
+    assert m1_n.hurdle == pytest.approx(0.02)
     assert m1_n.horizon_months == 36
     assert m1_n.baseline.id == "s1_us"
-    assert m1_n.baseline.policy is PolicyId.S1_US
+    assert m1_n.baseline.policy is PolicyId.VTI
     assert m1_n.baseline.modules == 0
     assert [candidate.id for candidate in m1_n.candidates] == ["s8_us_nasdaq"]
-    assert [candidate.policy for candidate in m1_n.candidates] == [PolicyId.S8_US_NASDAQ]
+    assert [candidate.policy for candidate in m1_n.candidates] == [PolicyId.QQQ]
     assert [candidate.modules for candidate in m1_n.candidates] == [1]
 
-    wf = load_experiment_config("configs/experiments/wf_s1_s8.json")
+    wf = load_experiment_config("configs/experiments/wf_vti_qqq.json")
 
-    assert wf.name == "wf_s1_s8"
+    assert wf.name == "wf_vti_qqq"
     assert wf.train_months == 60
     assert wf.test_months == 36
     assert wf.horizon_months == 0
     assert wf.contribution_krw == pytest.approx(1_000_000.0)
-    assert wf.delta0 == pytest.approx(0.02)
+    assert wf.hurdle == pytest.approx(0.02)
     assert wf.start == date(2006, 10, 31)
     assert wf.end == date(2026, 6, 30)
     assert wf.baseline.id == "s1_us"
-    assert wf.baseline.policy is PolicyId.S1_US
+    assert wf.baseline.policy is PolicyId.VTI
     assert wf.baseline.modules == 0
     assert [candidate.id for candidate in wf.candidates] == ["s8_us_nasdaq"]
-    assert [candidate.policy for candidate in wf.candidates] == [PolicyId.S8_US_NASDAQ]
+    assert [candidate.policy for candidate in wf.candidates] == [PolicyId.QQQ]
     assert [candidate.modules for candidate in wf.candidates] == [1]
 
 
@@ -178,11 +178,11 @@ def test_exp_wf_optional_months(scenario_id: str) -> None:
     with pytest.raises(ValueError, match="both train_months and test_months"):
         ExperimentSpec.model_validate(only_train)
 
-    wf = load_experiment_config("configs/experiments/wf_s0_s1.json")
+    wf = load_experiment_config("configs/experiments/wf_vt_vti.json")
     assert wf.train_months == 60
     assert wf.test_months == 36
-    assert wf.baseline.policy is PolicyId.S0_GLOBAL
-    assert [candidate.policy for candidate in wf.candidates] == [PolicyId.S1_US]
+    assert wf.baseline.policy is PolicyId.VT
+    assert [candidate.policy for candidate in wf.candidates] == [PolicyId.VTI]
 
 
 _FAIL_CASES = [
@@ -199,7 +199,7 @@ _FAIL_CASES = [
     ),
     ("non-positive contribution", lambda payload: payload.update(contribution_krw=0), "contribution_krw"),
     ("start after end", lambda payload: payload.update(start="2025-01-01"), "is after end"),
-    ("negative delta0", lambda payload: payload.update(delta0=-0.01), "delta0"),
+    ("negative hurdle", lambda payload: payload.update(hurdle=-0.01), "hurdle"),
     ("negative modules", lambda payload: payload["baseline"].update(modules=-1), "modules"),  # type: ignore[union-attr]
     ("negative horizon_months", lambda payload: payload.update(horizon_months=-3), "horizon_months"),
 ]
@@ -247,15 +247,15 @@ def test_exp_wf_b_json_costs(scenario_id: str, tmp_path: Path) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-G-overlay-json"])
 def test_exp_g_overlay_json(scenario_id: str) -> None:
     """EXP-G-overlay-json"""
-    spec = load_experiment_config("configs/experiments/wf_s1_overlay.json")
+    spec = load_experiment_config("configs/experiments/wf_vti_overlay.json")
 
     assert spec.overlay is not None
     assert spec.overlay.max_shift == pytest.approx(0.10)
     assert spec.overlay.vix_threshold is None
-    assert spec.baseline.policy is PolicyId.S1_US
+    assert spec.baseline.policy is PolicyId.VTI
     assert spec.baseline.modules == 0
     assert len(spec.candidates) == 1
-    assert spec.candidates[0].policy is PolicyId.S1_US
+    assert spec.candidates[0].policy is PolicyId.VTI
     assert spec.candidates[0].modules == 1
     assert spec.train_months == 60
     assert spec.test_months == 36
@@ -300,7 +300,7 @@ def test_exp_g_overlay_fail_closed(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-H-reserve-json"])
 def test_exp_h_reserve_json(scenario_id: str) -> None:
     """EXP-H-reserve-json"""
-    spec = load_experiment_config("configs/experiments/wf_s1_reserve.json")
+    spec = load_experiment_config("configs/experiments/wf_vti_reserve.json")
 
     assert spec.reserve is not None
     assert spec.reserve.max_withhold == pytest.approx(0.10)
@@ -308,8 +308,8 @@ def test_exp_h_reserve_json(scenario_id: str) -> None:
     assert spec.baseline.modules == 0
     assert len(spec.candidates) == 1
     assert spec.candidates[0].modules == 1
-    assert spec.baseline.policy is PolicyId.S1_US
-    assert spec.candidates[0].policy is PolicyId.S1_US
+    assert spec.baseline.policy is PolicyId.VTI
+    assert spec.candidates[0].policy is PolicyId.VTI
     assert spec.train_months == 60
     assert spec.test_months == 36
 
@@ -351,23 +351,23 @@ def test_exp_h_reserve_json(scenario_id: str) -> None:
         ExperimentSpec.model_validate(unknown_key)
 
 
-@pytest.mark.parametrize("scenario_id", ["EXP-H-s8-reserve-json"])
-def test_exp_h_s8_reserve_json(scenario_id: str) -> None:
-    """EXP-H-s8-reserve-json"""
-    spec = load_experiment_config("configs/experiments/wf_s8_reserve.json")
+@pytest.mark.parametrize("scenario_id", ["EXP-H-qqq-reserve-json"])
+def test_exp_h_qqq_reserve_json(scenario_id: str) -> None:
+    """EXP-H-qqq-reserve-json"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_reserve.json")
 
-    assert spec.name == "wf_s8_reserve"
+    assert spec.name == "wf_qqq_reserve"
     assert spec.start == date(2007, 8, 31)
     assert spec.end == date(2026, 6, 30)
     assert spec.contribution_krw == pytest.approx(1_000_000.0)
     assert spec.train_months == 60
     assert spec.test_months == 36
     assert spec.baseline.modules == 0
-    assert spec.baseline.policy is PolicyId.S8_US_NASDAQ
+    assert spec.baseline.policy is PolicyId.QQQ
     assert len(spec.candidates) == 1
     candidate = spec.candidates[0]
     assert candidate.id == "s8_us_nasdaq_reserve"
-    assert candidate.policy is PolicyId.S8_US_NASDAQ
+    assert candidate.policy is PolicyId.QQQ
     assert candidate.modules == 1
     assert spec.reserve is not None
     assert spec.reserve.max_withhold == pytest.approx(0.10)
@@ -379,23 +379,23 @@ def test_exp_h_s8_reserve_json(scenario_id: str) -> None:
 
 
 
-@pytest.mark.parametrize("scenario_id", ["EXP-H-s8-reserve-v2-json"])
-def test_exp_h_s8_reserve_v2_json(scenario_id: str) -> None:
-    """EXP-H-s8-reserve-v2-json"""
-    spec = load_experiment_config("configs/experiments/wf_s8_reserve_v2.json")
+@pytest.mark.parametrize("scenario_id", ["EXP-H-qqq-reserve-v2-json"])
+def test_exp_h_qqq_reserve_v2_json(scenario_id: str) -> None:
+    """EXP-H-qqq-reserve-v2-json"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_reserve_v2.json")
 
-    assert spec.name == "wf_s8_reserve_v2"
+    assert spec.name == "wf_qqq_reserve_v2"
     assert spec.start == date(2007, 8, 31)
     assert spec.end == date(2026, 6, 30)
     assert spec.contribution_krw == pytest.approx(1_000_000.0)
     assert spec.train_months == 60
     assert spec.test_months == 36
     assert spec.baseline.modules == 0
-    assert spec.baseline.policy is PolicyId.S8_US_NASDAQ
+    assert spec.baseline.policy is PolicyId.QQQ
     assert len(spec.candidates) == 1
     candidate = spec.candidates[0]
     assert candidate.id == "s8_us_nasdaq_reserve_v2"
-    assert candidate.policy is PolicyId.S8_US_NASDAQ
+    assert candidate.policy is PolicyId.QQQ
     assert candidate.modules == 1
     assert spec.overlay is None
     assert spec.reserve is not None
@@ -408,29 +408,29 @@ def test_exp_h_s8_reserve_v2_json(scenario_id: str) -> None:
     assert resolved.max_invest_multiplier == pytest.approx(2.00)
     assert resolved.reserve_max_months == pytest.approx(6.0)
 
-    legacy_resolved = resolve_reserve(load_experiment_config("configs/experiments/wf_s8_reserve.json"))
+    legacy_resolved = resolve_reserve(load_experiment_config("configs/experiments/wf_qqq_reserve.json"))
     assert isinstance(legacy_resolved, ReserveConfig)
     assert legacy_resolved.schedule == "v1"
     assert legacy_resolved.max_withhold == pytest.approx(0.10)
 
 
-@pytest.mark.parametrize("scenario_id", ["EXP-G-s8-overlay-json"])
-def test_exp_g_s8_overlay_json(scenario_id: str) -> None:
-    """EXP-G-s8-overlay-json"""
-    spec = load_experiment_config("configs/experiments/wf_s8_overlay.json")
+@pytest.mark.parametrize("scenario_id", ["EXP-G-qqq-overlay-json"])
+def test_exp_g_qqq_overlay_json(scenario_id: str) -> None:
+    """EXP-G-qqq-overlay-json"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_overlay.json")
 
-    assert spec.name == "wf_s8_overlay"
+    assert spec.name == "wf_qqq_overlay"
     assert spec.start == date(2007, 8, 31)
     assert spec.end == date(2026, 6, 30)
     assert spec.contribution_krw == pytest.approx(1_000_000.0)
     assert spec.train_months == 60
     assert spec.test_months == 36
     assert spec.baseline.modules == 0
-    assert spec.baseline.policy is PolicyId.S8_US_NASDAQ
+    assert spec.baseline.policy is PolicyId.QQQ
     assert len(spec.candidates) == 1
     candidate = spec.candidates[0]
     assert candidate.id == "s8_us_nasdaq_overlay"
-    assert candidate.policy is PolicyId.S8_US_NASDAQ
+    assert candidate.policy is PolicyId.QQQ
     assert candidate.modules == 1
     assert spec.overlay is not None
     assert spec.overlay.max_shift == pytest.approx(0.10)
@@ -444,8 +444,8 @@ def test_exp_g_s8_overlay_json(scenario_id: str) -> None:
 
 def _alias_payload(canonical: bool) -> dict[str, object]:
     """Same experiment expressed with canonical or legacy JSON keys and policy ids."""
-    policy = "us" if canonical else "s1_us"
-    module_key = "extra_rules" if canonical else "modules"
+    policy = "vti" if canonical else "s1_us"
+    module_key = "modules" if canonical else "extra_rules"
     return {
         "name": "naming_alias",
         "start": "2012-01-03",
@@ -455,7 +455,7 @@ def _alias_payload(canonical: bool) -> dict[str, object]:
         "horizon_months": 0,
         "baseline": {"id": "base", "policy": policy, module_key: 0},
         "candidates": [{"id": "cand", "policy": policy, module_key: 1}],
-        "overlay": {"max_tilt" if canonical else "max_shift": 0.10},
+        "overlay": {"max_shift" if canonical else "max_tilt": 0.10},
     }
 
 
@@ -463,27 +463,27 @@ def _alias_payload(canonical: bool) -> dict[str, object]:
 def test_nam_a02_experiment_json_aliases(scenario_id: str, tmp_path: Path) -> None:
     """NAM-A02-experiment-json-aliases"""
     legacy = load_experiment_config(_write(tmp_path, _alias_payload(canonical=False)))
-    assert legacy.delta0 == pytest.approx(0.02)
+    assert legacy.hurdle == pytest.approx(0.02)
     assert legacy.candidates[0].modules == 1
     assert legacy.overlay is not None
     assert legacy.overlay.max_shift == pytest.approx(0.10)
-    assert legacy.baseline.policy is PolicyId.S1_US
-    assert legacy.candidates[0].policy is PolicyId.S1_US
+    assert legacy.baseline.policy is PolicyId.VTI
+    assert legacy.candidates[0].policy is PolicyId.VTI
 
     canonical = load_experiment_config(_write(tmp_path, _alias_payload(canonical=True)))
-    assert canonical.delta0 == pytest.approx(0.02)
+    assert canonical.hurdle == pytest.approx(0.02)
     assert canonical.candidates[0].modules == 1
     assert canonical.overlay is not None
     assert canonical.overlay.max_shift == pytest.approx(0.10)
-    assert canonical.baseline.policy is PolicyId.S1_US
-    assert canonical.candidates[0].policy is PolicyId.S1_US
+    assert canonical.baseline.policy is PolicyId.VTI
+    assert canonical.candidates[0].policy is PolicyId.VTI
 
     dumped = json.loads(canonical.model_dump_json(by_alias=True))
     assert dumped["hurdle"] == pytest.approx(0.02)
-    assert dumped["baseline"]["extra_rules"] == 0
-    assert dumped["candidates"][0]["extra_rules"] == 1
-    assert dumped["overlay"]["max_tilt"] == pytest.approx(0.10)
-    assert dumped["candidates"][0]["policy"] == "us"
+    assert dumped["baseline"]["modules"] == 0
+    assert dumped["candidates"][0]["modules"] == 1
+    assert dumped["overlay"]["max_shift"] == pytest.approx(0.10)
+    assert dumped["candidates"][0]["policy"] == "vti"
 
     conflict = _payload()
     conflict["hurdle"] = 0.02
@@ -492,31 +492,56 @@ def test_nam_a02_experiment_json_aliases(scenario_id: str, tmp_path: Path) -> No
         load_experiment_config(_write(tmp_path, conflict))
 
 
+@pytest.mark.parametrize("scenario_id", ["NAM-A-json-keys"])
+def test_nam_a_json_keys(scenario_id: str) -> None:
+    """NAM-A-json-keys"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_cadence.json")
+
+    assert spec.baseline.policy is PolicyId.QQQ
+    assert spec.cadence is not None
+    assert spec.cadence.anchor == "month_open"
+    assert spec.hurdle == pytest.approx(0.02)
+    assert spec.candidates[0].modules == 1
+
+    dumped = json.loads(spec.model_dump_json(by_alias=True))
+    text = json.dumps(dumped)
+    assert "hurdle" in text
+    assert "modules" in text
+    assert "extra_rules" not in text
+    assert "delta0" not in text
+
+    conflict = _payload()
+    conflict["hurdle"] = 0.02
+    conflict["delta0"] = 0.03
+    with pytest.raises(ValueError, match="hurdle"):
+        ExperimentSpec.model_validate(conflict)
+
+
 @pytest.mark.parametrize("scenario_id", ["NAM-A03-shipped-wf-canonical"])
 def test_nam_a03_shipped_wf_canonical(scenario_id: str) -> None:
     """NAM-A03-shipped-wf-canonical"""
-    spec = load_experiment_config("configs/experiments/wf_s1_overlay.json")
+    spec = load_experiment_config("configs/experiments/wf_vti_overlay.json")
 
-    assert spec.baseline.policy is PolicyId.S1_US
+    assert spec.baseline.policy is PolicyId.VTI
     assert spec.overlay is not None
     assert spec.overlay.max_shift == pytest.approx(0.10)
     assert spec.start == date(2014, 1, 3)
 
-    text = Path("configs/experiments/wf_s1_overlay.json").read_text(encoding="utf-8")
-    for key in ("hurdle", "extra_rules", "max_tilt"):
+    text = Path("configs/experiments/wf_vti_overlay.json").read_text(encoding="utf-8")
+    for key in ("hurdle", "modules", "max_shift"):
         assert key in text
-    assert "delta0" not in text
-    assert "max_shift" not in text
+    for legacy in ("delta0", "extra_rules", "max_tilt", "withhold_cap"):
+        assert legacy not in text
     payload = json.loads(text)
-    assert payload["overlay"]["max_tilt"] == pytest.approx(0.10)
+    assert payload["overlay"]["max_shift"] == pytest.approx(0.10)
     policies = [arm["policy"] for arm in (payload["baseline"], *payload["candidates"])]
-    assert set(policies) == {"us"}
+    assert set(policies) == {"vti"}
 
 
 @pytest.mark.parametrize("scenario_id", ["EXP-J-mapping-json"])
 def test_exp_j_mapping_json(scenario_id: str) -> None:
     """EXP-J-mapping-json"""
-    spec = load_experiment_config("configs/experiments/wf_s1_mapping.json")
+    spec = load_experiment_config("configs/experiments/wf_vti_mapping.json")
 
     assert spec.mapping is not None
     assert spec.mapping.min_improvement == pytest.approx(0.02)
@@ -524,8 +549,8 @@ def test_exp_j_mapping_json(scenario_id: str) -> None:
     assert spec.candidates[0].modules == 1
     assert spec.overlay is None
     assert spec.reserve is None
-    assert spec.baseline.policy is PolicyId.S1_US
-    assert spec.candidates[0].policy is PolicyId.S1_US
+    assert spec.baseline.policy is PolicyId.VTI
+    assert spec.candidates[0].policy is PolicyId.VTI
     assert spec.train_months == 60
     assert spec.test_months == 36
     assert spec.start == date(2014, 1, 3)
@@ -584,7 +609,7 @@ def test_exp_j_mapping_json(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-K-currency-json"])
 def test_exp_k_currency_json(scenario_id: str) -> None:
     """EXP-K-currency-json"""
-    spec = load_experiment_config("configs/experiments/wf_s1_currency.json")
+    spec = load_experiment_config("configs/experiments/wf_vti_currency.json")
 
     assert spec.contribution_krw == pytest.approx(1_000_000.0)
     assert spec.train_months == 60
@@ -654,19 +679,19 @@ def test_exp_k_currency_json(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-L-cadence-json"])
 def test_exp_l_cadence_json(scenario_id: str) -> None:
     """EXP-L-cadence-json"""
-    spec = load_experiment_config("configs/experiments/wf_s1_cadence.json")
+    spec = load_experiment_config("configs/experiments/wf_vti_cadence.json")
 
     assert spec.cadence is not None
     assert spec.cadence.anchor == "month_open"
     assert resolve_cadence(spec) == "month_open"
     assert spec.contribution_krw == pytest.approx(1_000_000.0)
-    assert spec.delta0 == pytest.approx(0.02)
+    assert spec.hurdle == pytest.approx(0.02)
     assert spec.train_months == 60
     assert spec.test_months == 36
     assert spec.start == date(2014, 1, 3)
     assert spec.end == date(2024, 9, 30)
     assert spec.baseline.id == "s1_us"
-    assert spec.baseline.policy is PolicyId.S1_US
+    assert spec.baseline.policy is PolicyId.VTI
     assert spec.baseline.modules == 0
     assert [candidate.id for candidate in spec.candidates] == ["s1_us_month_open"]
     assert [candidate.modules for candidate in spec.candidates] == [1]
@@ -696,16 +721,16 @@ def test_exp_l_cadence_json(scenario_id: str) -> None:
         CadenceSpec(anchor="month_end")
 
 
-@pytest.mark.parametrize("scenario_id", ["EXP-L-s8-cadence-json"])
-def test_exp_l_s8_cadence_json(scenario_id: str) -> None:
-    """EXP-L-s8-cadence-json"""
-    spec = load_experiment_config("configs/experiments/wf_s8_cadence.json")
+@pytest.mark.parametrize("scenario_id", ["EXP-L-qqq-cadence-json"])
+def test_exp_l_qqq_cadence_json(scenario_id: str) -> None:
+    """EXP-L-qqq-cadence-json"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_cadence.json")
 
-    assert spec.name == "wf_s8_cadence"
+    assert spec.name == "wf_qqq_cadence"
     assert spec.start == date(2007, 8, 31)
     assert spec.end == date(2026, 6, 30)
     assert spec.contribution_krw == pytest.approx(1_000_000.0)
-    assert spec.delta0 == pytest.approx(0.02)
+    assert spec.hurdle == pytest.approx(0.02)
     assert spec.horizon_months == 0
     assert spec.train_months == 60
     assert spec.test_months == 36
@@ -713,10 +738,10 @@ def test_exp_l_s8_cadence_json(scenario_id: str) -> None:
     assert spec.cadence.anchor == "month_open"
     assert resolve_cadence(spec) == "month_open"
     assert spec.baseline.id == "s8_us_nasdaq"
-    assert spec.baseline.policy is PolicyId.S8_US_NASDAQ
+    assert spec.baseline.policy is PolicyId.QQQ
     assert spec.baseline.modules == 0
     assert [candidate.id for candidate in spec.candidates] == ["s8_us_nasdaq_month_open"]
-    assert [candidate.policy for candidate in spec.candidates] == [PolicyId.S8_US_NASDAQ]
+    assert [candidate.policy for candidate in spec.candidates] == [PolicyId.QQQ]
     assert [candidate.modules for candidate in spec.candidates] == [1]
     assert spec.overlay is None
     assert spec.reserve is None

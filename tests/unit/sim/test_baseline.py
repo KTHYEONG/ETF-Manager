@@ -9,10 +9,10 @@ from collections.abc import Mapping
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.data.pipeline import ingest
-from src.etf_manager.data.schema import Dataset, spec_for
-from src.etf_manager.sim.baseline import (
+from src.data.calendar import load_calendar
+from src.data.pipeline import ingest
+from src.data.schema import Dataset, spec_for
+from src.sim.baseline import (
     BaselineConfig,
     BaselineDataError,
     BaselineId,

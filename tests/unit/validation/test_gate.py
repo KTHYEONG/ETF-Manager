@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.etf_manager.validation.gate import adoption_passes, certainty_equivalent, select_plateau
+from src.validation.gate import adoption_passes, certainty_equivalent, select_plateau
 
 
 @pytest.mark.parametrize("scenario_id", ["VAL-V02-ce-and-gate"])

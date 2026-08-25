@@ -10,20 +10,20 @@ from typing import Final
 import polars as pl
 import pytest
 
-from src.etf_manager.analytics.us_vehicles import (
+from src.analytics.us_vehicles import (
     compare_vehicle_dca,
     diagnostic_price_tickers,
     history_price_tickers,
     profile_us_vehicles,
 )
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.data.pipeline import ingest
-from src.etf_manager.data.pit import AVAILABLE_AT
-from src.etf_manager.data.schema import Dataset, spec_for
-from src.etf_manager.etf.mapping import mapping_implementation_tickers
-from src.etf_manager.features.factors import FACTOR_COLUMNS
-from src.etf_manager.policy.targets import all_policy_tickers
-from src.etf_manager.sim.baseline import BaselineConfig, BaselineId
+from src.data.calendar import load_calendar
+from src.data.pipeline import ingest
+from src.data.pit import AVAILABLE_AT
+from src.data.schema import Dataset, spec_for
+from src.etf.mapping import mapping_implementation_tickers
+from src.features.factors import FACTOR_COLUMNS
+from src.policy.targets import all_policy_tickers
+from src.sim.baseline import BaselineConfig, BaselineId
 
 _CALENDAR = load_calendar("XNYS")
 _RETRIEVED_AT = datetime(2024, 4, 1, 5, 0, tzinfo=UTC)

@@ -9,8 +9,8 @@ from datetime import date, datetime
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.features.risk import trailing_simple_vol
+from src.data.calendar import load_calendar
+from src.features.risk import trailing_simple_vol
 
 _CALENDAR = load_calendar("XNYS")
 

@@ -9,12 +9,12 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import TradingCalendar, load_calendar
-from src.etf_manager.data.pit import stamp_availability
-from src.etf_manager.data.quality import validate_frame
-from src.etf_manager.data.schema import Dataset, DatasetSpec, spec_for
-from src.etf_manager.data.settings import DataSettings
-from src.etf_manager.data.storage import (
+from src.data.calendar import TradingCalendar, load_calendar
+from src.data.pit import stamp_availability
+from src.data.quality import validate_frame
+from src.data.schema import Dataset, DatasetSpec, spec_for
+from src.data.settings import DataSettings
+from src.data.storage import (
     DataStore,
     RawPayload,
     UntrustedDatasetError,

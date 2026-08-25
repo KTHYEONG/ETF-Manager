@@ -7,15 +7,15 @@ from datetime import date
 
 import pytest
 
-from src.etf_manager.policy.targets import PolicyId
-from src.etf_manager.sim.allocation import AllocationConfig, AllocationResult
-from src.etf_manager.validation.campaign import (
+from src.policy.targets import PolicyId
+from src.sim.allocation import AllocationConfig, AllocationResult
+from src.validation.campaign import (
     COST_SCENARIOS,
     run_walk_forward_adoption,
     run_walk_forward_cost_grid,
     run_walk_forward_proxy_adoption,
 )
-from src.etf_manager.validation.experiment import (
+from src.validation.experiment import (
     CadenceSpec,
     CandidateSpec,
     CurrencySpec,
@@ -65,13 +65,13 @@ class _RecordingRunner:
 @pytest.mark.parametrize("scenario_id", ["WF-A-select-on-train"])
 def test_wf_a_select_on_train(scenario_id: str) -> None:
     """WF-A-select-on-train"""
-    runner = _RecordingRunner({PolicyId.S0_GLOBAL: 100.0, PolicyId.S1_US: 110.0})
+    runner = _RecordingRunner({PolicyId.VT: 100.0, PolicyId.VTI: 110.0})
 
     report = run_walk_forward_adoption(_spec(), runner)
 
     assert len(report.folds) > 0
     assert all(fold.train_adopted is True for fold in report.folds)
-    assert all(fold.chosen_policy is PolicyId.S1_US for fold in report.folds)
+    assert all(fold.chosen_policy is PolicyId.VTI for fold in report.folds)
     assert report.process_adopted_vs_baseline is True
 
     first_train_pair = runner.configs[:2]
@@ -81,7 +81,7 @@ def test_wf_a_select_on_train(scenario_id: str) -> None:
         assert config.fill_delay_sessions == 1
         assert config.commission_bps == pytest.approx(0.0)
         assert config.tilt is None
-    assert [config.policy for config in first_train_pair] == [PolicyId.S0_GLOBAL, PolicyId.S1_US]
+    assert [config.policy for config in first_train_pair] == [PolicyId.VT, PolicyId.VTI]
     # Baseline, candidate, and chosen all run on test even when chosen repeats an arm.
     assert len(runner.configs) == 5 * len(report.folds)
 
@@ -89,13 +89,13 @@ def test_wf_a_select_on_train(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["WF-A-keep-baseline"])
 def test_wf_a_keep_baseline(scenario_id: str) -> None:
     """WF-A-keep-baseline"""
-    runner = _RecordingRunner({PolicyId.S0_GLOBAL: 100.0, PolicyId.S1_US: 100.0})
+    runner = _RecordingRunner({PolicyId.VT: 100.0, PolicyId.VTI: 100.0})
 
     report = run_walk_forward_adoption(_spec(), runner)
 
     assert len(report.folds) > 0
     assert all(fold.train_adopted is False for fold in report.folds)
-    assert all(fold.chosen_policy is PolicyId.S0_GLOBAL for fold in report.folds)
+    assert all(fold.chosen_policy is PolicyId.VT for fold in report.folds)
     # ratio == 1.0 fails the strict > 1 + delta0 * modules hurdle.
     assert report.process_adopted_vs_baseline is False
 
@@ -138,8 +138,8 @@ class _StressCostRunner:
     """Candidate arm collapses only once commissions reach the stress level."""
 
     def __call__(self, config: AllocationConfig) -> AllocationResult:
-        wealth = 120.0 if config.policy is PolicyId.S1_US else 100.0
-        if config.policy is PolicyId.S1_US and config.commission_bps >= 50.0:
+        wealth = 120.0 if config.policy is PolicyId.VTI else 100.0
+        if config.policy is PolicyId.VTI and config.commission_bps >= 50.0:
             wealth = 90.0
         return AllocationResult(
             config=config,
@@ -155,7 +155,7 @@ class _StressCostRunner:
 @pytest.mark.parametrize("scenario_id", ["WF-B-spec-costs-injected"])
 def test_wf_b_spec_costs_injected(scenario_id: str) -> None:
     """WF-B-spec-costs-injected"""
-    runner = _RecordingRunner({PolicyId.S0_GLOBAL: 100.0, PolicyId.S1_US: 110.0})
+    runner = _RecordingRunner({PolicyId.VT: 100.0, PolicyId.VTI: 110.0})
     spec = _spec().model_copy(update={"commission_bps": 10.0, "fx_spread_bps": 20.0})
 
     report = run_walk_forward_adoption(spec, runner)
@@ -191,22 +191,22 @@ def _proxy_spec() -> ExperimentSpec:
 @pytest.mark.parametrize("scenario_id", ["WF-C-proxy-vs-baseline-gate"])
 def test_wf_c_proxy_vs_baseline_gate(scenario_id: str) -> None:
     """WF-C-proxy-vs-baseline-gate"""
-    etf_runner = _RecordingRunner({PolicyId.S0_GLOBAL: 100.0})
-    proxy_runner = _RecordingRunner({PolicyId.R1_US_MKT_FF: 110.0})
+    etf_runner = _RecordingRunner({PolicyId.VT: 100.0})
+    proxy_runner = _RecordingRunner({PolicyId.FF_PROXY: 110.0})
 
     report = run_walk_forward_proxy_adoption(_proxy_spec(), etf_runner, proxy_runner)
 
     assert len(report.folds) > 0
     assert report.process_adopted_vs_baseline is True
     assert etf_runner.configs
-    assert all(config.policy is PolicyId.S0_GLOBAL for config in etf_runner.configs)
+    assert all(config.policy is PolicyId.VT for config in etf_runner.configs)
     assert proxy_runner.configs
-    assert all(config.policy is PolicyId.R1_US_MKT_FF for config in proxy_runner.configs)
+    assert all(config.policy is PolicyId.FF_PROXY for config in proxy_runner.configs)
 
     equal = run_walk_forward_proxy_adoption(
         _proxy_spec(),
-        _RecordingRunner({PolicyId.S0_GLOBAL: 100.0}),
-        _RecordingRunner({PolicyId.R1_US_MKT_FF: 100.0}),
+        _RecordingRunner({PolicyId.VT: 100.0}),
+        _RecordingRunner({PolicyId.FF_PROXY: 100.0}),
     )
     # ratio == 1.0 fails the strict > 1 + delta0 * modules hurdle.
     assert equal.process_adopted_vs_baseline is False
@@ -215,8 +215,8 @@ def test_wf_c_proxy_vs_baseline_gate(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["WF-C-reject-costs-and-etf-candidate"])
 def test_wf_c_reject_costs_and_etf_candidate(scenario_id: str) -> None:
     """WF-C-reject-costs-and-etf-candidate"""
-    etf_runner = _RecordingRunner({PolicyId.S0_GLOBAL: 100.0})
-    proxy_runner = _RecordingRunner({PolicyId.R1_US_MKT_FF: 110.0})
+    etf_runner = _RecordingRunner({PolicyId.VT: 100.0})
+    proxy_runner = _RecordingRunner({PolicyId.FF_PROXY: 110.0})
 
     commission = _proxy_spec().model_copy(update={"commission_bps": 10.0})
     with pytest.raises(ValueError, match="commission_bps"):
@@ -229,7 +229,7 @@ def test_wf_c_reject_costs_and_etf_candidate(scenario_id: str) -> None:
     etf_candidate = _proxy_spec().model_copy(
         update={"candidates": [CandidateSpec(id="s1_us", policy="s1_us", modules=1)]}
     )
-    with pytest.raises(ValueError, match=r"R1_US_MKT_FF|candidate"):
+    with pytest.raises(ValueError, match=r"FF_PROXY|candidate"):
         run_walk_forward_proxy_adoption(etf_candidate, etf_runner, proxy_runner)
 
     proxy_baseline = _proxy_spec().model_copy(
@@ -242,7 +242,7 @@ def test_wf_c_reject_costs_and_etf_candidate(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["WF-B-grid-four-scenarios"])
 def test_wf_b_grid_four_scenarios(scenario_id: str) -> None:
     """WF-B-grid-four-scenarios"""
-    runner = _RecordingRunner({PolicyId.S0_GLOBAL: 100.0, PolicyId.S1_US: 120.0})
+    runner = _RecordingRunner({PolicyId.VT: 100.0, PolicyId.VTI: 120.0})
     spec = _spec()
 
     grid = run_walk_forward_cost_grid(spec, runner)
@@ -334,7 +334,7 @@ def test_wf_g_overlay_same_policy(scenario_id: str) -> None:
         for config in chunk:
             if config.overlay is not None:
                 assert config.overlay.max_shift == pytest.approx(0.10)
-            assert config.policy is PolicyId.S1_US
+            assert config.policy is PolicyId.VTI
             assert config.fill_delay_sessions == 1
 
     etf_runner = _RecordingRunner(dict.fromkeys(PolicyId, 100.0))
@@ -395,7 +395,7 @@ def test_wf_h_reserve_same_policy(scenario_id: str) -> None:
         for config in chunk:
             if config.reserve is not None:
                 assert config.reserve.max_withhold == pytest.approx(0.10)
-            assert config.policy is PolicyId.S1_US
+            assert config.policy is PolicyId.VTI
             assert config.fill_delay_sessions == 1
 
     proxy_reject = spec.model_copy(update={"reserve": ReserveSpec(max_withhold=0.05)})
@@ -457,7 +457,7 @@ def test_wf_j_mapping_same_policy(scenario_id: str) -> None:
         for config in chunk:
             if config.mapping is not None:
                 assert config.mapping.min_improvement == pytest.approx(0.02)
-            assert config.policy is PolicyId.S1_US
+            assert config.policy is PolicyId.VTI
             assert config.fill_delay_sessions == 1
 
     etf_runner = _RecordingRunner(dict.fromkeys(PolicyId, 100.0))
@@ -522,7 +522,7 @@ def test_wf_k_currency_same_policy(scenario_id: str) -> None:
         for config in chunk:
             if config.currency is not None:
                 assert config.currency.max_defer == pytest.approx(0.10)
-            assert config.policy is PolicyId.S1_US
+            assert config.policy is PolicyId.VTI
             assert config.fill_delay_sessions == 1
 
 
@@ -619,7 +619,7 @@ def test_wf_l_cadence_candidate(scenario_id: str) -> None:
             "month_open",
         ]
 
-    flat_runner = _RecordingRunner({PolicyId.S0_GLOBAL: 100.0, PolicyId.S1_US: 100.0})
+    flat_runner = _RecordingRunner({PolicyId.VT: 100.0, PolicyId.VTI: 100.0})
     flat_report = run_walk_forward_adoption(_cadence_spec(), flat_runner)
 
     assert all(fold.train_adopted is False for fold in flat_report.folds)

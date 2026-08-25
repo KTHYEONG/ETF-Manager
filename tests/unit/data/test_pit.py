@@ -8,9 +8,9 @@ from pathlib import Path
 import polars as pl
 from hypothesis import given, settings, strategies as st
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.data.pit import AVAILABLE_AT, LookAheadError, as_of, assert_no_lookahead, stamp_availability
-from src.etf_manager.data.schema import (
+from src.data.calendar import load_calendar
+from src.data.pit import AVAILABLE_AT, LookAheadError, as_of, assert_no_lookahead, stamp_availability
+from src.data.schema import (
     AvailabilityKind,
     AvailabilityRule,
     Dataset,
@@ -221,6 +221,6 @@ def test_pit_a07_no_imputation() -> None:
     assert availability.null_count() == 0
     assert stamped.get_column("date").to_list() == [date(2024, 1, 29), date(2024, 1, 31)]
 
-    source = Path("src/etf_manager/data/pit.py").read_text(encoding="utf-8")
+    source = Path("src/data/pit.py").read_text(encoding="utf-8")
     for banned in ("fill_null", "forward_fill", "interpolate", "upsample"):
         assert banned not in source

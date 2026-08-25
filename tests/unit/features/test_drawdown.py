@@ -7,8 +7,8 @@ from datetime import date, datetime
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.features.drawdown import trailing_price_drawdown
+from src.data.calendar import load_calendar
+from src.features.drawdown import trailing_price_drawdown
 
 _CALENDAR = load_calendar("XNYS")
 _DAYS = _CALENDAR.sessions(date(2024, 1, 2), date(2024, 12, 31))

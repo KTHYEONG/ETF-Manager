@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.etf_manager.analytics.metrics import XirrError, max_drawdown, real_krw, xirr
+from src.analytics.metrics import XirrError, max_drawdown, real_krw, xirr
 
 
 def test_met_d06_xirr_and_mdd() -> None:

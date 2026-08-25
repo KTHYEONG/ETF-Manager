@@ -1,4 +1,4 @@
-"""Unit tests for S8 decision-cadence comparison diagnostics (reporting only; no adoption gate)."""
+"""Unit tests for QQQ decision-cadence comparison diagnostics (reporting only; no adoption gate)."""
 
 from __future__ import annotations
 
@@ -6,10 +6,10 @@ from datetime import date, timedelta
 
 import pytest
 
-from src.etf_manager.analytics.cadence import compare_s8_cadence
-from src.etf_manager.analytics.regimes import S8_REGIME_WINDOWS
-from src.etf_manager.policy.targets import PolicyError, PolicyId
-from src.etf_manager.sim.allocation import AllocationConfig, AllocationResult, AllocationSnapshot
+from src.analytics.cadence import compare_qqq_cadence
+from src.analytics.regimes import QQQ_REGIME_WINDOWS
+from src.policy.targets import PolicyError, PolicyId
+from src.sim.allocation import AllocationConfig, AllocationResult, AllocationSnapshot
 
 _WINDOW: tuple[tuple[str, date, date], ...] = (
     ("calendar_max", date(2006, 10, 31), date(2026, 6, 30)),
@@ -93,12 +93,12 @@ class _AlwaysBlockedRunner:
         raise PolicyError(f"warmup unavailable for {config.policy!r}")
 
 
-@pytest.mark.parametrize("scenario_id", ["CAD-U-compare-s8"])
-def test_cad_u_compare_s8(scenario_id: str) -> None:
-    """CAD-U-compare-s8"""
+@pytest.mark.parametrize("scenario_id", ["CAD-U-compare-qqq"])
+def test_cad_u_compare_qqq(scenario_id: str) -> None:
+    """CAD-U-compare-qqq"""
     runner = _FakeRunner(count=3)
 
-    comparisons = compare_s8_cadence(runner=runner, contribution_krw=1_000_000.0, windows=_WINDOW)
+    comparisons = compare_qqq_cadence(runner=runner, contribution_krw=1_000_000.0, windows=_WINDOW)
 
     assert len(comparisons) == 1
     comparison = comparisons[0]
@@ -109,7 +109,7 @@ def test_cad_u_compare_s8(scenario_id: str) -> None:
     assert runner.configs[0].cadence == "monthly"
     assert runner.configs[1].cadence == "month_open"
     for config in runner.configs:
-        assert config.policy is PolicyId.S8_US_NASDAQ
+        assert config.policy is PolicyId.QQQ
         assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
         assert config.start == _WINDOW[0][1]
         assert config.end == _WINDOW[0][2]
@@ -119,22 +119,22 @@ def test_cad_u_compare_s8(scenario_id: str) -> None:
         assert config.mapping is None
         assert config.targets_override is None
 
-    default_comparisons = compare_s8_cadence(runner=_FakeRunner(count=2), contribution_krw=1.0)
-    assert len(default_comparisons) == len(S8_REGIME_WINDOWS)
+    default_comparisons = compare_qqq_cadence(runner=_FakeRunner(count=2), contribution_krw=1.0)
+    assert len(default_comparisons) == len(QQQ_REGIME_WINDOWS)
 
     with pytest.raises(ValueError, match="contribution"):
-        compare_s8_cadence(runner=_FakeRunner(count=3), contribution_krw=0.0, windows=_WINDOW)
+        compare_qqq_cadence(runner=_FakeRunner(count=3), contribution_krw=0.0, windows=_WINDOW)
 
     with pytest.raises(ValueError, match="snapshot"):
-        compare_s8_cadence(runner=_DivergingRunner(), contribution_krw=1_000_000.0, windows=_WINDOW)
+        compare_qqq_cadence(runner=_DivergingRunner(), contribution_krw=1_000_000.0, windows=_WINDOW)
 
 
-@pytest.mark.parametrize("scenario_id", ["CAD-U-compare-s8"])
-def test_cad_u_compare_s8_skip_warmup(scenario_id: str) -> None:
-    """CAD-U-compare-s8"""
+@pytest.mark.parametrize("scenario_id", ["CAD-U-compare-qqq"])
+def test_cad_u_compare_qqq_skip_warmup(scenario_id: str) -> None:
+    """CAD-U-compare-qqq"""
     runner = _WarmupBlockedRunner()
 
-    comparisons = compare_s8_cadence(runner=runner, contribution_krw=1_000_000.0, windows=_SKIP_WINDOWS)
+    comparisons = compare_qqq_cadence(runner=runner, contribution_krw=1_000_000.0, windows=_SKIP_WINDOWS)
 
     assert [comparison.name for comparison in comparisons] == [_SKIP_WINDOWS[1][0]]
     assert len(comparisons) == 1
@@ -142,7 +142,7 @@ def test_cad_u_compare_s8_skip_warmup(scenario_id: str) -> None:
     assert comparisons[0].end == _SKIP_WINDOWS[1][2]
 
     with pytest.raises(ValueError, match="usable"):
-        compare_s8_cadence(runner=_AlwaysBlockedRunner(), contribution_krw=1_000_000.0, windows=_SKIP_WINDOWS)
+        compare_qqq_cadence(runner=_AlwaysBlockedRunner(), contribution_krw=1_000_000.0, windows=_SKIP_WINDOWS)
 
     with pytest.raises(ValueError, match="snapshot"):
-        compare_s8_cadence(runner=_DivergingRunner(), contribution_krw=1_000_000.0, windows=_SKIP_WINDOWS)
+        compare_qqq_cadence(runner=_DivergingRunner(), contribution_krw=1_000_000.0, windows=_SKIP_WINDOWS)

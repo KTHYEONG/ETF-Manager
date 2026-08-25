@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar, next_execution_session
+from src.data.calendar import load_calendar, next_execution_session
 
 
 def test_cal_a08_holiday_fill_delay() -> None:

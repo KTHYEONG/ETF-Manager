@@ -9,19 +9,19 @@ from pathlib import Path
 import httpx
 import pytest
 
-from src.etf_manager.data.fetch import (
+from src.data.fetch import (
     fetch_and_persist_cpi,
     fetch_and_persist_fx,
     fetch_and_persist_macro,
     fetch_and_persist_prices,
 )
-from src.etf_manager.data.pit import AVAILABLE_AT
-from src.etf_manager.data.schema import Dataset, MissingPolicy, spec_for
-from src.etf_manager.data.secrets import ProviderSecrets
-from src.etf_manager.data.settings import DataSettings
-from src.etf_manager.data.storage import DataStore
+from src.data.pit import AVAILABLE_AT
+from src.data.schema import Dataset, MissingPolicy, spec_for
+from src.data.secrets import ProviderSecrets
+from src.data.settings import DataSettings
+from src.data.storage import DataStore
 
-FIXTURES = Path(__file__).resolve().parents[3] / "fixtures" / "providers"
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "providers"
 _SECRETS = ProviderSecrets(tiingo_api="wire-tiingo-token", fred_api="wire-fred-key", ecos_api="wire-ecos-key")
 
 

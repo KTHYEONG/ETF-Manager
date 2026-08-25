@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from src.etf_manager.data.catalog import latest_artifact
-from src.etf_manager.data.etf_metadata_bootstrap import persist_bootstrap_etf_metadata
-from src.etf_manager.data.schema import Dataset
-from src.etf_manager.data.settings import DataSettings
+from src.data.catalog import latest_artifact
+from src.data.etf_metadata_bootstrap import persist_bootstrap_etf_metadata
+from src.data.schema import Dataset
+from src.data.settings import DataSettings
 
 
 @pytest.mark.parametrize("scenario_id", ["DATA-J-bootstrap-metadata"])
