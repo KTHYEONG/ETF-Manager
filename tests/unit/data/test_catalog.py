@@ -8,12 +8,12 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.data.catalog import latest_artifact, load_visible
-from src.etf_manager.data.pipeline import persist_ingest
-from src.etf_manager.data.schema import Dataset, spec_for
-from src.etf_manager.data.settings import DataSettings
-from src.etf_manager.data.storage import RawPayload, UntrustedDatasetError
+from src.data.calendar import load_calendar
+from src.data.catalog import latest_artifact, load_visible
+from src.data.pipeline import persist_ingest
+from src.data.schema import Dataset, spec_for
+from src.data.settings import DataSettings
+from src.data.storage import RawPayload, UntrustedDatasetError
 
 _RETRIEVED_EARLY = datetime(2024, 2, 1, 5, 0, tzinfo=UTC)
 _RETRIEVED_LATE = datetime(2024, 2, 2, 5, 0, tzinfo=UTC)

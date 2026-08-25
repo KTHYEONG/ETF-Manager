@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.etf_manager.sim.contribution import allocate_contribution
+from src.sim.contribution import allocate_contribution
 
 
 @pytest.mark.parametrize("scenario_id", ["SIM-I01-band-none-identity"])

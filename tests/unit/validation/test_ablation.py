@@ -6,10 +6,10 @@ from datetime import date
 
 import pytest
 
-from src.etf_manager.policy.targets import PolicyId
-from src.etf_manager.sim.allocation import AllocationConfig, AllocationResult
-from src.etf_manager.validation.ablation import run_ablation
-from src.etf_manager.validation.experiment import (
+from src.policy.targets import PolicyId
+from src.sim.allocation import AllocationConfig, AllocationResult
+from src.validation.ablation import run_ablation
+from src.validation.experiment import (
     CadenceSpec,
     CandidateSpec,
     CurrencySpec,
@@ -57,7 +57,7 @@ class _RecordingRunner:
 
 
 def _runner() -> _RecordingRunner:
-    return _RecordingRunner({PolicyId.S0_GLOBAL: 100.0, PolicyId.S1_US: 110.0})
+    return _RecordingRunner({PolicyId.VT: 100.0, PolicyId.VTI: 110.0})
 
 
 @pytest.mark.parametrize("scenario_id", ["ABL-W1-identical-cashflow-gate"])
@@ -66,7 +66,7 @@ def test_abl_w1_identical_cashflow_gate(scenario_id: str) -> None:
     runner = _runner()
     report = run_ablation(_spec(modules=1), runner)
 
-    assert [config.policy for config in runner.configs] == [PolicyId.S0_GLOBAL, PolicyId.S1_US]
+    assert [config.policy for config in runner.configs] == [PolicyId.VT, PolicyId.VTI]
     for config in runner.configs:
         assert (config.start, config.end) == _WINDOW
         assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
@@ -122,10 +122,10 @@ def test_abl_w1_candidate_order(scenario_id: str) -> None:
 
     assert [row.candidate_id for row in report.rows] == ["c2", "c4", "c1"]
     assert [config.policy for config in runner.configs] == [
-        PolicyId.S0_GLOBAL,
-        PolicyId.S2_REGIONAL,
-        PolicyId.S4_DEFENSIVE,
-        PolicyId.S1_US,
+        PolicyId.VT,
+        PolicyId.WORLD_SPLIT,
+        PolicyId.VT_TREAS,
+        PolicyId.VTI,
     ]
 
 
@@ -143,7 +143,7 @@ def test_abl_g_overlay_candidate_only(scenario_id: str) -> None:
         baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
         candidates=[CandidateSpec(id="s1_us_overlay", policy="s1_us", modules=1)],
     )
-    runner = _RecordingRunner({PolicyId.S1_US: 120.0})
+    runner = _RecordingRunner({PolicyId.VTI: 120.0})
 
     run_ablation(spec, runner)
 
@@ -153,7 +153,7 @@ def test_abl_g_overlay_candidate_only(scenario_id: str) -> None:
     assert candidate_config.overlay is not None
     assert candidate_config.overlay.max_shift == pytest.approx(0.10)
     for config in (baseline_config, candidate_config):
-        assert config.policy is PolicyId.S1_US
+        assert config.policy is PolicyId.VTI
         assert (config.start, config.end) == _WINDOW
         assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
         assert config.fill_delay_sessions == 1
@@ -177,7 +177,7 @@ def test_abl_h_reserve_candidate_only(scenario_id: str) -> None:
         baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
         candidates=[CandidateSpec(id="s1_us_reserve", policy="s1_us", modules=1)],
     )
-    runner = _RecordingRunner({PolicyId.S1_US: 120.0})
+    runner = _RecordingRunner({PolicyId.VTI: 120.0})
 
     run_ablation(spec, runner)
 
@@ -187,7 +187,7 @@ def test_abl_h_reserve_candidate_only(scenario_id: str) -> None:
     assert candidate_config.reserve is not None
     assert candidate_config.reserve.max_withhold == pytest.approx(0.10)
     for config in (baseline_config, candidate_config):
-        assert config.policy is PolicyId.S1_US
+        assert config.policy is PolicyId.VTI
         assert (config.start, config.end) == _WINDOW
         assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
         assert config.fill_delay_sessions == 1
@@ -211,7 +211,7 @@ def test_abl_j_mapping_candidate_only(scenario_id: str) -> None:
         baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
         candidates=[CandidateSpec(id="s1_us_mapping", policy="s1_us", modules=1)],
     )
-    runner = _RecordingRunner({PolicyId.S1_US: 120.0})
+    runner = _RecordingRunner({PolicyId.VTI: 120.0})
 
     run_ablation(spec, runner)
 
@@ -221,7 +221,7 @@ def test_abl_j_mapping_candidate_only(scenario_id: str) -> None:
     assert candidate_config.mapping is not None
     assert candidate_config.mapping.min_improvement == pytest.approx(0.02)
     for config in (baseline_config, candidate_config):
-        assert config.policy is PolicyId.S1_US
+        assert config.policy is PolicyId.VTI
         assert (config.start, config.end) == _WINDOW
         assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
         assert config.fill_delay_sessions == 1
@@ -245,7 +245,7 @@ def test_abl_k_currency_candidate_only(scenario_id: str) -> None:
         baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
         candidates=[CandidateSpec(id="s1_us_currency", policy="s1_us", modules=1)],
     )
-    runner = _RecordingRunner({PolicyId.S1_US: 120.0})
+    runner = _RecordingRunner({PolicyId.VTI: 120.0})
 
     run_ablation(spec, runner)
 
@@ -255,7 +255,7 @@ def test_abl_k_currency_candidate_only(scenario_id: str) -> None:
     assert candidate_config.currency is not None
     assert candidate_config.currency.max_defer == pytest.approx(0.10)
     for config in (baseline_config, candidate_config):
-        assert config.policy is PolicyId.S1_US
+        assert config.policy is PolicyId.VTI
         assert (config.start, config.end) == _WINDOW
         assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
         assert config.fill_delay_sessions == 1
@@ -281,7 +281,7 @@ def test_abl_l_cadence_candidate(scenario_id: str) -> None:
         baseline=CandidateSpec(id="s1_us_base", policy="s1_us", modules=0),
         candidates=[CandidateSpec(id="s1_us_month_open", policy="s1_us", modules=1)],
     )
-    runner = _RecordingRunner({PolicyId.S1_US: 120.0})
+    runner = _RecordingRunner({PolicyId.VTI: 120.0})
 
     run_ablation(spec, runner)
 

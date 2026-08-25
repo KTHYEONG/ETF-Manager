@@ -8,8 +8,8 @@ from datetime import date
 import polars as pl
 import pytest
 
-from src.etf_manager.analytics.attribution import attribute_factor_returns
-from src.etf_manager.features.factors import FACTOR_COLUMNS
+from src.analytics.attribution import attribute_factor_returns
+from src.features.factors import FACTOR_COLUMNS
 
 _ROWS = 36
 

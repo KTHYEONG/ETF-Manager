@@ -11,22 +11,22 @@ from typing import Final
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.data.pipeline import persist_ingest
-from src.etf_manager.data.schema import Dataset, spec_for
-from src.etf_manager.data.settings import DataSettings
-from src.etf_manager.data.storage import RawPayload
-from src.etf_manager.policy.currency import CurrencyConfig
-from src.etf_manager.policy.overlay import OverlayConfig
-from src.etf_manager.policy.reserve import ReserveConfig
-from src.etf_manager.policy.targets import PolicyId
-from src.etf_manager.validation.experiment import (
+from src.data.calendar import load_calendar
+from src.data.pipeline import persist_ingest
+from src.data.schema import Dataset, spec_for
+from src.data.settings import DataSettings
+from src.data.storage import RawPayload
+from src.policy.currency import CurrencyConfig
+from src.policy.overlay import OverlayConfig
+from src.policy.reserve import ReserveConfig
+from src.policy.targets import PolicyId
+from src.validation.experiment import (
     CandidateSpec,
     CurrencySpec,
     ExperimentSpec,
     MappingSpec,
 )
-from src.etf_manager.validation.feasibility import (
+from src.validation.feasibility import (
     FeasibilityError,
     assert_experiment_feasible,
     currency_warmup_sessions,
@@ -159,7 +159,7 @@ def test_feas_a01_cpi_invisible(scenario_id: str, tmp_path: Path, monkeypatch: p
         "start": _SHORT_WINDOW[0],
         "end": _SHORT_WINDOW[1],
         "fill_delay_sessions": 1,
-        "mark_policies": (PolicyId.S0_GLOBAL,),
+        "mark_policies": (PolicyId.VT,),
         "overlay": None,
         "overlay_policies": (),
         "settings": settings,
@@ -193,9 +193,9 @@ def test_feas_a02_overlay_short_history(scenario_id: str, tmp_path: object, monk
         "start": _THIN_WINDOW[0],
         "end": _THIN_WINDOW[1],
         "fill_delay_sessions": 1,
-        "mark_policies": (PolicyId.S1_US,),
+        "mark_policies": (PolicyId.VTI,),
         "overlay": OverlayConfig(),
-        "overlay_policies": (PolicyId.S1_US,),
+        "overlay_policies": (PolicyId.VTI,),
         "settings": settings,
     }
 
@@ -262,9 +262,9 @@ def test_feas_a04_overlay_pass_warmup(scenario_id: str, tmp_path: Path, monkeypa
         start=_THIN_WINDOW[0],
         end=_THIN_WINDOW[1],
         fill_delay_sessions=1,
-        mark_policies=(PolicyId.S1_US,),
+        mark_policies=(PolicyId.VTI,),
         overlay=OverlayConfig(max_shift=0.10),
-        overlay_policies=(PolicyId.S1_US,),
+        overlay_policies=(PolicyId.VTI,),
         settings=settings,
     )
 
@@ -435,12 +435,12 @@ def test_feas_h_reserve_warmup(scenario_id: str, tmp_path: object, monkeypatch: 
         "start": _THIN_WINDOW[0],
         "end": _THIN_WINDOW[1],
         "fill_delay_sessions": 1,
-        "mark_policies": (PolicyId.S8_US_NASDAQ,),
+        "mark_policies": (PolicyId.QQQ,),
         "overlay": None,
         "overlay_policies": (),
         "settings": settings,
         "reserve": ReserveConfig(max_withhold=0.10),
-        "reserve_policies": (PolicyId.S8_US_NASDAQ,),
+        "reserve_policies": (PolicyId.QQQ,),
     }
 
     report = resolve_feasibility(**kwargs)  # type: ignore[arg-type]

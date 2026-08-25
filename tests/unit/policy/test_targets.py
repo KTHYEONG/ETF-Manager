@@ -8,11 +8,11 @@ from typing import Final
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.data.pipeline import ingest
-from src.etf_manager.data.pit import TS_DTYPE
-from src.etf_manager.data.schema import Dataset, spec_for
-from src.etf_manager.policy.targets import (
+from src.data.calendar import load_calendar
+from src.data.pipeline import ingest
+from src.data.pit import TS_DTYPE
+from src.data.schema import Dataset, spec_for
+from src.policy.targets import (
     POLICY_ALIASES,
     UNIVERSE_VEHICLE,
     OPERATIONAL_POLICY_ID,
@@ -32,12 +32,12 @@ _SIGNAL_AT = datetime(2024, 1, 31, 21, 0, tzinfo=UTC)
 @pytest.mark.parametrize(
     ("scenario_id", "policy_value"),
     [
-        ("POL-G03-static-sum-one", "s0_global"),
-        ("POL-G03-static-sum-one", "s1_us"),
-        ("POL-G03-static-sum-one", "s2_regional"),
-        ("POL-G03-static-sum-one", "s3_global_bond"),
-        ("POL-G03-static-sum-one", "s4_defensive"),
-        ("POL-G03-static-sum-one", "s6_us_core_value"),
+        ("POL-G03-static-sum-one", "vt"),
+        ("POL-G03-static-sum-one", "vti"),
+        ("POL-G03-static-sum-one", "world_split"),
+        ("POL-G03-static-sum-one", "vt_bnd"),
+        ("POL-G03-static-sum-one", "vt_treas"),
+        ("POL-G03-static-sum-one", "vti_vtv"),
     ],
 )
 def test_pol_g03_static_sum_one(scenario_id: str, policy_value: str) -> None:
@@ -47,9 +47,9 @@ def test_pol_g03_static_sum_one(scenario_id: str, policy_value: str) -> None:
     weights = list(targets.values())
     assert abs(sum(weights) - 1.0) <= 1e-6
     assert min(weights) >= 0.0
-    if policy_value == "s2_regional":
+    if policy_value == "world_split":
         assert targets == {"VTI": 0.5, "VEA": 0.3, "VWO": 0.2}
-    if policy_value == "s6_us_core_value":
+    if policy_value == "vti_vtv":
         assert targets == {"VTI": 0.8, "VTV": 0.2}
 
 
@@ -59,8 +59,8 @@ def test_pol_d_s7_large_cap_ivv(scenario_id: str) -> None:
     assert UNIVERSE_VEHICLE[UsEquityUniverse.LARGE_CAP] == "IVV"
     assert UNIVERSE_VEHICLE[UsEquityUniverse.TOTAL_MARKET] == "VTI"
 
-    s7 = resolve_targets(PolicyId.S7_US_LARGE_CAP, pl.DataFrame(), _SIGNAL_AT)
-    s1 = resolve_targets(PolicyId.S1_US, pl.DataFrame(), _SIGNAL_AT)
+    s7 = resolve_targets(PolicyId.IVV, pl.DataFrame(), _SIGNAL_AT)
+    s1 = resolve_targets(PolicyId.VTI, pl.DataFrame(), _SIGNAL_AT)
 
     assert s7 == {"IVV": 1.0}
     assert s1 == {"VTI": 1.0}
@@ -72,24 +72,24 @@ def test_pol_d_s7_large_cap_ivv(scenario_id: str) -> None:
     assert banned.isdisjoint(member.value for member in PolicyId)
 
 
-@pytest.mark.parametrize("scenario_id", ["POL-O-operational-s8"])
-def test_pol_o_operational_s8(scenario_id: str) -> None:
-    """POL-O-operational-s8"""
-    assert OPERATIONAL_POLICY_ID is PolicyId.S8_US_NASDAQ
+@pytest.mark.parametrize("scenario_id", ["POL-O-operational-qqq"])
+def test_pol_o_operational_qqq(scenario_id: str) -> None:
+    """POL-O-operational-qqq"""
+    assert OPERATIONAL_POLICY_ID is PolicyId.QQQ
     assert resolve_targets(OPERATIONAL_POLICY_ID, pl.DataFrame(), _SIGNAL_AT) == {"QQQ": 1.0}
 
 
-@pytest.mark.parametrize("scenario_id", ["POL-N-s8-nasdaq-qqq"])
-def test_pol_n_s8_nasdaq_qqq(scenario_id: str) -> None:
-    """POL-N-s8-nasdaq-qqq"""
+@pytest.mark.parametrize("scenario_id", ["POL-N-qqq-nasdaq"])
+def test_pol_n_qqq_nasdaq(scenario_id: str) -> None:
+    """POL-N-qqq-nasdaq"""
     assert UNIVERSE_VEHICLE[UsEquityUniverse.NASDAQ_100] == "QQQ"
 
-    targets = resolve_targets(PolicyId.S8_US_NASDAQ, pl.DataFrame(), _SIGNAL_AT)
+    targets = resolve_targets(PolicyId.QQQ, pl.DataFrame(), _SIGNAL_AT)
 
     assert targets == {"QQQ": 1.0}
     assert min(targets.values()) >= 0.0
     assert abs(sum(targets.values()) - 1.0) <= 1e-6
-    assert PolicyId.parse("s8_us_nasdaq") is PolicyId.S8_US_NASDAQ
+    assert PolicyId.parse("s8_us_nasdaq") is PolicyId.QQQ
     assert "QQQ" in all_policy_tickers()
 
     banned = {"s9_voo_qqq", "qqqm"}
@@ -109,7 +109,7 @@ def test_tgt_w1_sleeve_universe(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["POL-M2-s6-weights"])
 def test_pol_m2_s6_weights(scenario_id: str) -> None:
     """POL-M2-s6-weights"""
-    targets = resolve_targets(PolicyId.S6_US_CORE_VALUE, pl.DataFrame(), _SIGNAL_AT)
+    targets = resolve_targets(PolicyId.VTI_VTV, pl.DataFrame(), _SIGNAL_AT)
 
     assert targets == {"VTI": 0.8, "VTV": 0.2}
     weights = list(targets.values())
@@ -121,14 +121,14 @@ def test_pol_m2_s6_weights(scenario_id: str) -> None:
 def test_pol_g03_rejects_naive_signal_at(scenario_id: str) -> None:
     """Static policies ignore prices but must still type-check signal_at."""
     with pytest.raises(ValueError, match="timezone-aware"):
-        resolve_targets(PolicyId.S2_REGIONAL, pl.DataFrame(), _SIGNAL_AT.replace(tzinfo=None))
+        resolve_targets(PolicyId.WORLD_SPLIT, pl.DataFrame(), _SIGNAL_AT.replace(tzinfo=None))
 
 
 @pytest.mark.parametrize("scenario_id", ["I9-C-resolve-targets-rejects-r1"])
 def test_i9_c_resolve_targets_rejects_r1(scenario_id: str) -> None:
     """I9-C-resolve-targets-rejects-r1"""
-    with pytest.raises(PolicyError, match=r"R1_US_MKT_FF|research_proxy"):
-        resolve_targets(PolicyId.R1_US_MKT_FF, pl.DataFrame(), _SIGNAL_AT)
+    with pytest.raises(PolicyError, match=r"FF_PROXY|research_proxy"):
+        resolve_targets(PolicyId.FF_PROXY, pl.DataFrame(), _SIGNAL_AT)
 
     # R1 is a campaign identity, not a sleeve map: the ingest universe stays frozen.
     union: set[str] = set()
@@ -199,35 +199,61 @@ def test_pol_g04_invvol_pit(scenario_id: str) -> None:
     signal_at = _CALENDAR.close_ts(_invvol_days()[-1])
     prices = _invvol_panel()
 
-    targets = resolve_targets(PolicyId.S5_INVVOL, prices, signal_at)
+    targets = resolve_targets(PolicyId.INV_VOL, prices, signal_at)
 
     assert abs(sum(targets.values()) - 1.0) <= 1e-6
     assert targets["VEA"] == pytest.approx(targets["VWO"])
     assert targets["VTI"] == pytest.approx(0.5 * targets["VEA"])
 
     with pytest.raises(PolicyError):
-        resolve_targets(PolicyId.S5_INVVOL, _delay_last_vti_bar(prices), signal_at)
+        resolve_targets(PolicyId.INV_VOL, _delay_last_vti_bar(prices), signal_at)
+
+
+@pytest.mark.parametrize("scenario_id", ["NAM-A-policy-qqq"])
+def test_nam_a_policy_qqq(scenario_id: str) -> None:
+    """NAM-A-policy-qqq"""
+    assert PolicyId.parse("qqq") is PolicyId.QQQ
+    assert PolicyId.parse("nasdaq") is PolicyId.QQQ
+    assert PolicyId.parse("s8_us_nasdaq") is PolicyId.QQQ
+    assert PolicyId.QQQ.value == "qqq"
+    assert OPERATIONAL_POLICY_ID is PolicyId.QQQ
+    assert PolicyId.parse("vti") is PolicyId.VTI
+    assert PolicyId.parse("s1_us") is PolicyId.VTI
+    with pytest.raises(ValueError, match="unknown policy"):
+        PolicyId.parse("not_a_policy")
+    assert hasattr(PolicyId, "S8_US_NASDAQ") is False
+
+
+@pytest.mark.parametrize("scenario_id", ["PKG-A-no-nested-package"])
+def test_pkg_a_no_nested_package(scenario_id: str) -> None:
+    """PKG-A-no-nested-package"""
+    import importlib
+
+    targets = importlib.import_module("src.policy.targets")
+    assert hasattr(targets, "PolicyId")
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("src.etf_manager.policy.targets")
 
 
 @pytest.mark.parametrize("scenario_id", ["NAM-A01-policy-aliases"])
 def test_nam_a01_policy_aliases(scenario_id: str) -> None:
     """NAM-A01-policy-aliases"""
     assert {member.value for member in PolicyId} == {
-        "global",
-        "us",
-        "regional",
-        "global_bond",
-        "defensive",
+        "vt",
+        "vti",
+        "world_split",
+        "vt_bnd",
+        "vt_treas",
         "inv_vol",
-        "us_value",
-        "us_large",
-        "nasdaq",
-        "us_ff",
+        "vti_vtv",
+        "ivv",
+        "qqq",
+        "ff_proxy",
     }
-    assert PolicyId.parse("us") is PolicyId.parse("s1_us") is PolicyId.S1_US
-    assert PolicyId.parse("s1_us").value == "us"
-    assert POLICY_ALIASES["s1_us"] is POLICY_ALIASES["us"] is PolicyId.S1_US
+    assert PolicyId.parse("vti") is PolicyId.parse("s1_us") is PolicyId.VTI
+    assert PolicyId.parse("s1_us").value == "vti"
+    assert POLICY_ALIASES["s1_us"] is POLICY_ALIASES["us"] is POLICY_ALIASES["vti"] is PolicyId.VTI
     with pytest.raises(ValueError, match="unknown policy"):
         PolicyId.parse("not_a_policy")
 
-    assert resolve_targets(PolicyId.S1_US, pl.DataFrame(), _SIGNAL_AT)["VTI"] == 1.0
+    assert resolve_targets(PolicyId.VTI, pl.DataFrame(), _SIGNAL_AT)["VTI"] == 1.0

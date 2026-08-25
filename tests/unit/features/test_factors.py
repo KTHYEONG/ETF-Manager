@@ -9,8 +9,8 @@ from datetime import UTC, date, datetime, timedelta
 import polars as pl
 import pytest
 
-from src.etf_manager.data.pit import AVAILABLE_AT
-from src.etf_manager.features.factors import FACTOR_COLUMNS, estimate_factor_loadings
+from src.data.pit import AVAILABLE_AT
+from src.features.factors import FACTOR_COLUMNS, estimate_factor_loadings
 
 _TICKER = "VTI"
 _WINDOW = 36

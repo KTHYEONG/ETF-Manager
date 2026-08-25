@@ -7,10 +7,10 @@ from datetime import date, datetime
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.data.pit import AVAILABLE_AT
-from src.etf_manager.policy.reserve import ReserveConfig, apply_reserve_schedule
-from src.etf_manager.policy.targets import PolicyError
+from src.data.calendar import load_calendar
+from src.data.pit import AVAILABLE_AT
+from src.policy.reserve import ReserveConfig, apply_reserve_schedule
+from src.policy.targets import PolicyError
 
 _CALENDAR = load_calendar("XNYS")
 _TICKER = "VTI"

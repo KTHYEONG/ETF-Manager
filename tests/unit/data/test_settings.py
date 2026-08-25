@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.etf_manager.data.settings import DataSettings
+from src.data.settings import DataSettings
 
 
 @pytest.mark.parametrize("scenario_id", ["ST-B06-settings-boundary"])

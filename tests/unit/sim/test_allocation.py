@@ -9,20 +9,20 @@ from typing import Final
 import polars as pl
 import pytest
 
-import src.etf_manager.sim.allocation as allocation_module
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.etf.mapping import MappingConfig
-from src.etf_manager.execution.broker import PaperBroker, reconcile, replay_paper
-from src.etf_manager.data.pipeline import ingest
-from src.etf_manager.data.schema import Dataset, spec_for
-from src.etf_manager.policy.currency import CurrencyConfig
-from src.etf_manager.policy.overlay import OverlayConfig
-from src.etf_manager.policy.reserve import ReserveConfig
-from src.etf_manager.policy.targets import PolicyId
-from src.etf_manager.policy.tilt import FactorTilt
-from src.etf_manager.sim.allocation import AllocationConfig, AllocationDataError, AllocationResult, run_allocation
-from src.etf_manager.sim.baseline import BaselineConfig, BaselineId, run_baseline
-from src.etf_manager.validation.evaluate import evaluate_cohort_wealths
+import src.sim.allocation as allocation_module
+from src.data.calendar import load_calendar
+from src.etf.mapping import MappingConfig
+from src.execution.broker import PaperBroker, reconcile, replay_paper
+from src.data.pipeline import ingest
+from src.data.schema import Dataset, spec_for
+from src.policy.currency import CurrencyConfig
+from src.policy.overlay import OverlayConfig
+from src.policy.reserve import ReserveConfig
+from src.policy.targets import PolicyId
+from src.policy.tilt import FactorTilt
+from src.sim.allocation import AllocationConfig, AllocationDataError, AllocationResult, run_allocation
+from src.sim.baseline import BaselineConfig, BaselineId, run_baseline
+from src.validation.evaluate import evaluate_cohort_wealths
 
 _CALENDAR = load_calendar("XNYS")
 _RETRIEVED_AT = datetime(2024, 4, 1, 5, 0, tzinfo=UTC)
@@ -110,8 +110,8 @@ def _allocation_config(policy: PolicyId) -> AllocationConfig:
 def test_i9_c_etf_engine_rejects_r1(scenario_id: str) -> None:
     """I9-C-etf-engine-rejects-r1"""
     # Empty frames prove the guard fires before any PRICES lookup of a proxy ticker.
-    with pytest.raises(ValueError, match=r"R1_US_MKT_FF|research_proxy"):
-        run_allocation(_allocation_config(PolicyId.R1_US_MKT_FF), pl.DataFrame(), pl.DataFrame(), pl.DataFrame())
+    with pytest.raises(ValueError, match=r"FF_PROXY|research_proxy"):
+        run_allocation(_allocation_config(PolicyId.FF_PROXY), pl.DataFrame(), pl.DataFrame(), pl.DataFrame())
 
 
 @pytest.mark.parametrize("scenario_id", ["SIM-G05-s0-matches-b0"])
@@ -134,7 +134,7 @@ def test_sim_g05_s0_matches_b0(scenario_id: str) -> None:
         fx,
         cpi,
     )
-    result = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    result = run_allocation(_allocation_config(PolicyId.VT), prices, fx, cpi)
 
     assert result.terminal_wealth_krw == pytest.approx(baseline.terminal_wealth_krw, rel=1e-6)
     contributions_alloc = tuple(snapshot.contribution_krw for snapshot in result.snapshots)
@@ -150,7 +150,7 @@ def test_sim_g06_buy_only_split(scenario_id: str) -> None:
     fx = ingest(_fx_panel(window), Dataset.FX)
     cpi = _constant_cpi()
 
-    result = run_allocation(_allocation_config(PolicyId.S2_REGIONAL), prices, fx, cpi)
+    result = run_allocation(_allocation_config(PolicyId.WORLD_SPLIT), prices, fx, cpi)
 
     first_shares = result.snapshots[0].shares
     assert set(first_shares) == {"VTI", "VEA", "VWO"}
@@ -159,7 +159,7 @@ def test_sim_g06_buy_only_split(scenario_id: str) -> None:
         for ticker in ("VTI", "VEA", "VWO"):
             assert current.shares[ticker] >= previous.shares[ticker]
 
-    global_result = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    global_result = run_allocation(_allocation_config(PolicyId.VT), prices, fx, cpi)
     assert tuple(s.contribution_krw for s in result.snapshots) == tuple(
         s.contribution_krw for s in global_result.snapshots
     )
@@ -170,7 +170,7 @@ def test_sim_g06_buy_only_split(scenario_id: str) -> None:
         Dataset.PRICES,
     )
     with pytest.raises(AllocationDataError):
-        run_allocation(_allocation_config(PolicyId.S2_REGIONAL), missing_vwo, fx, cpi)
+        run_allocation(_allocation_config(PolicyId.WORLD_SPLIT), missing_vwo, fx, cpi)
 
 
 @pytest.mark.parametrize("scenario_id", ["SIM-H04-tilt-none-identity"])
@@ -181,9 +181,9 @@ def test_sim_h04_tilt_none_identity(scenario_id: str) -> None:
     fx = ingest(_fx_panel(window), Dataset.FX)
     cpi = _constant_cpi()
 
-    reference = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    reference = run_allocation(_allocation_config(PolicyId.VT), prices, fx, cpi)
     with_factors_frame = run_allocation(
-        _allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi, factors=pl.DataFrame()
+        _allocation_config(PolicyId.VT), prices, fx, cpi, factors=pl.DataFrame()
     )
     baseline = run_baseline(
         BaselineConfig(
@@ -203,7 +203,7 @@ def test_sim_h04_tilt_none_identity(scenario_id: str) -> None:
     assert reference.terminal_wealth_krw == pytest.approx(baseline.terminal_wealth_krw, rel=1e-6)
 
     tilted_config = replace(
-        _allocation_config(PolicyId.S2_REGIONAL),
+        _allocation_config(PolicyId.WORLD_SPLIT),
         tilt=FactorTilt(factor="hml", intensity=0.1),
     )
     with pytest.raises(ValueError, match="factors"):
@@ -251,7 +251,7 @@ def test_sim_h04_store_loads_factors_only_for_tilt(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(allocation_module, "load_visible", fake_visible)
     monkeypatch.setattr(allocation_module, "run_allocation", fake_run)
 
-    plain = allocation_module.run_allocation_from_store(_allocation_config(PolicyId.S0_GLOBAL), settings=object())  # type: ignore[arg-type]
+    plain = allocation_module.run_allocation_from_store(_allocation_config(PolicyId.VT), settings=object())  # type: ignore[arg-type]
     assert plain.terminal_wealth_krw == 1.0
     assert Dataset.FACTORS not in requested
     assert Dataset.FACTORS not in loaded
@@ -260,7 +260,7 @@ def test_sim_h04_store_loads_factors_only_for_tilt(monkeypatch: pytest.MonkeyPat
     requested.clear()
     loaded.clear()
     captured.clear()
-    tilted = replace(_allocation_config(PolicyId.S2_REGIONAL), tilt=FactorTilt(factor="hml", intensity=0.1))
+    tilted = replace(_allocation_config(PolicyId.WORLD_SPLIT), tilt=FactorTilt(factor="hml", intensity=0.1))
     allocation_module.run_allocation_from_store(tilted, settings=object())  # type: ignore[arg-type]
     assert Dataset.FACTORS in requested
     assert Dataset.FACTORS in loaded
@@ -308,12 +308,12 @@ def test_sim_i04_allocation_band_path(scenario_id: str) -> None:
     sleeves = ("VTI", "VEA", "VWO")
 
     banded = run_allocation(
-        replace(_allocation_config(PolicyId.S2_REGIONAL), rebalance_band=0.0), prices, fx, cpi
+        replace(_allocation_config(PolicyId.WORLD_SPLIT), rebalance_band=0.0), prices, fx, cpi
     )
     identity = run_allocation(
-        replace(_allocation_config(PolicyId.S2_REGIONAL), rebalance_band=None), prices, fx, cpi
+        replace(_allocation_config(PolicyId.WORLD_SPLIT), rebalance_band=None), prices, fx, cpi
     )
-    default = run_allocation(_allocation_config(PolicyId.S2_REGIONAL), prices, fx, cpi)
+    default = run_allocation(_allocation_config(PolicyId.WORLD_SPLIT), prices, fx, cpi)
 
     # Explicit None must reproduce the Phase 3 spend path exactly.
     assert identity.terminal_wealth_krw == pytest.approx(default.terminal_wealth_krw, rel=1e-6)
@@ -373,7 +373,7 @@ def test_sim_j04_overlay_none_identity(scenario_id: str) -> None:
     fx = ingest(_fx_panel(window), Dataset.FX)
     cpi = _constant_cpi()
 
-    result = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    result = run_allocation(_allocation_config(PolicyId.VT), prices, fx, cpi)
     baseline = run_baseline(
         BaselineConfig(
             baseline=BaselineId.B0_GLOBAL,
@@ -398,7 +398,7 @@ def test_sim_j04_overlay_buy_only_long_panel(scenario_id: str) -> None:
     fx = ingest(_fx_panel(days), Dataset.FX)
     cpi = _constant_cpi()
     config = replace(
-        _allocation_config(PolicyId.S2_REGIONAL), overlay=OverlayConfig(max_shift=0.10)
+        _allocation_config(PolicyId.WORLD_SPLIT), overlay=OverlayConfig(max_shift=0.10)
     )
 
     result = run_allocation(config, prices, fx, cpi)
@@ -409,9 +409,9 @@ def test_sim_j04_overlay_buy_only_long_panel(scenario_id: str) -> None:
             assert current.shares[ticker] >= previous.shares[ticker]
 
 
-@pytest.mark.parametrize("scenario_id", ["SIM-J05-s8-overlay-defensive-cash"])
-def test_sim_j05_s8_overlay_defensive_cash(scenario_id: str) -> None:
-    """SIM-J05-s8-overlay-defensive-cash"""
+@pytest.mark.parametrize("scenario_id", ["SIM-J05-qqq-overlay-defensive-cash"])
+def test_sim_j05_qqq_overlay_defensive_cash(scenario_id: str) -> None:
+    """SIM-J05-qqq-overlay-defensive-cash"""
     days = _CALENDAR.sessions(_LONG_PANEL_START, date(2024, 2, 29))
     spec = spec_for(Dataset.PRICES)
     tickers: list[str] = []
@@ -457,7 +457,7 @@ def test_sim_j05_s8_overlay_defensive_cash(scenario_id: str) -> None:
         Dataset.CPI,
     )
     config = AllocationConfig(
-        policy=PolicyId.S8_US_NASDAQ,
+        policy=PolicyId.QQQ,
         start=date(2024, 1, 31),
         end=date(2024, 2, 26),
         monthly_contribution_krw=_CONTRIBUTION_KRW,
@@ -494,9 +494,9 @@ def test_sim_k04_currency_none_identity(scenario_id: str) -> None:
     fx = ingest(_fx_panel(window), Dataset.FX)
     cpi = _constant_cpi()
 
-    reference = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    reference = run_allocation(_allocation_config(PolicyId.VT), prices, fx, cpi)
     none_currency = run_allocation(
-        replace(_allocation_config(PolicyId.S0_GLOBAL), currency=None), prices, fx, cpi
+        replace(_allocation_config(PolicyId.VT), currency=None), prices, fx, cpi
     )
     baseline = run_baseline(
         BaselineConfig(
@@ -523,12 +523,12 @@ def test_sim_k04_defer_keeps_cash_krw(scenario_id: str) -> None:
     rising_fx = ingest(_rising_fx_panel(window), Dataset.FX)
     cpi = _constant_cpi()
     deferred_config = replace(
-        _allocation_config(PolicyId.S0_GLOBAL),
+        _allocation_config(PolicyId.VT),
         currency=CurrencyConfig(max_defer=1.0, expensive_percentile=0.1, percentile_window=2),
     )
 
     deferred = run_allocation(deferred_config, prices, rising_fx, cpi)
-    plain = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, rising_fx, cpi)
+    plain = run_allocation(_allocation_config(PolicyId.VT), prices, rising_fx, cpi)
 
     assert deferred.snapshots[-1].cash_krw > plain.snapshots[-1].cash_krw
 
@@ -566,7 +566,7 @@ def test_sim_m04_mapping_none_identity(scenario_id: str) -> None:
     fx = ingest(_fx_panel(window), Dataset.FX)
     cpi = _constant_cpi()
 
-    result = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    result = run_allocation(_allocation_config(PolicyId.VT), prices, fx, cpi)
     baseline = run_baseline(
         BaselineConfig(
             baseline=BaselineId.B0_GLOBAL,
@@ -612,7 +612,7 @@ def test_sim_m04_mapping_switch_keeps_leftover_lots(scenario_id: str) -> None:
             _metadata_row(ticker="VWO", sleeve="VWO", expense_ratio=0.001),
         ]
     )
-    config = replace(_allocation_config(PolicyId.S2_REGIONAL), mapping=mapping)
+    config = replace(_allocation_config(PolicyId.WORLD_SPLIT), mapping=mapping)
 
     result = run_allocation(config, prices, fx, cpi, metadata=metadata)
 
@@ -634,9 +634,9 @@ def test_val_v04_cohort_identity(scenario_id: str) -> None:
     fx = ingest(_fx_panel(window), Dataset.FX)
     cpi = _constant_cpi()
 
-    reference = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    reference = run_allocation(_allocation_config(PolicyId.VT), prices, fx, cpi)
     wealths = evaluate_cohort_wealths(
-        _allocation_config(PolicyId.S0_GLOBAL),
+        _allocation_config(PolicyId.VT),
         ((_CONFIG_START, _CONFIG_END),),
         lambda config: run_allocation(config, prices, fx, cpi),
     )
@@ -646,7 +646,7 @@ def test_val_v04_cohort_identity(scenario_id: str) -> None:
 
     with pytest.raises(ValueError, match="cohorts"):
         evaluate_cohort_wealths(
-            _allocation_config(PolicyId.S0_GLOBAL),
+            _allocation_config(PolicyId.VT),
             (),
             lambda config: run_allocation(config, prices, fx, cpi),
         )
@@ -660,7 +660,7 @@ def test_rsv_b_allocation_conservation(scenario_id: str) -> None:
     fx = ingest(_fx_panel(days), Dataset.FX)
     cpi = _constant_cpi()
     reserved = replace(
-        _allocation_config(PolicyId.S1_US),
+        _allocation_config(PolicyId.VTI),
         reserve=ReserveConfig(max_withhold=0.10),
     )
 
@@ -673,14 +673,14 @@ def test_rsv_b_allocation_conservation(scenario_id: str) -> None:
         # Rising prices keep withholding exactly one cap per month.
         assert snapshot.reserve_krw == pytest.approx((index + 1) * 0.10 * _CONTRIBUTION_KRW)
 
-    plain = run_allocation(_allocation_config(PolicyId.S1_US), prices, fx, cpi)
+    plain = run_allocation(_allocation_config(PolicyId.VTI), prices, fx, cpi)
     assert all(snapshot.reserve_krw == 0.0 for snapshot in plain.snapshots)
     assert all(
         snapshot.contribution_krw == pytest.approx(_CONTRIBUTION_KRW) for snapshot in plain.snapshots
     )
 
     both = replace(
-        _allocation_config(PolicyId.S0_GLOBAL),
+        _allocation_config(PolicyId.VT),
         overlay=OverlayConfig(max_shift=0.10),
         reserve=ReserveConfig(max_withhold=0.10),
     )
@@ -696,7 +696,7 @@ def test_exe_x03_replay_identity(scenario_id: str) -> None:
     fx = ingest(_fx_panel(window), Dataset.FX)
     cpi = _constant_cpi()
 
-    result = run_allocation(_allocation_config(PolicyId.S0_GLOBAL), prices, fx, cpi)
+    result = run_allocation(_allocation_config(PolicyId.VT), prices, fx, cpi)
     book = replay_paper(result)
 
     assert isinstance(book, PaperBroker)
@@ -723,7 +723,7 @@ def test_sim_i06_recycle_usd_dust(scenario_id: str) -> None:
         Dataset.CPI,
     )
     config = AllocationConfig(
-        policy=PolicyId.S1_US,
+        policy=PolicyId.VTI,
         start=date(2023, 1, 17),
         end=date(2024, 2, 26),
         monthly_contribution_krw=_CONTRIBUTION_KRW,
@@ -755,7 +755,7 @@ def test_sim_i06_recycle_usd_dust(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["SIM-L-forwards-cadence"])
 def test_sim_l_forwards_cadence(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """SIM-L-forwards-cadence"""
-    plain = _allocation_config(PolicyId.S0_GLOBAL)
+    plain = _allocation_config(PolicyId.VT)
     assert plain.cadence == "monthly"
 
     captured_kwargs: list[dict[str, object]] = []
@@ -798,7 +798,7 @@ def test_sim_o_targets_override(scenario_id: str) -> None:
 
     result = run_allocation(
         replace(
-            _allocation_config(PolicyId.S8_US_NASDAQ),
+            _allocation_config(PolicyId.QQQ),
             targets_override={"QQQ": 0.8, "VTI": 0.2},
         ),
         prices,
@@ -811,19 +811,19 @@ def test_sim_o_targets_override(scenario_id: str) -> None:
     assert all(first_shares[ticker] > 0 for ticker in ("QQQ", "VTI"))
 
     tilted = replace(
-        _allocation_config(PolicyId.S8_US_NASDAQ),
+        _allocation_config(PolicyId.QQQ),
         targets_override={"QQQ": 0.8, "VTI": 0.2},
         tilt=FactorTilt(factor="hml", intensity=0.1),
     )
     with pytest.raises(ValueError, match="tilt"):
         run_allocation(tilted, prices, fx, cpi)
 
-    non_simplex = replace(_allocation_config(PolicyId.S8_US_NASDAQ), targets_override={"QQQ": 0.5})
+    non_simplex = replace(_allocation_config(PolicyId.QQQ), targets_override={"QQQ": 0.5})
     with pytest.raises(ValueError, match="sum"):
         run_allocation(non_simplex, prices, fx, cpi)
 
     negative = replace(
-        _allocation_config(PolicyId.S8_US_NASDAQ),
+        _allocation_config(PolicyId.QQQ),
         targets_override={"QQQ": 1.2, "VTI": -0.2},
     )
     with pytest.raises(ValueError, match="nonnegative"):

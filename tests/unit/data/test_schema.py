@@ -7,7 +7,7 @@ from datetime import timedelta
 import polars as pl
 import pytest
 
-from src.etf_manager.data.schema import (
+from src.data.schema import (
     DATASET_SPECS,
     AvailabilityKind,
     Dataset,

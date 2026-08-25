@@ -6,9 +6,9 @@ from datetime import date
 
 import pytest
 
-from src.etf_manager.execution.broker import PaperBroker, reconcile
-from src.etf_manager.execution.orders import BuyOrder, ExecutionError
-from src.etf_manager.sim.allocation import AllocationSnapshot
+from src.execution.broker import PaperBroker, reconcile
+from src.execution.orders import BuyOrder, ExecutionError
+from src.sim.allocation import AllocationSnapshot
 
 
 def _snapshot(shares: dict[str, float], session: date) -> AllocationSnapshot:

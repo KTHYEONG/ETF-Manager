@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from src.etf_manager.validation.windows import (
+from src.validation.windows import (
     add_calendar_months,
     rolling_cohorts,
     walk_forward_windows,

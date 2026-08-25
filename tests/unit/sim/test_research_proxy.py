@@ -8,12 +8,12 @@ from typing import Final
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import load_calendar
-from src.etf_manager.data.pipeline import ingest
-from src.etf_manager.data.schema import Dataset, spec_for
-from src.etf_manager.policy.targets import PolicyId, all_policy_tickers
-from src.etf_manager.sim.allocation import AllocationConfig, AllocationDataError
-from src.etf_manager.sim.research_proxy import run_research_proxy
+from src.data.calendar import load_calendar
+from src.data.pipeline import ingest
+from src.data.schema import Dataset, spec_for
+from src.policy.targets import PolicyId, all_policy_tickers
+from src.sim.allocation import AllocationConfig, AllocationDataError
+from src.sim.research_proxy import run_research_proxy
 
 _CALENDAR = load_calendar("XNYS")
 _RETRIEVED_AT = datetime(2024, 4, 1, 5, 0, tzinfo=UTC)
@@ -74,7 +74,7 @@ def _constant_cpi() -> pl.DataFrame:
     )
 
 
-def _config(policy: PolicyId = PolicyId.R1_US_MKT_FF) -> AllocationConfig:
+def _config(policy: PolicyId = PolicyId.FF_PROXY) -> AllocationConfig:
     # Month-end signals land on 2024-01-31 and 2024-02-01, filling on the two
     # consecutive sessions 2024-02-01 / 2024-02-02 covered by the return frame.
     return AllocationConfig(
@@ -141,5 +141,5 @@ def test_i9_c_proxy_rejects_non_r1_policy(scenario_id: str) -> None:
     fx = _fx_panel()
     cpi = _constant_cpi()
     rets = _returns_frame("us_mkt_ff_daily", {date(2024, 2, 1): 0.01, date(2024, 2, 2): -0.005})
-    with pytest.raises(ValueError, match=r"research_proxy|R1_US_MKT_FF"):
-        run_research_proxy(_config(PolicyId.S0_GLOBAL), rets, fx, cpi)
+    with pytest.raises(ValueError, match=r"research_proxy|FF_PROXY"):
+        run_research_proxy(_config(PolicyId.VT), rets, fx, cpi)

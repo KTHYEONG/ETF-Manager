@@ -7,9 +7,9 @@ from datetime import UTC, date, datetime
 import polars as pl
 import pytest
 
-from src.etf_manager.data.calendar import TradingCalendar, load_calendar
-from src.etf_manager.data.pit import stamp_availability
-from src.etf_manager.data.quality import (
+from src.data.calendar import TradingCalendar, load_calendar
+from src.data.pit import stamp_availability
+from src.data.quality import (
     DataQualityError,
     FindingSeverity,
     QualityFinding,
@@ -17,7 +17,7 @@ from src.etf_manager.data.quality import (
     enforce,
     validate_frame,
 )
-from src.etf_manager.data.schema import Dataset, DatasetSpec, spec_for
+from src.data.schema import Dataset, DatasetSpec, spec_for
 
 _RETRIEVED_AT = datetime(2024, 2, 1, 5, 0, tzinfo=UTC)
 

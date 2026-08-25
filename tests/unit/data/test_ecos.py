@@ -10,10 +10,10 @@ import httpx
 import polars as pl
 import pytest
 
-from src.etf_manager.data.providers.base import ProviderError
-from src.etf_manager.data.providers.ecos import EcosClient
+from src.data.providers.base import ProviderError
+from src.data.providers.ecos import EcosClient
 
-FIXTURES = Path(__file__).resolve().parents[3] / "fixtures" / "providers"
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "providers"
 _TOKEN = "test-ecos-key"
 _WINDOW: tuple[date, date] = (date(2024, 1, 1), date(2024, 1, 31))
 

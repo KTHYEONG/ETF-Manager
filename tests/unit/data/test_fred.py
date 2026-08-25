@@ -10,10 +10,10 @@ import httpx
 import polars as pl
 import pytest
 
-from src.etf_manager.data.providers.base import ProviderError
-from src.etf_manager.data.providers.fred import FredClient
+from src.data.providers.base import ProviderError
+from src.data.providers.fred import FredClient
 
-FIXTURES = Path(__file__).resolve().parents[3] / "fixtures" / "providers"
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "providers"
 _TOKEN = "test-fred-token"
 _WINDOW: tuple[date, date] = (date(2024, 1, 15), date(2024, 1, 19))
 
