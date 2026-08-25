@@ -3,7 +3,7 @@
 ## 1. Entry Point
 
 ```bash
-uv run python -m src.etf_manager.cli <command> ...
+uv run python -m src.cli <command> ...
 ```
 
 All execution, lint, and tests use the `uv run` prefix per project policy.
@@ -25,9 +25,9 @@ Default history tickers: sorted union of `all_policy_tickers()` and diagnostic `
 | Command | Purpose |
 | --- | --- |
 | `run baseline --id b0_global\|b1_us --ticker T --start --end --contribution-krw` | Single-sleeve fast DCA |
-| `run policy --id <PolicyId> --start --end --contribution-krw` | Multi-sleeve allocation (operational: `s8_us_nasdaq`) |
+| `run policy --id <PolicyId> --start --end --contribution-krw` | Multi-sleeve allocation (operational: `qqq`) |
 | `run validate --id --start --end --contribution-krw --delta0 --modules --horizon-months` | Cohort CE vs B0 |
-| `run paper --id s8_us_nasdaq --start --end --contribution-krw` | Buy-only paper replay |
+| `run paper --id qqq --start --end --contribution-krw` | Buy-only paper replay |
 
 Optional policy flags: `--tilt-factor`, `--overlay-max-shift`, `--vix-threshold`,
 `--fx-max-defer`, `--rebalance-band`, `--map-etf`.
@@ -104,20 +104,20 @@ Failures surface as `BaselineDataError` / `AllocationDataError` with explicit mi
 
 ```bash
 # 1. Refresh catalog
-uv run python -m src.etf_manager.cli ingest history \
+uv run python -m src.cli ingest history \
   --start 2012-06-01 --end 2024-10-31
 
 # 2. Operational policy smoke
-uv run python -m src.etf_manager.cli run policy \
-  --id s8_us_nasdaq --start 2012-06-01 --end 2024-10-31 \
+uv run python -m src.cli run policy \
+  --id qqq --start 2012-06-01 --end 2024-10-31 \
   --contribution-krw 1000000
 
 # 3. Next validation wave (cost robustness)
-uv run python -m src.etf_manager.cli run walk-forward-costs \
+uv run python -m src.cli run walk-forward-costs \
   --config configs/experiments/wf_s0_s1.json
 
 # 4. Optional diagnostics (no policy change)
-uv run python -m src.etf_manager.cli run diagnose-us-vehicles \
+uv run python -m src.cli run diagnose-us-vehicles \
   --start 2012-06-01 --end 2024-10-31 --contribution-krw 1000000
 ```
 
