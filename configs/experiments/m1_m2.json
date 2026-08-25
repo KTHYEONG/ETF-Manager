@@ -7,14 +7,14 @@
   "horizon_months": 36,
   "baseline": {
     "id": "s1_us",
-    "policy": "us",
-    "extra_rules": 0
+    "policy": "vti",
+    "modules": 0
   },
   "candidates": [
     {
       "id": "s6_us_core_value",
-      "policy": "us_value",
-      "extra_rules": 1
+      "policy": "vti_vtv",
+      "modules": 1
     }
   ]
 }
