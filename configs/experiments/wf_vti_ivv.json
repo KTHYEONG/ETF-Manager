@@ -1,10 +1,12 @@
 {
-  "name": "m1_m2_us_core_value",
+  "name": "wf_vti_ivv",
   "start": "2014-01-03",
   "end": "2024-09-30",
   "contribution_krw": 1000000,
   "hurdle": 0.02,
-  "horizon_months": 36,
+  "horizon_months": 0,
+  "train_months": 60,
+  "test_months": 36,
   "baseline": {
     "id": "s1_us",
     "policy": "vti",
@@ -12,8 +14,8 @@
   },
   "candidates": [
     {
-      "id": "s6_us_core_value",
-      "policy": "vti_vtv",
+      "id": "s7_us_large_cap",
+      "policy": "ivv",
       "modules": 1
     }
   ]

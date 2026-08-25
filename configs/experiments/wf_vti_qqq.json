@@ -1,10 +1,12 @@
 {
-  "name": "m1_n_nasdaq",
+  "name": "wf_vti_qqq",
   "start": "2006-10-31",
   "end": "2026-06-30",
   "contribution_krw": 1000000,
   "hurdle": 0.02,
-  "horizon_months": 36,
+  "horizon_months": 0,
+  "train_months": 60,
+  "test_months": 36,
   "baseline": {
     "id": "s1_us",
     "policy": "vti",
