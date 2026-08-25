@@ -14,7 +14,7 @@ from src.analytics.metrics import max_drawdown, real_krw, xirr
 from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
 from src.data.catalog import latest_artifact, load_visible
 from src.data.query import load_as_of
-from src.data.schedule import build_decision_schedule
+from src.data.schedule import build_decision_schedule, contribution_krw_for_point
 from src.data.schema import Dataset
 from src.etf.mapping import MappingConfig, apply_etf_mapping
 from src.policy.currency import conversion_fraction
@@ -67,7 +67,7 @@ class AllocationConfig:
     end: date
     monthly_contribution_krw: float
     fill_delay_sessions: int = 1
-    cadence: Literal["monthly", "month_open"] = "monthly"
+    cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly"
     fx_spread_bps: float = 0.0
     commission_bps: float = 0.0
     tilt: FactorTilt | None = None
@@ -191,7 +191,10 @@ def run_allocation(
             )
         fraction = 1.0 if config.currency is None else conversion_fraction(fx, point.signal_at, config.currency)
 
-        contribution = config.monthly_contribution_krw
+        # Σ external KRW per calendar month stays invariant: twice_monthly splits 50/50.
+        contribution = contribution_krw_for_point(
+            monthly_contribution_krw=config.monthly_contribution_krw, point=point, schedule=schedule
+        )
         cash_krw += contribution
         if config.reserve is None or reserve_ticker is None:
             investable_krw = min(cash_krw, contribution)

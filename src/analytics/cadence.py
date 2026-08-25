@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from src.analytics.regimes import QQQ_REGIME_WINDOWS
 from src.policy.targets import PolicyError, PolicyId
@@ -23,13 +23,14 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class CadenceComparison:
-    """Reporting-only month-open-versus-monthly outcome on one regime window; never an adoption input."""
+    """Reporting-only decision-cadence outcome on one regime window; never an adoption input."""
 
     name: str
     start: date
     end: date
     monthly: AllocationResult
     month_open: AllocationResult
+    twice_monthly: AllocationResult
 
 
 def compare_qqq_cadence(
@@ -38,54 +39,53 @@ def compare_qqq_cadence(
     contribution_krw: float,
     windows: tuple[tuple[str, date, date], ...] = QQQ_REGIME_WINDOWS,
 ) -> tuple[CadenceComparison, ...]:
-    """Run locked QQQ twice per window on identical cashflows: default monthly versus month-open cadence.
+    """Run locked QQQ thrice per window on identical cashflows: monthly versus month-open and twice-monthly.
 
-    Reporting-only diagnostics (up to 2 runner calls per window): no ablation, walk-forward
-    gate, or adoption decision may run here. A window whose either arm fails closed with
+    Reporting-only diagnostics (up to 3 runner calls per window): no ablation, walk-forward
+    gate, or adoption decision may run here. A window whose any arm fails closed with
     ``PolicyError`` is omitted; ``ValueError`` failures such as diverging snapshot counts
     still propagate.
 
     Raises:
-        ValueError: On non-positive ``contribution_krw``, when the two arms of a compared
+        ValueError: On non-positive ``contribution_krw``, when the arms of a compared
             window produce diverging snapshot counts, or when every window was omitted and
             no usable comparison remains.
     """
     if contribution_krw <= 0.0:
         raise ValueError(f"contribution_krw must be positive, got {contribution_krw!r}")
     comparisons: list[CadenceComparison] = []
+    cadences: tuple[Literal["monthly", "month_open", "twice_monthly"], ...] = (
+        "monthly",
+        "month_open",
+        "twice_monthly",
+    )
     for name, start, end in windows:
         try:
-            monthly = runner(
-                AllocationConfig(
-                    policy=PolicyId.QQQ,
-                    start=start,
-                    end=end,
-                    monthly_contribution_krw=float(contribution_krw),
+            results = [
+                runner(
+                    AllocationConfig(
+                        policy=PolicyId.QQQ,
+                        start=start,
+                        end=end,
+                        monthly_contribution_krw=float(contribution_krw),
+                        cadence=cadence,
+                    )
                 )
-            )
-            month_open = runner(
-                AllocationConfig(
-                    policy=PolicyId.QQQ,
-                    start=start,
-                    end=end,
-                    monthly_contribution_krw=float(contribution_krw),
-                    cadence="month_open",
-                )
-            )
+                for cadence in cadences
+            ]
         except PolicyError:
             continue
-        if len(monthly.snapshots) != len(month_open.snapshots):
-            raise ValueError(
-                f"window {name!r} snapshot lengths diverge: "
-                f"{len(monthly.snapshots)} vs {len(month_open.snapshots)}"
-            )
+        lengths = [len(result.snapshots) for result in results]
+        if len(set(lengths)) > 1:
+            raise ValueError(f"window {name!r} snapshot lengths diverge: {lengths}")
         comparisons.append(
             CadenceComparison(
                 name=name,
                 start=start,
                 end=end,
-                monthly=monthly,
-                month_open=month_open,
+                monthly=results[0],
+                month_open=results[1],
+                twice_monthly=results[2],
             )
         )
     if not comparisons:
