@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_Y_QQQ_MONTH_OPEN_ROBUSTNESS",
+      "date": "2026-08-25",
+      "adr_id": "ADR_20260825_WAVE_Y_QQQ_MONTH_OPEN_ROBUSTNESS",
+      "domain": "validation",
+      "title": "Wave Y: QQQ month-open robustness gate (cost · bootstrap tail · worst cohort)",
+      "why": "Wave X growth_first WF passes month-open (+0.55% pooled test TW) but next.md §13 requires cost stress, worst-cohort, and bootstrap-tail constraints before operational adoption; unstressed fold verdict alone is insufficient.",
+      "resolution": "Added wealth_quantile, worst_cohort_passes, bootstrap_tail_passes in gate.py; CadenceRobustnessReport, run_cadence_robustness, write_cadence_robustness_report in campaign.py; CLI run cadence-robustness with --config/--seed; contract tests GF-R/CLI-R.",
+      "impact": "On 2007-08-31..2026-06-30 QQQ data: WF growth_first still passes but robust_adopted=False (cost grid all pass, bootstrap p05=0.992 pass, worst cohort min ratio 0.944 fails 0.97 floor on 2017-08-31..2020-08-30); operational PolicyId.QQQ month-end lock unchanged; CLI cadence-robustness blocked by assert_experiment_feasible calendar preflight until fixed."
+    },
+    {
       "task_id": "WAVE_X_QQQ_GROWTH_FIRST_GATE",
       "date": "2026-08-25",
       "adr_id": "ADR_20260825_WAVE_X_QQQ_GROWTH_FIRST_GATE",
