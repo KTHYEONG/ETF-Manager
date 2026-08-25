@@ -351,6 +351,61 @@ def test_exp_h_reserve_json(scenario_id: str) -> None:
         ExperimentSpec.model_validate(unknown_key)
 
 
+@pytest.mark.parametrize("scenario_id", ["EXP-H-s8-reserve-json"])
+def test_exp_h_s8_reserve_json(scenario_id: str) -> None:
+    """EXP-H-s8-reserve-json"""
+    spec = load_experiment_config("configs/experiments/wf_s8_reserve.json")
+
+    assert spec.name == "wf_s8_reserve"
+    assert spec.start == date(2007, 8, 31)
+    assert spec.end == date(2026, 6, 30)
+    assert spec.contribution_krw == pytest.approx(1_000_000.0)
+    assert spec.train_months == 60
+    assert spec.test_months == 36
+    assert spec.baseline.modules == 0
+    assert spec.baseline.policy is PolicyId.S8_US_NASDAQ
+    assert len(spec.candidates) == 1
+    candidate = spec.candidates[0]
+    assert candidate.id == "s8_us_nasdaq_reserve"
+    assert candidate.policy is PolicyId.S8_US_NASDAQ
+    assert candidate.modules == 1
+    assert spec.reserve is not None
+    assert spec.reserve.max_withhold == pytest.approx(0.10)
+    assert spec.overlay is None
+
+    resolved = resolve_reserve(spec)
+    assert isinstance(resolved, ReserveConfig)
+    assert resolved.max_withhold == pytest.approx(0.10)
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-G-s8-overlay-json"])
+def test_exp_g_s8_overlay_json(scenario_id: str) -> None:
+    """EXP-G-s8-overlay-json"""
+    spec = load_experiment_config("configs/experiments/wf_s8_overlay.json")
+
+    assert spec.name == "wf_s8_overlay"
+    assert spec.start == date(2007, 8, 31)
+    assert spec.end == date(2026, 6, 30)
+    assert spec.contribution_krw == pytest.approx(1_000_000.0)
+    assert spec.train_months == 60
+    assert spec.test_months == 36
+    assert spec.baseline.modules == 0
+    assert spec.baseline.policy is PolicyId.S8_US_NASDAQ
+    assert len(spec.candidates) == 1
+    candidate = spec.candidates[0]
+    assert candidate.id == "s8_us_nasdaq_overlay"
+    assert candidate.policy is PolicyId.S8_US_NASDAQ
+    assert candidate.modules == 1
+    assert spec.overlay is not None
+    assert spec.overlay.max_shift == pytest.approx(0.10)
+    assert spec.overlay.vix_threshold is None
+    assert spec.reserve is None
+
+    resolved = resolve_overlay(spec)
+    assert isinstance(resolved, OverlayConfig)
+    assert resolved.max_shift == pytest.approx(0.10)
+
+
 def _alias_payload(canonical: bool) -> dict[str, object]:
     """Same experiment expressed with canonical or legacy JSON keys and policy ids."""
     policy = "us" if canonical else "s1_us"
