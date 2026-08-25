@@ -48,6 +48,12 @@ def _crash_closes() -> list[float]:
     return [*flat, *[78.0] * 5]
 
 
+def _moderate_drawdown_closes() -> list[float]:
+    """Flat closes that fall 12% below the running peak (depth in [0.10, 0.20))."""
+    flat = [100.0] * (len(_PANEL_DAYS) - 5)
+    return [*flat, *[88.0] * 5]
+
+
 def _vix_frame(value: float, series_id: str = "VIXCLS") -> pl.DataFrame:
     """Single vintage macro row published one day before the signal instant."""
     return pl.DataFrame(
@@ -303,10 +309,28 @@ def test_rsv_v3_elevated_vix_deploys(scenario_id: str) -> None:
         macro=_vix_frame(40.0),
     )
 
-    # cheap == 1 at twice the threshold: the 1.5m stock caps the boosted buy.
+    # VIX crisis branch: the 1.5m stock caps the boosted buy.
     assert decision.investable_krw == pytest.approx(1_500_000.0)
     assert decision.reserve_krw == pytest.approx(0.0)
     assert abs((decision.investable_krw + decision.reserve_krw) - 1_500_000.0) <= 1e-9
+
+
+@pytest.mark.parametrize("scenario_id", ["RSV-V3-identity-and-erp"])
+def test_rsv_v3_subthreshold_vix_withholds(scenario_id: str) -> None:
+    """RSV-V3-identity-and-erp"""
+    decision = apply_reserve_schedule(
+        contribution_krw=_CONTRIBUTION_KRW,
+        reserve_krw=0.0,
+        prices=_price_panel(_rising_closes()),
+        ticker=_TICKER,
+        signal_at=_SIGNAL_AT,
+        config=_V3_CONFIG,
+        macro=_vix_frame(22.0),
+    )
+
+    assert decision.investable_krw == pytest.approx(700_000.0)
+    assert decision.reserve_krw == pytest.approx(300_000.0)
+    assert abs((decision.investable_krw + decision.reserve_krw) - _CONTRIBUTION_KRW) <= 1e-9
 
 
 @pytest.mark.parametrize("scenario_id", ["RSV-V3-identity-and-erp"])
@@ -377,5 +401,23 @@ def test_rsv_v3_bounds_and_defaults(scenario_id: str) -> None:
     defaults = ReserveConfig(max_withhold=0.10, schedule="v3")
     assert defaults.min_invest_multiplier == pytest.approx(0.70)
     assert defaults.max_invest_multiplier == pytest.approx(3.0)
-    assert defaults.vix_threshold == pytest.approx(20.0)
+    assert defaults.vix_threshold == pytest.approx(25.0)
     assert defaults.vix_series_id == "VIXCLS"
+
+
+@pytest.mark.parametrize("scenario_id", ["RSV-V3-mid-pass-through"])
+def test_rsv_v3_mid_pass_through(scenario_id: str) -> None:
+    """RSV-V3-mid-pass-through"""
+    decision = apply_reserve_schedule(
+        contribution_krw=_CONTRIBUTION_KRW,
+        reserve_krw=0.0,
+        prices=_price_panel(_moderate_drawdown_closes()),
+        ticker=_TICKER,
+        signal_at=_SIGNAL_AT,
+        config=_V3_CONFIG,
+        macro=_vix_frame(15.0),
+    )
+
+    assert decision.investable_krw == pytest.approx(_CONTRIBUTION_KRW)
+    assert decision.reserve_krw == pytest.approx(0.0)
+    assert abs((decision.investable_krw + decision.reserve_krw) - _CONTRIBUTION_KRW) <= 1e-9
