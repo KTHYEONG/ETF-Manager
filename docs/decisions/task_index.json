@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_T_S8_CADENCE",
+      "date": "2026-08-25",
+      "adr_id": "ADR_20260825_WAVE_T_S8_CADENCE",
+      "domain": "quant",
+      "title": "Wave T: S8 month-open cadence WF + regime diagnostics",
+      "why": "Reserve V1/V2 and overlay V1 failed OOS on QQQ; static QQQ/VTI/IEF blends cut long-horizon terminal wealth. Empirical screen on identical monthly KRW showed month_open vs month-end S8 raised calendar_max real TW by ~2.1% without changing sleeve or external cashflow—next independent growth-first hypothesis on S8 after failed contribution/exposure levers.",
+      "resolution": "Added analytics/cadence (compare_s8_cadence, CadenceComparison), wf_s8_cadence.json (S8 vs S8+month_open, 2007-08-31..2026-06-30), CLI run diagnose-s8-cadence, and contract tests EXP-L-s8-cadence-json, CAD-U-compare-s8, CLI-O-diagnose-s8-cadence.",
+      "impact": "Enables regime diagnostics and walk-forward CE gate for S8 vs S8+month_open under identical per-month KRW; operational S8_US_NASDAQ month-end lock unchanged until process_adopted_vs_baseline passes; cadence remains mutually exclusive with overlay/reserve/mapping/currency."
+    },
+    {
       "task_id": "WAVE_S_S8_RESERVE_V2",
       "date": "2026-08-25",
       "adr_id": "ADR_20260825_WAVE_S_S8_RESERVE_V2",
