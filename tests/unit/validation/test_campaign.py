@@ -11,6 +11,7 @@ from src.policy.targets import PolicyId
 from src.sim.allocation import AllocationConfig, AllocationResult
 from src.validation.campaign import (
     COST_SCENARIOS,
+    run_cadence_robustness,
     run_walk_forward_adoption,
     run_walk_forward_cost_grid,
     run_walk_forward_proxy_adoption,
@@ -695,3 +696,84 @@ def test_gf_c_wf_objective(scenario_id: str) -> None:
     # model_copy bypasses model validation, so the campaign must fail closed itself.
     with pytest.raises(ValueError, match="cadence"):
         run_walk_forward_adoption(gf_spec.model_copy(update={"cadence": None}), _GrowthRunner())
+
+
+class _CadenceEdgeRunner:
+    """Month-open real TW runs 5% above monthly; stress commissions can erase the edge."""
+
+    def __init__(self, *, stress_collapses: bool) -> None:
+        self._stress_collapses = stress_collapses
+
+    def __call__(self, config: AllocationConfig) -> AllocationResult:
+        edge_active = config.cadence != "monthly" and not (
+            self._stress_collapses and config.commission_bps >= 50.0
+        )
+        wealth, mdd = (105.0, -0.24) if edge_active else (100.0, -0.25)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=mdd,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+
+def _cadence_robustness_spec() -> ExperimentSpec:
+    """Growth-first month-open candidate on a window that fits cohorts and folds."""
+    return ExperimentSpec(
+        name="gf_r_qqq_month_open",
+        start=date(2012, 4, 1),
+        end=date(2024, 11, 30),
+        contribution_krw=1_000_000.0,
+        hurdle=0.02,
+        horizon_months=0,
+        objective="growth_first",
+        train_months=60,
+        test_months=36,
+        cadence=CadenceSpec(anchor="month_open"),
+        baseline=CandidateSpec(id="base_monthly", policy="vt", modules=0),
+        candidates=[CandidateSpec(id="cand_month_open", policy="vti", modules=1)],
+    )
+
+
+@pytest.mark.parametrize("scenario_id", ["GF-R-cadence-and"])
+def test_gf_r_cadence_and(scenario_id: str) -> None:
+    """GF-R-cadence-and"""
+    spec = _cadence_robustness_spec()
+    report = run_cadence_robustness(spec, _CadenceEdgeRunner(stress_collapses=False), n_paths=40, seed=7)
+
+    assert report.robust_adopted is True
+    assert report.worst_cohort_ok is True
+    assert report.bootstrap_tail_ok is True
+    assert report.cost_grid.all_scenarios_adopted is True
+    assert report.baseline_wealths
+    assert len(report.candidate_wealths) == len(report.baseline_wealths)
+    assert all(
+        candidate / baseline == pytest.approx(1.05)
+        for candidate, baseline in zip(report.candidate_wealths, report.baseline_wealths, strict=True)
+    )
+    # The spec is never mutated.
+    assert spec.contribution_krw == pytest.approx(1_000_000.0)
+
+    stressed = run_cadence_robustness(spec, _CadenceEdgeRunner(stress_collapses=True), n_paths=40, seed=7)
+
+    assert stressed.robust_adopted is False
+    assert stressed.cost_grid.all_scenarios_adopted is False
+    assert stressed.worst_cohort_ok is True
+    assert stressed.bootstrap_tail_ok is True
+    # Cohort arms stay populated even when the cost arm vetoes adoption.
+    assert len(stressed.candidate_wealths) == len(report.candidate_wealths)
+
+    ce_objective = spec.model_copy(update={"objective": "ce"})
+    with pytest.raises(ValueError, match="growth_first"):
+        run_cadence_robustness(ce_objective, _CadenceEdgeRunner(stress_collapses=False), n_paths=40, seed=7)
+
+    with pytest.raises(ValueError, match="cadence"):
+        run_cadence_robustness(
+            spec.model_copy(update={"cadence": None}),
+            _CadenceEdgeRunner(stress_collapses=False),
+            n_paths=40,
+            seed=7,
+        )
