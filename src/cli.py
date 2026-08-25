@@ -67,9 +67,11 @@ from src.sim.research_proxy import run_research_proxy_from_store
 from src.validation.ablation import run_ablation
 from src.validation.bootstrap import moving_block_bootstrap
 from src.validation.campaign import (
+    run_cadence_robustness,
     run_walk_forward_adoption,
     run_walk_forward_cost_grid,
     run_walk_forward_proxy_adoption,
+    write_cadence_robustness_report,
     write_campaign_report,
     write_cost_grid_report,
 )
@@ -302,6 +304,22 @@ def _build_parser() -> _Parser:
         required=True,
         help="Path to the experiment JSON (single us_ff research-proxy candidate with train/test months)",
     )
+    cadence_robustness = run_targets.add_parser(
+        "cadence-robustness",
+        help="Growth-first cadence robustness gate (cost grid, worst cohort, bootstrap tail)",
+    )
+    cadence_robustness.add_argument(
+        "--config",
+        required=True,
+        help="Path to the experiment JSON (single growth_first cadence candidate with train/test months)",
+    )
+    cadence_robustness.add_argument("--seed", type=int, required=True, help="Bootstrap RNG seed")
+    cadence_robustness.add_argument(
+        "--bootstrap-paths",
+        type=int,
+        default=1000,
+        help="Moving-block bootstrap paths on cohort wealth ratios (must be >= 1)",
+    )
     diagnose_us = run_targets.add_parser(
         "diagnose-us-vehicles",
         help="Popular US vehicle diagnostics on identical cashflows; reporting only, never an adoption gate",
@@ -489,6 +507,13 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         return run_walk_forward_costs_command(config_path=str(args.config), settings=DataSettings())
     if args.target == "walk-forward-proxy":
         return run_walk_forward_proxy_command(config_path=str(args.config), settings=DataSettings())
+    if args.target == "cadence-robustness":
+        return run_cadence_robustness_command(
+            config_path=str(args.config),
+            settings=DataSettings(),
+            seed=int(args.seed),
+            bootstrap_paths=int(args.bootstrap_paths),
+        )
     if args.target == "diagnose-us-vehicles":
         return run_diagnose_us_vehicles_command(
             start=args.start,
@@ -1352,6 +1377,63 @@ def run_walk_forward_proxy_command(*, config_path: str, settings: DataSettings) 
         record.experiment_id,
         len(report.folds),
         report.process_adopted_vs_baseline,
+        report_path,
+    )
+    return 0
+
+
+def run_cadence_robustness_command(
+    *, config_path: str, settings: DataSettings, seed: int, bootstrap_paths: int
+) -> int:
+    """Run the growth-first cadence robustness gate and persist one report JSON.
+
+    Raises:
+        ValueError: When the experiment JSON is invalid or lineage is unavailable.
+    """
+    if bootstrap_paths < 1:
+        raise _UsageError(f"--bootstrap-paths must be >= 1, got {bootstrap_paths}")
+    try:
+        spec = load_experiment_config(config_path)
+        assert_experiment_feasible(spec, settings)
+        report = run_cadence_robustness(
+            spec,
+            lambda config: run_allocation_from_store(config, settings),
+            n_paths=bootstrap_paths,
+            seed=seed,
+        )
+        record = make_experiment(
+            config=AllocationConfig(
+                policy=spec.candidates[0].policy,
+                start=spec.start,
+                end=spec.end,
+                monthly_contribution_krw=spec.contribution_krw,
+                fill_delay_sessions=1,
+                commission_bps=spec.commission_bps,
+                fx_spread_bps=spec.fx_spread_bps,
+            ),
+            manifest_hash=latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
+            git_commit=_resolve_git_commit(),
+            seed=seed,
+            metrics={
+                "cohorts": float(len(report.candidate_wealths)),
+                "all_scenarios_adopted": 1.0 if report.cost_grid.all_scenarios_adopted else 0.0,
+                "robust_adopted": 1.0 if report.robust_adopted else 0.0,
+            },
+        )
+        report_path = write_cadence_robustness_report(report, settings, record.experiment_id)
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        logger.error("[DATA] event=cadence_robustness_cli_failed reason=%s", exc)
+        return 1
+    logger.info(
+        "[DATA] event=cadence_robustness_cli_done experiment=%s experiment_id=%s cohorts=%d"
+        " all_scenarios_adopted=%s worst_cohort_ok=%s bootstrap_tail_ok=%s robust_adopted=%s report=%s",
+        spec.name,
+        record.experiment_id,
+        len(report.candidate_wealths),
+        report.cost_grid.all_scenarios_adopted,
+        report.worst_cohort_ok,
+        report.bootstrap_tail_ok,
+        report.robust_adopted,
         report_path,
     )
     return 0

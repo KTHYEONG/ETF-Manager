@@ -6,6 +6,8 @@ import math
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
+from src.validation.bootstrap import moving_block_bootstrap
+
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
@@ -13,10 +15,13 @@ _ALLOWED_GAMMAS = (2.0, 5.0, 10.0)
 
 __all__ = [
     "adoption_passes",
+    "bootstrap_tail_passes",
     "certainty_equivalent",
     "growth_first_process_passes",
     "growth_first_train_passes",
     "select_plateau",
+    "wealth_quantile",
+    "worst_cohort_passes",
 ]
 
 
@@ -122,6 +127,99 @@ def growth_first_process_passes(
         for chosen_value, baseline_value in zip(chosen, baseline, strict=True)
     )
     return pooled_gain and floor_ok
+
+def wealth_quantile(values: Sequence[float], q: float) -> float:
+    """Linearly interpolated ``q``-quantile of finite wealths.
+
+    Interpolates at position ``q * (n - 1)`` on the sorted values.
+
+    Raises:
+        ValueError: When ``q`` lies outside ``(0, 1)``, the sequence is empty,
+            or any value is non-finite.
+    """
+    if len(values) < 1:
+        raise ValueError("values must contain at least one observation")
+    if not 0.0 < q < 1.0:
+        raise ValueError(f"q must lie in (0, 1), got {q!r}")
+    ordered = sorted(float(value) for value in values)
+    if not all(math.isfinite(value) for value in ordered):
+        raise ValueError("values must be finite")
+    position = q * (len(ordered) - 1)
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    fraction = position - lower
+    return float(ordered[lower] + fraction * (ordered[upper] - ordered[lower]))
+
+
+def worst_cohort_passes(
+    candidate_wealths: Sequence[float],
+    baseline_wealths: Sequence[float],
+    *,
+    floor: float = 0.97,
+) -> bool:
+    """Worst-cohort gate: every paired ratio reaches ``floor`` (default 0.97).
+
+    Passes iff ``min(candidate_i / baseline_i) >= floor``; one weak cohort vetoes.
+
+    Raises:
+        ValueError: When lengths mismatch or are empty, any wealth is non-finite
+            or non-positive, or ``floor`` is non-finite.
+    """
+    if len(candidate_wealths) != len(baseline_wealths):
+        raise ValueError("candidate_wealths and baseline_wealths must have equal length")
+    if len(candidate_wealths) < 1:
+        raise ValueError("worst-cohort gate needs at least one cohort pair")
+    if not math.isfinite(floor):
+        raise ValueError(f"floor must be finite, got {floor!r}")
+    candidate = tuple(float(value) for value in candidate_wealths)
+    baseline = tuple(float(value) for value in baseline_wealths)
+    if not all(math.isfinite(value) and value > 0.0 for value in (*candidate, *baseline)):
+        raise ValueError(f"cohort wealths must be finite and strictly positive, got {candidate!r} vs {baseline!r}")
+    return min(cand / base for cand, base in zip(candidate, baseline, strict=True)) >= floor
+
+
+def bootstrap_tail_passes(
+    candidate_wealths: Sequence[float],
+    baseline_wealths: Sequence[float],
+    *,
+    n_paths: int,
+    seed: int,
+    quantile: float = 0.05,
+    floor: float = 0.97,
+) -> bool:
+    """Seeded bootstrap-tail gate on cohort wealth ratios.
+
+    Resamples the per-cohort ratios with half-window moving blocks; passes iff
+    the lower-tail quantile of path means stays at or above ``floor``. The same
+    seed reproduces the identical boolean.
+
+    Raises:
+        ValueError: When pairing rules fail, ``n_paths`` is below one, or
+            ``quantile`` / ``floor`` are invalid.
+    """
+    if isinstance(n_paths, bool) or not isinstance(n_paths, int) or n_paths < 1:
+        raise ValueError(f"n_paths must be a positive integer, got {n_paths!r}")
+    if not 0.0 < quantile < 1.0:
+        raise ValueError(f"quantile must lie in (0, 1), got {quantile!r}")
+    if not math.isfinite(floor):
+        raise ValueError(f"floor must be finite, got {floor!r}")
+    if len(candidate_wealths) != len(baseline_wealths):
+        raise ValueError("candidate_wealths and baseline_wealths must have equal length")
+    if len(candidate_wealths) < 1:
+        raise ValueError("bootstrap-tail gate needs at least one cohort pair")
+    candidate = tuple(float(value) for value in candidate_wealths)
+    baseline = tuple(float(value) for value in baseline_wealths)
+    if not all(math.isfinite(value) and value > 0.0 for value in (*candidate, *baseline)):
+        raise ValueError(f"cohort wealths must be finite and strictly positive, got {candidate!r} vs {baseline!r}")
+    ratios = [cand / base for cand, base in zip(candidate, baseline, strict=True)]
+    paths = moving_block_bootstrap(
+        ratios,
+        block_size=max(1, len(ratios) // 2),
+        n_paths=n_paths,
+        seed=seed,
+    )
+    path_means = [sum(path) / len(path) for path in paths]
+    return wealth_quantile(path_means, quantile) >= floor
 
 
 def select_plateau(grid: Sequence[float], scores: Sequence[float], *, rel_tol: float = 0.05) -> float:
