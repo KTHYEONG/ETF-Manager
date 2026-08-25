@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_S_S8_RESERVE_V2",
+      "date": "2026-08-25",
+      "adr_id": "ADR_20260825_WAVE_S_S8_RESERVE_V2",
+      "domain": "quant",
+      "title": "Wave S: S8 reserve V2 piecewise contribution intensity (QQQ)",
+      "why": "Reserve V1 failed OOS on QQQ: binary ±10% withhold cannot redeploy enough in drawdowns to offset expansion cash drag under identical monthly KRW; next.md P2 requires continuous 0.80x–2.00x deploy funded only from explicit reserve.",
+      "resolution": "Added ReserveConfig.schedule v1|v2 with piecewise invest_multiplier (0.80–2.00) and stock cap; ReserveSpec/resolve_reserve V2 knobs; compare_s8_reserve optional reserve config; CLI diagnose-s8-reserve --reserve-schedule; wf_s8_reserve_v2.json; contract tests RSV-V2/EXP-H-s8-reserve-v2/RSV-U-compare-v2/CLI-O-diagnose-s8-reserve.",
+      "impact": "Enables regime diagnostics and walk-forward CE gate for S8 vs S8+reserve V2 on 2007-08-31..2026-06-30; V1 path and wf_s8_reserve.json unchanged; operational S8 lock unchanged until process_adopted_vs_baseline passes."
+    },
+    {
       "task_id": "WAVE_R_S8_OVERLAY_RESEARCH",
       "date": "2026-08-25",
       "adr_id": "ADR_20260825_WAVE_R_S8_OVERLAY_RESEARCH",
