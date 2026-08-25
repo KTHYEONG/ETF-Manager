@@ -127,6 +127,7 @@ class ExperimentSpec(BaseModel):
 
     ``modules`` is declared per arm (never inferred from sleeve counts) so the
     complexity-penalized adoption gate stays explicit and reproducible.
+    ``objective`` picks the verdict gate: ``ce`` (default) or ``growth_first``.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -136,6 +137,7 @@ class ExperimentSpec(BaseModel):
     end: date
     contribution_krw: float = Field(gt=0)
     hurdle: float = Field(ge=0)
+    objective: Literal["ce", "growth_first"] = "ce"
     horizon_months: int = Field(ge=0)
     commission_bps: float = Field(default=0.0, ge=0)
     fx_spread_bps: float = Field(default=0.0, ge=0)
@@ -194,6 +196,8 @@ class ExperimentSpec(BaseModel):
                 )
             if any(candidate.modules < 1 for candidate in self.candidates):
                 raise ValueError("cadence requires every candidate.modules >= 1")
+        if self.objective == "growth_first" and self.cadence is None:
+            raise ValueError("objective 'growth_first' requires a cadence module")
         seen: set[str] = set()
         for candidate in self.candidates:
             if candidate.id in seen:

@@ -11,7 +11,13 @@ if TYPE_CHECKING:
 
 _ALLOWED_GAMMAS = (2.0, 5.0, 10.0)
 
-__all__ = ["adoption_passes", "certainty_equivalent", "select_plateau"]
+__all__ = [
+    "adoption_passes",
+    "certainty_equivalent",
+    "growth_first_process_passes",
+    "growth_first_train_passes",
+    "select_plateau",
+]
 
 
 def certainty_equivalent(wealths: Sequence[float], *, gamma: float) -> float:
@@ -56,6 +62,66 @@ def adoption_passes(
         raise ValueError(f"modules must be a non-negative integer, got {modules!r}")
     threshold = 1.0 + delta0 * modules
     return all(float(ce_candidate[gamma]) / float(ce_baseline[gamma]) > threshold for gamma in ce_candidate)
+
+
+def growth_first_train_passes(
+    *,
+    candidate_tw: float,
+    baseline_tw: float,
+    candidate_mdd: float,
+    baseline_mdd: float,
+    mdd_slack: float = 0.02,
+) -> bool:
+    """Growth-first train gate: any strict TW gain wins if MDD stays within ``mdd_slack``.
+
+    Passes iff ``candidate_tw > baseline_tw`` and drawdowns (negative fractions) do
+    not deepen beyond ``mdd_slack`` (default 0.02):
+    ``candidate_mdd >= baseline_mdd - mdd_slack``. No complexity hurdle applies.
+
+    Raises:
+        ValueError: When any input is non-finite or ``mdd_slack`` is negative.
+    """
+    if not all(math.isfinite(float(value)) for value in (candidate_tw, baseline_tw, candidate_mdd, baseline_mdd)):
+        raise ValueError("growth-first train gate requires finite TW and MDD inputs")
+    if mdd_slack < 0 or not math.isfinite(mdd_slack):
+        raise ValueError(f"mdd_slack must be finite and non-negative, got {mdd_slack!r}")
+    return float(candidate_tw) > float(baseline_tw) and float(candidate_mdd) >= float(baseline_mdd) - mdd_slack
+
+
+def growth_first_process_passes(
+    *,
+    chosen_test: Sequence[float],
+    baseline_test: Sequence[float],
+    worst_fold_floor: float = 0.97,
+) -> bool:
+    """Growth-first process gate: pooled chosen gain with no fold below ``worst_fold_floor``.
+
+    Passes iff ``sum(chosen_test) > sum(baseline_test)`` and every per-fold ratio
+    ``chosen/baseline`` is at least ``worst_fold_floor`` (default 0.97); one bad
+    fold vetoes adoption.
+
+    Raises:
+        ValueError: When the fold sequences mismatch, are empty, contain non-finite
+            or non-positive baseline wealths, or ``worst_fold_floor`` is non-finite.
+    """
+    if len(chosen_test) != len(baseline_test):
+        raise ValueError("chosen_test and baseline_test must have equal fold length")
+    if len(chosen_test) < 1:
+        raise ValueError("growth-first process gate needs at least one fold")
+    if not math.isfinite(worst_fold_floor):
+        raise ValueError(f"worst_fold_floor must be finite, got {worst_fold_floor!r}")
+    chosen = tuple(float(value) for value in chosen_test)
+    baseline = tuple(float(value) for value in baseline_test)
+    if not all(math.isfinite(value) for value in (*chosen, *baseline)):
+        raise ValueError("growth-first process gate requires finite test wealths")
+    if any(value <= 0.0 for value in baseline):
+        raise ValueError(f"baseline_test must be strictly positive, got {baseline!r}")
+    pooled_gain = sum(chosen) > sum(baseline)
+    floor_ok = all(
+        chosen_value / baseline_value >= worst_fold_floor
+        for chosen_value, baseline_value in zip(chosen, baseline, strict=True)
+    )
+    return pooled_gain and floor_ok
 
 
 def select_plateau(grid: Sequence[float], scores: Sequence[float], *, rel_tol: float = 0.05) -> float:

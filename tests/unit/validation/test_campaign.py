@@ -639,3 +639,59 @@ def test_wf_l_cadence_candidate(scenario_id: str) -> None:
     proxy_runner = _RecordingRunner(dict.fromkeys(PolicyId, 100.0))
     with pytest.raises(ValueError, match="cadence"):
         run_walk_forward_proxy_adoption(_cadence_spec(), etf_runner, proxy_runner)
+
+
+class _GrowthRunner:
+    """Candidate real TW runs 1.5% above baseline each window; MDD never worsens."""
+
+    def __call__(self, config: AllocationConfig) -> AllocationResult:
+        wealth, mdd = (101.5, -0.24) if config.cadence != "monthly" else (100.0, -0.25)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=mdd,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+
+@pytest.mark.parametrize("scenario_id", ["GF-C-wf-objective"])
+def test_gf_c_wf_objective(scenario_id: str) -> None:
+    """GF-C-wf-objective"""
+    common: dict[str, object] = {
+        "name": "gf_c_wf",
+        "start": date(2012, 4, 1),
+        "end": date(2024, 11, 30),
+        "contribution_krw": 1_000_000.0,
+        "hurdle": 0.02,
+        "horizon_months": 0,
+        "train_months": 60,
+        "test_months": 36,
+        "baseline": CandidateSpec(id="base", policy="vt", modules=0),
+        "candidates": [CandidateSpec(id="cand", policy="vti", modules=1)],
+    }
+    ce_spec = ExperimentSpec(**common)
+
+    ce_report = run_walk_forward_adoption(ce_spec, _GrowthRunner())
+
+    # 1.5% edge loses to the 2% complexity hurdle on both train and process gates.
+    assert ce_spec.objective == "ce"
+    assert all(fold.train_adopted is False for fold in ce_report.folds)
+    assert ce_report.process_adopted_vs_baseline is False
+
+    gf_spec = ExperimentSpec(
+        **common,
+        objective="growth_first",
+        cadence=CadenceSpec(anchor="month_open"),
+    )
+
+    gf_report = run_walk_forward_adoption(gf_spec, _GrowthRunner())
+
+    assert all(fold.train_adopted is True for fold in gf_report.folds)
+    assert gf_report.process_adopted_vs_baseline is True
+
+    # model_copy bypasses model validation, so the campaign must fail closed itself.
+    with pytest.raises(ValueError, match="cadence"):
+        run_walk_forward_adoption(gf_spec.model_copy(update={"cadence": None}), _GrowthRunner())
