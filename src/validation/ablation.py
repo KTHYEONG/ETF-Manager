@@ -67,7 +67,7 @@ def _arm_config(
     reserve: ReserveConfig | None,
     mapping: MappingConfig | None,
     currency: CurrencyConfig | None,
-    cadence: Literal["monthly", "month_open"] = "monthly",
+    cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
 ) -> AllocationConfig:
     """Identical cashflow/window/costs for every arm; only policy and modules differ."""
     return AllocationConfig(

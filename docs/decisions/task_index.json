@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_V_QQQ_COMPOUND_MAX",
+      "date": "2026-08-25",
+      "adr_id": "ADR_20260825_WAVE_V_QQQ_COMPOUND_MAX",
+      "domain": "quant",
+      "title": "Wave V: QQQ twice-monthly cadence (same-month 50/50 deploy)",
+      "why": "Reserve/overlay/FX-defer failed OOS on QQQ; month_open beats calendar_max (+2.1%) but loses pre_ai/shipped_old and credits different calendar months at window tails. Empirical session-index screen shows monotone early-month time-in-market edge without new external cash.",
+      "resolution": "Added schedule frequency twice_monthly with contribution_krw_for_point (50/50 month-start+end split, I5-safe); wired AllocationConfig/ExperimentSpec/campaign/ablation; extended compare_qqq_cadence with third arm; shipped wf_qqq_cadence_twice.json; contract tests SCH-T/SIM-T/CAD-U/EXP-L-qqq-cadence-twice.",
+      "impact": "Enables walk-forward CE gate for QQQ vs QQQ+twice_monthly on 2007-08-31..2026-06-30; operational PolicyId.QQQ month-end lock unchanged until process_adopted_vs_baseline passes; cadence remains mutually exclusive with overlay/reserve/mapping/currency."
+    },
+    {
       "task_id": "WAVE_U_LAYOUT_VOCAB",
       "date": "2026-08-25",
       "adr_id": "ADR_20260825_WAVE_U_LAYOUT_VOCAB",

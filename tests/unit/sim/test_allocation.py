@@ -10,7 +10,8 @@ import polars as pl
 import pytest
 
 import src.sim.allocation as allocation_module
-from src.data.calendar import load_calendar
+from src.data.calendar import load_calendar, next_execution_session
+from src.data.schedule import DecisionPoint
 from src.etf.mapping import MappingConfig
 from src.execution.broker import PaperBroker, reconcile, replay_paper
 from src.data.pipeline import ingest
@@ -785,6 +786,82 @@ def test_sim_l_forwards_cadence(scenario_id: str, monkeypatch: pytest.MonkeyPatc
             replace(plain, cadence="month_open"), settings=object()
         )
     assert captured_kwargs[-1]["frequency"] == "month_open"
+    assert Dataset.PRICES in requested
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-T-twice-monthly"])
+def test_sim_t_twice_monthly(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SIM-T-twice-monthly"""
+    config = AllocationConfig(
+        policy=PolicyId.VT,
+        start=date(2024, 1, 1),
+        end=date(2024, 2, 29),
+        monthly_contribution_krw=1_000_000.0,
+        cadence="twice_monthly",
+    )
+
+    captured_kwargs: list[dict[str, object]] = []
+
+    def stub_schedule(start: date, end: date, **kwargs: object) -> tuple[DecisionPoint, ...]:
+        captured_kwargs.append(kwargs)
+        union = sorted(
+            set(_CALENDAR.month_start_sessions(start, end))
+            | set(_CALENDAR.month_end_sessions(start, end))
+        )
+        return tuple(
+            DecisionPoint(
+                signal_session=session,
+                signal_at=_CALENDAR.close_ts(session),
+                execution_session=next_execution_session(_CALENDAR, session, 1),
+            )
+            for session in union
+        )
+
+    monkeypatch.setattr(allocation_module, "build_decision_schedule", stub_schedule)
+
+    days = _CALENDAR.sessions(date(2024, 1, 1), date(2024, 3, 4))
+    prices = ingest(_prices_panel(days, ("VT",)), Dataset.PRICES)
+    fx = ingest(_fx_panel(days), Dataset.FX)
+    # An early period_end keeps the level visible at the January month-open fill.
+    cpi = ingest(
+        pl.DataFrame(
+            {
+                "period_end": [date(2023, 6, 1)],
+                "value": [100.0],
+                "source": ["synthetic"],
+                "retrieved_at": [_RETRIEVED_AT],
+            },
+            schema=dict(spec_for(Dataset.CPI).columns),
+        ),
+        Dataset.CPI,
+    )
+
+    result = run_allocation(config, prices, fx, cpi)
+
+    assert captured_kwargs[0]["frequency"] == "twice_monthly"
+    assert captured_kwargs[0]["fill_delay_sessions"] == 1
+    assert len(result.snapshots) == 4
+    contributions = tuple(snapshot.contribution_krw for snapshot in result.snapshots)
+    assert all(contribution == pytest.approx(500_000.0) for contribution in contributions)
+    assert sum(contributions) == pytest.approx(2_000_000.0)
+
+    captured_kwargs.clear()
+    requested: list[Dataset] = []
+
+    def fake_latest(settings: object, dataset: Dataset) -> object:
+        requested.append(dataset)
+        return object()
+
+    def empty_schedule(start: date, end: date, **kwargs: object) -> tuple[DecisionPoint, ...]:
+        captured_kwargs.append(kwargs)
+        return ()
+
+    monkeypatch.setattr(allocation_module, "latest_artifact", fake_latest)
+    monkeypatch.setattr(allocation_module, "build_decision_schedule", empty_schedule)
+
+    with pytest.raises(AllocationDataError, match="empty decision schedule"):
+        allocation_module.run_allocation_from_store(config, settings=object())  # type: ignore[arg-type]
+    assert captured_kwargs[-1]["frequency"] == "twice_monthly"
     assert Dataset.PRICES in requested
 
 

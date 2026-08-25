@@ -119,7 +119,7 @@ class CadenceSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    anchor: Literal["month_open"]
+    anchor: Literal["month_open", "twice_monthly"]
 
 
 class ExperimentSpec(BaseModel):
@@ -229,7 +229,7 @@ def resolve_mapping(spec: ExperimentSpec) -> MappingConfig | None:
     return MappingConfig(min_improvement=spec.mapping.min_improvement)
 
 
-def resolve_cadence(spec: ExperimentSpec) -> Literal["month_open"] | None:
+def resolve_cadence(spec: ExperimentSpec) -> Literal["month_open", "twice_monthly"] | None:
     """Map the JSON cadence anchor onto the runtime schedule frequency."""
     if spec.cadence is None:
         return None
