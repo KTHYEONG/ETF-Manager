@@ -27,7 +27,7 @@ from src.etf_manager.features.returns import session_returns
 from src.etf_manager.features.risk import trailing_simple_vol
 from src.etf_manager.policy.currency import CurrencyConfig, conversion_fraction
 from src.etf_manager.policy.overlay import OverlayConfig
-from src.etf_manager.policy.reserve import ReserveConfig
+from src.etf_manager.policy.reserve import ReserveConfig, apply_reserve_schedule
 from src.etf_manager.policy.targets import PolicyError, PolicyId, policy_sleeves
 from src.etf_manager.validation.experiment import (
     resolve_currency,
@@ -123,6 +123,7 @@ def resolve_feasibility(
     overlay_policies: tuple[PolicyId, ...],
     settings: DataSettings,
     reserve: ReserveConfig | None = None,
+    reserve_policies: tuple[PolicyId, ...] = (),
     mapping: MappingConfig | None = None,
     mapping_policies: tuple[PolicyId, ...] = (),
     currency: CurrencyConfig | None = None,
@@ -133,7 +134,8 @@ def resolve_feasibility(
     ETF_METADATA only for mapping) once at the requested schedule's last
     execution close — the allocator's own visibility cutoff — then evaluates CPI
     visibility, first/last execution marks (plus mapped implementations), the
-    exact overlay feature stack at the first signal instant, and a full
+    exact overlay feature stack at the first signal instant, a reserve ledger dry run at
+    that instant when configured, and a full
     ``apply_etf_mapping`` dry run at that instant. No allocation logic runs here
     and no input date is ever clamped.
 
@@ -217,6 +219,14 @@ def resolve_feasibility(
             if mapping_violation is not None:
                 violations.append(mapping_violation)
 
+        if reserve is not None:
+            reserve_tickers = _union_sleeves(reserve_policies)
+            reserve_violation = _reserve_warmup_violation(
+                prices, reserve, reserve_tickers, first_point.signal_at
+            )
+            if reserve_violation is not None:
+                violations.append(reserve_violation)
+
         if currency is not None:
             currency_violation = _currency_warmup_violation(fx, currency, first_point.signal_at)
             if currency_violation is not None:
@@ -225,7 +235,7 @@ def resolve_feasibility(
         # Informational only: never assigned back to spec.start or any config.
         ingest_recommended_start = (
             _sessions_before(calendar, first_point.signal_session, warmup)
-            if overlay is not None
+            if overlay is not None or reserve is not None
             else first_point.execution_session
         )
         earliest_safe_start = _earliest_safe_start(
@@ -235,6 +245,8 @@ def resolve_feasibility(
             macro=macro,
             overlay=overlay,
             overlay_tickers=overlay_tickers,
+            reserve=reserve,
+            reserve_tickers=_union_sleeves(reserve_policies) if reserve is not None else (),
             start=start,
             end=end,
             fill_delay_sessions=fill_delay_sessions,
@@ -269,6 +281,7 @@ def require_feasibility(
     overlay_policies: tuple[PolicyId, ...],
     settings: DataSettings,
     reserve: ReserveConfig | None = None,
+    reserve_policies: tuple[PolicyId, ...] = (),
     mapping: MappingConfig | None = None,
     mapping_policies: tuple[PolicyId, ...] = (),
     currency: CurrencyConfig | None = None,
@@ -288,6 +301,7 @@ def require_feasibility(
         overlay_policies=overlay_policies,
         settings=settings,
         reserve=reserve,
+        reserve_policies=reserve_policies,
         mapping=mapping,
         mapping_policies=mapping_policies,
         currency=currency,
@@ -322,6 +336,7 @@ def assert_experiment_feasible(spec: ExperimentSpec, settings: DataSettings) -> 
         overlay_policies=tuple(candidate.policy for candidate in spec.candidates) if overlay is not None else (),
         settings=settings,
         reserve=reserve,
+        reserve_policies=tuple(candidate.policy for candidate in spec.candidates) if reserve is not None else (),
         mapping=mapping,
         mapping_policies=tuple(candidate.policy for candidate in spec.candidates) if mapping is not None else (),
         currency=currency,
@@ -401,6 +416,37 @@ def _overlay_warmup_violation(
     return None
 
 
+def _reserve_warmup_violation(
+    prices: pl.DataFrame,
+    reserve: ReserveConfig,
+    tickers: tuple[str, ...],
+    signal_at: datetime,
+) -> FeasibilityViolation | None:
+    """Run the exact reserve feature stack at the first signal; windows are never shortened."""
+    if not tickers:
+        return FeasibilityViolation(
+            code="reserve_warmup", message="reserve arms own no sleeve tickers at the signal instant"
+        )
+    for ticker in tickers:
+        try:
+            returns = session_returns(prices, ticker=ticker)
+            trailing_compound_return(returns, as_of_ts=signal_at, window=reserve.trend_window)
+            trailing_price_drawdown(prices, ticker=ticker, as_of_ts=signal_at, window=reserve.drawdown_window)
+            apply_reserve_schedule(
+                contribution_krw=1.0,
+                reserve_krw=0.0,
+                prices=prices,
+                ticker=ticker,
+                signal_at=signal_at,
+                config=reserve,
+            )
+        except (PolicyError, ValueError) as exc:
+            return FeasibilityViolation(
+                code="reserve_warmup", message=f"reserve history insufficient for {ticker!r}: {exc}"
+            )
+    return None
+
+
 def _mapping_warmup_violation(
     prices: pl.DataFrame,
     metadata: pl.DataFrame,
@@ -463,17 +509,24 @@ def _point_passes(
     macro: pl.DataFrame | None,
     overlay: OverlayConfig | None,
     overlay_tickers: tuple[str, ...],
+    reserve: ReserveConfig | None = None,
+    reserve_tickers: tuple[str, ...] = (),
 ) -> bool:
-    """Whether one decision point clears CPI plus overlay (+VIX gate) checks."""
+    """Whether one decision point clears CPI plus overlay/reserve (+VIX gate) checks."""
     close_ts = calendar.close_ts(point.execution_session)
     if _cpi_violation(cpi, close_ts) is not None:
         return False
-    if overlay is None:
-        return True
-    if _overlay_warmup_violation(prices, overlay, overlay_tickers, point.signal_at) is not None:
-        return False
-    if overlay.vix_threshold is not None and macro is not None:
-        return _vix_violation(macro, overlay, point.signal_at) is None
+    if overlay is not None:
+        if _overlay_warmup_violation(prices, overlay, overlay_tickers, point.signal_at) is not None:
+            return False
+        if (
+            overlay.vix_threshold is not None
+            and macro is not None
+            and _vix_violation(macro, overlay, point.signal_at) is not None
+        ):
+            return False
+    if reserve is not None:
+        return _reserve_warmup_violation(prices, reserve, reserve_tickers, point.signal_at) is None
     return True
 
 
@@ -485,11 +538,13 @@ def _earliest_safe_start(
     macro: pl.DataFrame | None,
     overlay: OverlayConfig | None,
     overlay_tickers: tuple[str, ...],
+    reserve: ReserveConfig | None = None,
+    reserve_tickers: tuple[str, ...] = (),
     start: date,
     end: date,
     fill_delay_sessions: int,
 ) -> date | None:
-    """Earliest month-end signal whose point passes CPI+overlay(+vix); informational."""
+    """Earliest month-end signal whose point passes CPI+overlay/reserve(+vix); informational."""
     raw_min = prices.get_column("date").min()
     lower_bound = raw_min if isinstance(raw_min, date) else start
     for point in build_decision_schedule(lower_bound, end, fill_delay_sessions=fill_delay_sessions):
@@ -501,6 +556,8 @@ def _earliest_safe_start(
             macro=macro,
             overlay=overlay,
             overlay_tickers=overlay_tickers,
+            reserve=reserve,
+            reserve_tickers=reserve_tickers,
         ):
             return point.signal_session
     return None
@@ -510,9 +567,15 @@ def _sessions_before(calendar: TradingCalendar, session: date, count: int) -> da
     """The exchange session exactly ``count`` sessions before ``session``."""
     if count <= 0:
         return session
+    first_session = calendar._cal.first_session.date()
     span_days = 7 * (count // 5 + 2)
     while True:
-        window = calendar.sessions(session - timedelta(days=span_days), session)
+        lower = session - timedelta(days=span_days)
+        if lower < first_session:
+            lower = first_session
+        window = calendar.sessions(lower, session)
         if len(window) > count:
             return window[len(window) - 1 - count]
+        if lower <= first_session:
+            return window[0]
         span_days *= 2

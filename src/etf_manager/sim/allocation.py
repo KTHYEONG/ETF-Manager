@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _BPS: Final[float] = 10_000.0
+_WEIGHT_SUM_TOLERANCE: Final[float] = 1e-6
 
 _RESEARCH_PROXY_REJECT: Final[str] = (
     "R1_US_MKT_FF is a research_proxy identity; the ETF allocation engine cannot simulate it"
@@ -232,15 +233,19 @@ def run_allocation(
         )
         # Overlay residual and FX defer both stay in cash: spend only the converted budget.
         convert_krw = investable_krw * fraction
-        sleeve_budget_krw = convert_krw * sum(spend_weights.values())
+        weight_sum = sum(spend_weights.values())
+        sleeve_budget_krw = convert_krw * weight_sum
         fees_krw = sleeve_budget_krw * (fx_gross - usdkrw)
         if sleeve_budget_krw > 0.0:
-            # Recycled dust joins the fresh conversion as one ticket; commission bills the whole trade.
+            # Overlay/FX defer leave residual cash: budget scales by weight sum; lots split a simplex.
+            fill_weights = spend_weights
+            if weight_sum > 0.0 and abs(weight_sum - 1.0) > _WEIGHT_SUM_TOLERANCE:
+                fill_weights = {ticker: weight / weight_sum for ticker, weight in spend_weights.items()}
             lots, cash_usd, commission_krw = fill_integer_buys(
                 cash_usd=cash_usd,
                 sleeve_budget_krw=sleeve_budget_krw,
                 fx_gross=fx_gross,
-                weights=spend_weights,
+                weights=fill_weights,
                 prices=mark_prices,
                 commission_bps=config.commission_bps,
             )
