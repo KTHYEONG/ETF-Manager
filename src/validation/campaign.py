@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Final, Literal
 
 from src.policy.targets import PolicyId
 from src.sim.allocation import AllocationConfig
+from src.validation.evaluate import evaluate_cohort_wealths
 from src.validation.experiment import (
     ExperimentSpec,
     resolve_cadence,
@@ -19,11 +20,13 @@ from src.validation.experiment import (
 )
 from src.validation.gate import (
     adoption_passes,
+    bootstrap_tail_passes,
     certainty_equivalent,
     growth_first_process_passes,
     growth_first_train_passes,
+    worst_cohort_passes,
 )
-from src.validation.windows import walk_forward_windows
+from src.validation.windows import rolling_cohorts, walk_forward_windows
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -38,13 +41,16 @@ if TYPE_CHECKING:
 
 __all__ = [
     "COST_SCENARIOS",
+    "CadenceRobustnessReport",
     "CampaignReport",
     "CostGridReport",
     "CostScenario",
     "FoldOutcome",
+    "run_cadence_robustness",
     "run_walk_forward_adoption",
     "run_walk_forward_cost_grid",
     "run_walk_forward_proxy_adoption",
+    "write_cadence_robustness_report",
     "write_campaign_report",
     "write_cost_grid_report",
 ]
@@ -121,6 +127,19 @@ class CostGridReport:
     def all_scenarios_adopted(self) -> bool:
         """True only when every scenario's campaign beats the baseline."""
         return all(outcome.campaign.process_adopted_vs_baseline for outcome in self.outcomes)
+
+
+@dataclass(frozen=True, slots=True)
+class CadenceRobustnessReport:
+    """Cadence-arm verdicts: cost grid, worst cohort, and bootstrap tail gates."""
+
+    name: str
+    cost_grid: CostGridReport
+    baseline_wealths: tuple[float, ...]
+    candidate_wealths: tuple[float, ...]
+    worst_cohort_ok: bool
+    bootstrap_tail_ok: bool
+    robust_adopted: bool
 
 
 def _arm_config(
@@ -471,5 +490,79 @@ def write_cost_grid_report(report: CostGridReport, settings: DataSettings, exper
     experiments_dir = settings.resolved_data_root() / "experiments"
     experiments_dir.mkdir(parents=True, exist_ok=True)
     out_path = experiments_dir / f"{report.name}_costs_{experiment_id}.json"
+    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return out_path
+
+
+def run_cadence_robustness(
+    spec: ExperimentSpec,
+    runner: Callable[[AllocationConfig], AllocationResult],
+    *,
+    n_paths: int,
+    seed: int,
+    horizon_months: int = 36,
+    step_months: int = 12,
+) -> CadenceRobustnessReport:
+    """Adopt a cadence arm only when every robustness sub-gate holds.
+
+    The cost arm re-runs the walk-forward grid; the cohort arms roll fixed
+    ``horizon_months``/``step_months`` cohorts over the full window with the
+    baseline on the monthly cadence and the candidate on ``resolve_cadence(spec)``
+    (both un-overlayed, un-reserved, unmapped, undeferred). All three sub-gates
+    are always evaluated — no short-circuit — and ``spec`` is never mutated.
+
+    Raises:
+        ValueError: When the objective is not growth_first, no cadence resolves,
+            or no rolling cohort fits the experiment window.
+    """
+    candidate_cadence = resolve_cadence(spec)
+    if spec.objective != "growth_first" or candidate_cadence is None:
+        raise ValueError("cadence robustness requires objective 'growth_first' and a resolvable cadence")
+    cohorts = rolling_cohorts(spec.start, spec.end, horizon_months=horizon_months, step_months=step_months)
+    if not cohorts:
+        raise ValueError(
+            f"no rolling cohorts fit [{spec.start.isoformat()}, {spec.end.isoformat()}] "
+            f"with horizon_months={horizon_months}, step_months={step_months}"
+        )
+    cost_grid = run_walk_forward_cost_grid(spec, runner)
+    baseline_template = _arm_config(spec, spec.baseline.policy, spec.start, spec.end, None, None, None, None)
+    candidate_template = _arm_config(
+        spec, spec.candidates[0].policy, spec.start, spec.end, None, None, None, None, candidate_cadence
+    )
+    baseline_wealths = evaluate_cohort_wealths(baseline_template, cohorts, runner)
+    candidate_wealths = evaluate_cohort_wealths(candidate_template, cohorts, runner)
+    worst_cohort_ok = worst_cohort_passes(candidate_wealths, baseline_wealths)
+    bootstrap_tail_ok = bootstrap_tail_passes(candidate_wealths, baseline_wealths, n_paths=n_paths, seed=seed)
+    return CadenceRobustnessReport(
+        name=spec.name,
+        cost_grid=cost_grid,
+        baseline_wealths=baseline_wealths,
+        candidate_wealths=candidate_wealths,
+        worst_cohort_ok=worst_cohort_ok,
+        bootstrap_tail_ok=bootstrap_tail_ok,
+        robust_adopted=cost_grid.all_scenarios_adopted and worst_cohort_ok and bootstrap_tail_ok,
+    )
+
+
+def write_cadence_robustness_report(
+    report: CadenceRobustnessReport, settings: DataSettings, experiment_id: str
+) -> Path:
+    """Persist the verdict under ``experiments/{name}_robustness_{experiment_id}.json``.
+
+    Returns:
+        Path: The written UTF-8 JSON artifact.
+    """
+    payload = {
+        "name": report.name,
+        "experiment_id": experiment_id,
+        "robust_adopted": report.robust_adopted,
+        "all_scenarios_adopted": report.cost_grid.all_scenarios_adopted,
+        "worst_cohort_ok": report.worst_cohort_ok,
+        "bootstrap_tail_ok": report.bootstrap_tail_ok,
+        "cohort_count": len(report.candidate_wealths),
+    }
+    experiments_dir = settings.resolved_data_root() / "experiments"
+    experiments_dir.mkdir(parents=True, exist_ok=True)
+    out_path = experiments_dir / f"{report.name}_robustness_{experiment_id}.json"
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return out_path
