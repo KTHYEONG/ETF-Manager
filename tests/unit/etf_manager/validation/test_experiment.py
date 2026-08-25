@@ -378,6 +378,42 @@ def test_exp_h_s8_reserve_json(scenario_id: str) -> None:
     assert resolved.max_withhold == pytest.approx(0.10)
 
 
+
+@pytest.mark.parametrize("scenario_id", ["EXP-H-s8-reserve-v2-json"])
+def test_exp_h_s8_reserve_v2_json(scenario_id: str) -> None:
+    """EXP-H-s8-reserve-v2-json"""
+    spec = load_experiment_config("configs/experiments/wf_s8_reserve_v2.json")
+
+    assert spec.name == "wf_s8_reserve_v2"
+    assert spec.start == date(2007, 8, 31)
+    assert spec.end == date(2026, 6, 30)
+    assert spec.contribution_krw == pytest.approx(1_000_000.0)
+    assert spec.train_months == 60
+    assert spec.test_months == 36
+    assert spec.baseline.modules == 0
+    assert spec.baseline.policy is PolicyId.S8_US_NASDAQ
+    assert len(spec.candidates) == 1
+    candidate = spec.candidates[0]
+    assert candidate.id == "s8_us_nasdaq_reserve_v2"
+    assert candidate.policy is PolicyId.S8_US_NASDAQ
+    assert candidate.modules == 1
+    assert spec.overlay is None
+    assert spec.reserve is not None
+    assert spec.reserve.schedule == "v2"
+
+    resolved = resolve_reserve(spec)
+    assert isinstance(resolved, ReserveConfig)
+    assert resolved.schedule == "v2"
+    assert resolved.min_invest_multiplier == pytest.approx(0.80)
+    assert resolved.max_invest_multiplier == pytest.approx(2.00)
+    assert resolved.reserve_max_months == pytest.approx(6.0)
+
+    legacy_resolved = resolve_reserve(load_experiment_config("configs/experiments/wf_s8_reserve.json"))
+    assert isinstance(legacy_resolved, ReserveConfig)
+    assert legacy_resolved.schedule == "v1"
+    assert legacy_resolved.max_withhold == pytest.approx(0.10)
+
+
 @pytest.mark.parametrize("scenario_id", ["EXP-G-s8-overlay-json"])
 def test_exp_g_s8_overlay_json(scenario_id: str) -> None:
     """EXP-G-s8-overlay-json"""
