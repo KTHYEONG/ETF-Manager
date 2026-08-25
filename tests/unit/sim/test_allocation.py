@@ -11,6 +11,7 @@ import pytest
 
 import src.sim.allocation as allocation_module
 from src.data.calendar import load_calendar, next_execution_session
+from src.data.pit import AVAILABLE_AT
 from src.data.schedule import DecisionPoint
 from src.etf.mapping import MappingConfig
 from src.execution.broker import PaperBroker, reconcile, replay_paper
@@ -19,7 +20,7 @@ from src.data.schema import Dataset, spec_for
 from src.policy.currency import CurrencyConfig
 from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
-from src.policy.targets import PolicyId
+from src.policy.targets import PolicyError, PolicyId
 from src.policy.tilt import FactorTilt
 from src.sim.allocation import AllocationConfig, AllocationDataError, AllocationResult, run_allocation
 from src.sim.baseline import BaselineConfig, BaselineId, run_baseline
@@ -905,3 +906,80 @@ def test_sim_o_targets_override(scenario_id: str) -> None:
     )
     with pytest.raises(ValueError, match="nonnegative"):
         run_allocation(negative, prices, fx, cpi)
+
+
+def _rising_qqq_panel(days: tuple[date, ...]) -> pl.DataFrame:
+    """Monotonic 0.1%/session QQQ closes over the window."""
+    spec = spec_for(Dataset.PRICES)
+    closes = [100.0 * 1.001**index for index in range(len(days))]
+    return ingest(
+        pl.DataFrame(
+            {
+                "ticker": ["QQQ"] * len(days),
+                "date": list(days),
+                "open": [close * 0.98 for close in closes],
+                "high": [close * 1.02 for close in closes],
+                "low": [close * 0.97 for close in closes],
+                "close": closes,
+                "volume": [10_000] * len(days),
+                "adjusted_close": closes,
+                "dividend": [0.0] * len(days),
+                "split_factor": [1.0] * len(days),
+                "source": ["synthetic"] * len(days),
+                "retrieved_at": [_RETRIEVED_AT] * len(days),
+            },
+            schema=dict(spec.columns),
+        ),
+        Dataset.PRICES,
+    )
+
+
+def _vixcls_frame(value: float) -> pl.DataFrame:
+    """Single VIXCLS vintage visible well before every 2024 signal instant."""
+    return pl.DataFrame(
+        {
+            "series_id": ["VIXCLS"],
+            "observation_date": [date(2023, 12, 1)],
+            "value": [value],
+            AVAILABLE_AT: [datetime(2023, 12, 2, tzinfo=UTC)],
+        },
+        schema={
+            "series_id": pl.String,
+            "observation_date": pl.Date,
+            "value": pl.Float64,
+            AVAILABLE_AT: pl.Datetime("us", "UTC"),
+        },
+    )
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-V3-macro-reserve"])
+def test_sim_v3_macro_reserve(scenario_id: str) -> None:
+    """SIM-V3-macro-reserve"""
+    days = _CALENDAR.sessions(_LONG_PANEL_START, date(2024, 2, 29))
+    prices = _rising_qqq_panel(days)
+    fx = ingest(_fx_panel(days), Dataset.FX)
+    cpi = _constant_cpi()
+    config = AllocationConfig(
+        policy=PolicyId.QQQ,
+        start=date(2024, 1, 31),
+        end=date(2024, 2, 26),
+        monthly_contribution_krw=_CONTRIBUTION_KRW,
+        reserve=ReserveConfig(max_withhold=0.10, schedule="v3"),
+    )
+
+    result = run_allocation(config, prices, fx, cpi, macro=_vixcls_frame(15.0))
+
+    assert result.config.overlay is None
+    assert result.snapshots
+    # Rising prices and a calm VIX pin the multiplier at min_invest=0.70 every decision.
+    assert sum(snapshot.contribution_krw for snapshot in result.snapshots) == pytest.approx(
+        len(result.snapshots) * _CONTRIBUTION_KRW
+    )
+    for snapshot in result.snapshots:
+        assert snapshot.reserve_krw >= 0.0
+    assert result.snapshots[-1].reserve_krw == pytest.approx(
+        len(result.snapshots) * 0.30 * _CONTRIBUTION_KRW
+    )
+
+    with pytest.raises(PolicyError):
+        run_allocation(config, prices, fx, cpi)

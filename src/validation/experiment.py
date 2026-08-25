@@ -86,15 +86,40 @@ class ReserveSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     max_withhold: float = Field(gt=0.0, le=0.10)
-    schedule: Literal["v1", "v2"] = "v1"
+    schedule: Literal["v1", "v2", "v3"] = "v1"
     min_invest_multiplier: float = Field(default=0.80, gt=0.0, lt=1.0)
-    max_invest_multiplier: float = Field(default=2.00, gt=1.0, le=2.0)
+    max_invest_multiplier: float = Field(default=2.00, gt=1.0)
     reserve_max_months: float = Field(default=6.00, gt=0.0, le=6.0)
+    vix_threshold: float = Field(default=20.0, gt=0.0)
 
     @model_validator(mode="before")
     @classmethod
     def _accept_withhold_cap_key(cls, data: object) -> object:
         return _reconcile_canonical_key(data, canonical="withhold_cap", field="max_withhold")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _rebase_v3_baselines(cls, data: object) -> object:
+        """Rebase omitted or legacy-baseline multipliers onto the wider v3 band."""
+        if not isinstance(data, dict) or data.get("schedule") != "v3":
+            return data
+        merged = dict(data)
+        if merged.get("min_invest_multiplier") in (None, 0.80):
+            merged["min_invest_multiplier"] = 0.70
+        if merged.get("max_invest_multiplier") in (None, 2.00):
+            merged["max_invest_multiplier"] = 3.00
+        return merged
+
+    @model_validator(mode="after")
+    def _check_schedule_band(self) -> ReserveSpec:
+        """Enforce the schedule-dependent max-invest ceiling (2.0 for v1/v2, 3.0 for v3)."""
+        ceiling = 3.00 if self.schedule == "v3" else 2.00
+        if not 1.0 < self.max_invest_multiplier <= ceiling:
+            raise ValueError(
+                f"max_invest_multiplier must lie in (1.0, {ceiling}] for schedule "
+                f"{self.schedule!r}, got {self.max_invest_multiplier!r}"
+            )
+        return self
 
 
 class MappingSpec(BaseModel):
@@ -157,6 +182,9 @@ class ExperimentSpec(BaseModel):
         return _reconcile_canonical_key(data, canonical="delta0", field="hurdle")
 
     @model_validator(mode="after")
+    def _run_structure_checks(self) -> ExperimentSpec:
+        return self._check_structure()
+
     def _check_structure(self) -> ExperimentSpec:
         if self.start > self.end:
             raise ValueError(f"start {self.start.isoformat()} is after end {self.end.isoformat()}")
@@ -196,8 +224,8 @@ class ExperimentSpec(BaseModel):
                 )
             if any(candidate.modules < 1 for candidate in self.candidates):
                 raise ValueError("cadence requires every candidate.modules >= 1")
-        if self.objective == "growth_first" and self.cadence is None:
-            raise ValueError("objective 'growth_first' requires a cadence module")
+        if self.objective == "growth_first" and (self.cadence is None) == (self.reserve is None):
+            raise ValueError("objective 'growth_first' requires exactly one of a cadence or reserve module")
         seen: set[str] = set()
         for candidate in self.candidates:
             if candidate.id in seen:
@@ -223,6 +251,7 @@ def resolve_reserve(spec: ExperimentSpec) -> ReserveConfig | None:
         min_invest_multiplier=spec.reserve.min_invest_multiplier,
         max_invest_multiplier=spec.reserve.max_invest_multiplier,
         reserve_max_months=spec.reserve.reserve_max_months,
+        vix_threshold=spec.reserve.vix_threshold,
     )
 
 
