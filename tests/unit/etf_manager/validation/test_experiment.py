@@ -694,3 +694,31 @@ def test_exp_l_cadence_json(scenario_id: str) -> None:
 
     with pytest.raises(ValueError, match="anchor"):
         CadenceSpec(anchor="month_end")
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-L-s8-cadence-json"])
+def test_exp_l_s8_cadence_json(scenario_id: str) -> None:
+    """EXP-L-s8-cadence-json"""
+    spec = load_experiment_config("configs/experiments/wf_s8_cadence.json")
+
+    assert spec.name == "wf_s8_cadence"
+    assert spec.start == date(2007, 8, 31)
+    assert spec.end == date(2026, 6, 30)
+    assert spec.contribution_krw == pytest.approx(1_000_000.0)
+    assert spec.delta0 == pytest.approx(0.02)
+    assert spec.horizon_months == 0
+    assert spec.train_months == 60
+    assert spec.test_months == 36
+    assert spec.cadence is not None
+    assert spec.cadence.anchor == "month_open"
+    assert resolve_cadence(spec) == "month_open"
+    assert spec.baseline.id == "s8_us_nasdaq"
+    assert spec.baseline.policy is PolicyId.S8_US_NASDAQ
+    assert spec.baseline.modules == 0
+    assert [candidate.id for candidate in spec.candidates] == ["s8_us_nasdaq_month_open"]
+    assert [candidate.policy for candidate in spec.candidates] == [PolicyId.S8_US_NASDAQ]
+    assert [candidate.modules for candidate in spec.candidates] == [1]
+    assert spec.overlay is None
+    assert spec.reserve is None
+    assert spec.mapping is None
+    assert spec.currency is None
