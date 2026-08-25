@@ -1340,3 +1340,24 @@ def test_cli_o_diagnose_s8_reserve(scenario_id: str, monkeypatch: pytest.MonkeyP
         == 0
     )
     assert captured["reserve_schedule"] == "v2"
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-O-diagnose-s8-cadence"])
+def test_cli_o_diagnose_s8_cadence(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-O-diagnose-s8-cadence"""
+    assert main(["run", "diagnose-s8-cadence"]) == 2
+
+    captured: dict[str, object] = {}
+
+    def fake_diagnose(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    def forbidden_ablation(*args: object, **kwargs: object) -> int:
+        raise AssertionError("diagnostics must never invoke the adoption ablation")
+
+    monkeypatch.setattr(cli, "run_diagnose_s8_cadence_command", fake_diagnose)
+    monkeypatch.setattr(cli, "run_ablation", forbidden_ablation)
+
+    assert main(["run", "diagnose-s8-cadence", "--contribution-krw", "1000000"]) == 0
+    assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
