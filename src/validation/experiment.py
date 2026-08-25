@@ -100,7 +100,7 @@ class ReserveSpec(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _rebase_v3_baselines(cls, data: object) -> object:
-        """Rebase omitted or legacy-baseline multipliers onto the wider v3 band."""
+        """Rebase omitted or legacy-baseline multipliers and VIX threshold onto the wider v3 band."""
         if not isinstance(data, dict) or data.get("schedule") != "v3":
             return data
         merged = dict(data)
@@ -108,6 +108,8 @@ class ReserveSpec(BaseModel):
             merged["min_invest_multiplier"] = 0.70
         if merged.get("max_invest_multiplier") in (None, 2.00):
             merged["max_invest_multiplier"] = 3.00
+        if merged.get("vix_threshold") in (None, 20.0):
+            merged["vix_threshold"] = 25.0
         return merged
 
     @model_validator(mode="after")
