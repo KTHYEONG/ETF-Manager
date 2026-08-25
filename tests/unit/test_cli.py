@@ -112,6 +112,29 @@ def test_cli_a_diagnose_qqq(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -
     assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
 
 
+@pytest.mark.parametrize("scenario_id", ["CLI-A-diagnose-qqq-accumulation"])
+def test_cli_a_diagnose_qqq_accumulation(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-A-diagnose-qqq-accumulation"""
+    assert main(["run", "diagnose-qqq-accumulation-alpha"]) == 2
+    # The retired s8 target name is absent from the parser, so it is also a usage error.
+    assert main(["run", "diagnose-s8-accumulation-alpha"]) == 2
+
+    captured: dict[str, object] = {}
+
+    def fake_diagnose(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    def forbidden_ablation(*args: object, **kwargs: object) -> int:
+        raise AssertionError("diagnostics must never invoke the adoption ablation")
+
+    monkeypatch.setattr(cli, "run_diagnose_qqq_accumulation_alpha_command", fake_diagnose)
+    monkeypatch.setattr(cli, "run_ablation", forbidden_ablation)
+
+    assert main(["run", "diagnose-qqq-accumulation-alpha", "--contribution-krw", "1000000"]) == 0
+    assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
+
+
 @pytest.fixture(autouse=True)
 def _provider_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     """Resolve secrets from the process env so no sops or network call happens."""
