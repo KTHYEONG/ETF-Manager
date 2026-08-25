@@ -86,6 +86,10 @@ class ReserveSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     max_withhold: float = Field(gt=0.0, le=0.10, serialization_alias="withhold_cap")
+    schedule: Literal["v1", "v2"] = "v1"
+    min_invest_multiplier: float = Field(default=0.80, gt=0.0, lt=1.0)
+    max_invest_multiplier: float = Field(default=2.00, gt=1.0, le=2.0)
+    reserve_max_months: float = Field(default=6.00, gt=0.0, le=6.0)
 
     @model_validator(mode="before")
     @classmethod
@@ -209,7 +213,13 @@ def resolve_reserve(spec: ExperimentSpec) -> ReserveConfig | None:
     """Map the JSON reserve onto the runtime config, keeping window defaults."""
     if spec.reserve is None:
         return None
-    return ReserveConfig(max_withhold=spec.reserve.max_withhold)
+    return ReserveConfig(
+        max_withhold=spec.reserve.max_withhold,
+        schedule=spec.reserve.schedule,
+        min_invest_multiplier=spec.reserve.min_invest_multiplier,
+        max_invest_multiplier=spec.reserve.max_invest_multiplier,
+        reserve_max_months=spec.reserve.reserve_max_months,
+    )
 
 
 def resolve_mapping(spec: ExperimentSpec) -> MappingConfig | None:

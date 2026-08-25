@@ -122,6 +122,7 @@ def compare_s8_reserve(
     runner: Callable[[AllocationConfig], AllocationResult],
     contribution_krw: float,
     windows: tuple[tuple[str, date, date], ...] = S8_REGIME_WINDOWS,
+    reserve: ReserveConfig | None = None,
 ) -> tuple[ReserveComparison, ...]:
     """Run locked S8 twice per window on identical cashflows: no reserve versus capped withhold.
 
@@ -137,6 +138,9 @@ def compare_s8_reserve(
     """
     if contribution_krw <= 0.0:
         raise ValueError(f"contribution_krw must be positive, got {contribution_krw!r}")
+    reserved_config = (
+        reserve if reserve is not None else ReserveConfig(max_withhold=_RESERVE_WITHHOLD_CAP)
+    )
     comparisons: list[ReserveComparison] = []
     for name, start, end in windows:
         try:
@@ -154,7 +158,7 @@ def compare_s8_reserve(
                     start=start,
                     end=end,
                     monthly_contribution_krw=float(contribution_krw),
-                    reserve=ReserveConfig(max_withhold=_RESERVE_WITHHOLD_CAP),
+                    reserve=reserved_config,
                 )
             )
         except PolicyError:

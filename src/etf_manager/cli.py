@@ -322,6 +322,7 @@ def _build_parser() -> _Parser:
         help="S8 reserve-versus-plain ratios and reserve usage per regime window; reporting only, never an adoption gate",
     )
     diagnose_s8_reserve.add_argument("--contribution-krw", required=True, type=float)
+    diagnose_s8_reserve.add_argument("--reserve-schedule", choices=("v1", "v2"), default="v1")
     return parser
 
 
@@ -497,6 +498,7 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         return run_diagnose_s8_reserve_command(
             contribution_krw=float(args.contribution_krw),
             settings=DataSettings(),
+            reserve_schedule=args.reserve_schedule,
         )
     raise _UsageError(f"unsupported target {args.target!r}")
 
@@ -813,15 +815,26 @@ def run_diagnose_s8_blends_command(*, contribution_krw: float, settings: DataSet
     return 0
 
 
-def run_diagnose_s8_reserve_command(*, contribution_krw: float, settings: DataSettings) -> int:
+_RESERVE_SCHEDULES: Final[dict[str, ReserveConfig | None]] = {
+    "v1": None,
+    "v2": ReserveConfig(schedule="v2", max_withhold=0.10),
+}
+
+
+def run_diagnose_s8_reserve_command(
+    *, contribution_krw: float, settings: DataSettings, reserve_schedule: str = "v1"
+) -> int:
     """Log S8 reserved-arm ratios, MDD, and reconstructed reserve usage per regime window.
 
     Reporting-only diagnostics: no ablation, walk-forward gate, or adoption
     decision may run here, and the operational policy lock stays unchanged.
     """
     try:
+        if reserve_schedule not in _RESERVE_SCHEDULES:
+            raise ValueError(f"unknown reserve schedule {reserve_schedule!r}")
         comparisons = compare_s8_reserve(
             contribution_krw=float(contribution_krw),
+            reserve=_RESERVE_SCHEDULES[reserve_schedule],
             runner=lambda config: run_allocation_from_store(config, settings),
         )
     except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
