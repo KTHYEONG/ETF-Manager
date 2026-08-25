@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from src.validation.gate import (
     adoption_passes,
+    bootstrap_tail_passes,
     certainty_equivalent,
     growth_first_process_passes,
     growth_first_train_passes,
     select_plateau,
+    wealth_quantile,
+    worst_cohort_passes,
 )
 
 
@@ -70,3 +75,32 @@ def test_gf_a_train_and_process(scenario_id: str) -> None:
         growth_first_process_passes(chosen_test=(float("inf"), 1.0), baseline_test=(1.0, 1.0))
     with pytest.raises(ValueError, match="length"):
         growth_first_process_passes(chosen_test=(1.01,), baseline_test=(1.0, 1.0))
+
+
+@pytest.mark.parametrize("scenario_id", ["GF-R-worst-and-tail"])
+def test_gf_r_worst_and_tail(scenario_id: str) -> None:
+    """GF-R-worst-and-tail"""
+    low = wealth_quantile((1.0, 2.0, 3.0, 4.0), 0.05)
+    assert math.isfinite(low)
+    assert low <= wealth_quantile((1.0, 2.0, 3.0, 4.0), 0.5)
+    with pytest.raises(ValueError, match=r"\(0, 1\)"):
+        wealth_quantile((1.0,), 1.0)
+    with pytest.raises(ValueError, match="observation"):
+        wealth_quantile((), 0.5)
+    with pytest.raises(ValueError, match="finite"):
+        wealth_quantile((float("inf"), 1.0), 0.5)
+
+    # min ratio 0.98 clears the default 0.97 floor; one 0.96 fold vetoes.
+    assert worst_cohort_passes((1.0, 0.98, 1.05), (1.0, 1.0, 1.0)) is True
+    assert worst_cohort_passes((1.10, 0.96), (1.0, 1.0)) is False
+    with pytest.raises(ValueError, match="length"):
+        worst_cohort_passes((1.0,), (1.0, 1.0))
+    with pytest.raises(ValueError, match="positive"):
+        worst_cohort_passes((1.0, -1.0), (1.0, 1.0))
+
+    flat = (1.02,) * 8
+    degraded = (1.02, 1.02, 1.02, 1.02, 1.02, 1.02, 1.02, 0.5)
+    assert bootstrap_tail_passes(flat, (1.0,) * 8, n_paths=40, seed=7) is True
+    assert bootstrap_tail_passes(degraded, (1.0,) * 8, n_paths=40, seed=7) is False
+    with pytest.raises(ValueError, match="n_paths"):
+        bootstrap_tail_passes(flat, (1.0,) * 8, n_paths=0, seed=7)
