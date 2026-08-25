@@ -92,3 +92,32 @@ def next_execution_session(
     if execution <= signal_session:
         raise ValueError("execution session must be strictly later than the signal session")
     return execution
+
+
+def clamp_inclusive_session_range(
+    calendar: TradingCalendar,
+    start: date,
+    end: date,
+) -> tuple[date, date]:
+    """Clamp arbitrary calendar dates to an inclusive exchange-session span.
+
+    Dates before the calendar's first session or after its last session are
+    clipped; remaining non-session starts advance and non-session ends retreat.
+
+    Raises:
+        ValueError: When ``end`` precedes ``start`` or no session remains in range.
+    """
+    if end < start:
+        raise ValueError(f"end {end!r} must be on or after start {start!r}")
+    first_session: date = calendar._cal.first_session.date()
+    last_session: date = calendar._cal.last_session.date()
+    if start < first_session:
+        start = first_session
+    elif not calendar.is_session(start):
+        start = calendar.next_session(start)
+    if end > last_session:
+        end = last_session
+    sessions = calendar.sessions(start, end)
+    if not sessions:
+        raise ValueError(f"no exchange sessions between {start!r} and {end!r}")
+    return sessions[0], sessions[-1]

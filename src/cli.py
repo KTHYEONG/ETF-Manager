@@ -7,8 +7,9 @@ import logging
 import shutil
 import subprocess
 from datetime import date
-from typing import TYPE_CHECKING, Final, NoReturn
+from typing import TYPE_CHECKING, Final, NoReturn, cast
 
+from src.analytics.accumulation_alpha import screen_qqq_accumulation
 from src.analytics.blends import compare_qqq_blends
 from src.analytics.cadence import compare_qqq_cadence
 from src.analytics.metrics import XirrError
@@ -32,10 +33,10 @@ from src.data.fetch import (
 )
 from src.data.providers.base import ProviderError
 from src.data.schedule import build_decision_schedule
-from src.data.schema import Dataset
+from src.data.schema import Dataset, spec_for
 from src.data.secrets import load_provider_secrets
 from src.data.settings import DataSettings
-from src.data.storage import UntrustedDatasetError
+from src.data.storage import DataStore, UntrustedDatasetError
 from src.etf.mapping import MappingConfig
 from src.execution.broker import replay_paper
 from src.execution.orders import ExecutionError, orders_from_snapshots
@@ -329,6 +330,11 @@ def _build_parser() -> _Parser:
         help="QQQ month-open-cadence ratios versus the default monthly cadence per regime window; reporting only, never an adoption gate",
     )
     diagnose_qqq_cadence.add_argument("--contribution-krw", required=True, type=float)
+    diagnose_qqq_accumulation = run_targets.add_parser(
+        "diagnose-qqq-accumulation-alpha",
+        help="QQQ buy-cadence accumulation-screen ratios versus month-end; reporting only, never an adoption gate",
+    )
+    diagnose_qqq_accumulation.add_argument("--contribution-krw", required=True, type=float)
     return parser
 
 
@@ -508,6 +514,11 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         )
     if args.target == "diagnose-qqq-cadence":
         return run_diagnose_qqq_cadence_command(
+            contribution_krw=float(args.contribution_krw),
+            settings=DataSettings(),
+        )
+    if args.target == "diagnose-qqq-accumulation-alpha":
+        return run_diagnose_qqq_accumulation_alpha_command(
             contribution_krw=float(args.contribution_krw),
             settings=DataSettings(),
         )
@@ -907,6 +918,64 @@ def run_diagnose_qqq_cadence_command(*, contribution_krw: float, settings: DataS
             comparison.twice_monthly.terminal_wealth_real_krw / comparison.monthly.terminal_wealth_real_krw,
             len(comparison.month_open.snapshots),
         )
+    return 0
+
+
+_ACCUMULATION_TICKER: Final[str] = "QQQ"
+
+
+def run_diagnose_qqq_accumulation_alpha_command(*, contribution_krw: float, settings: DataSettings) -> int:
+    """Log QQQ buy-cadence accumulation-screen ratios versus month-end fills.
+
+    Reporting-only diagnostics: no ablation, walk-forward gate, or adoption
+    decision may run here, and the operational policy lock stays unchanged.
+    """
+    try:
+        if float(contribution_krw) <= 0.0:
+            raise ValueError(f"contribution_krw must be positive, got {contribution_krw!r}")
+        prices = DataStore(settings).read_normalized(
+            latest_artifact(settings, Dataset.PRICES), spec_for(Dataset.PRICES)
+        )
+        ticker_rows = prices.filter(prices.get_column("ticker") == _ACCUMULATION_TICKER)
+        if ticker_rows.is_empty():
+            raise ValueError(f"ticker {_ACCUMULATION_TICKER!r} missing from catalog prices")
+        start_raw = ticker_rows.get_column("date").min()
+        end_raw = ticker_rows.get_column("date").max()
+        if start_raw is None or end_raw is None:
+            raise ValueError(f"ticker {_ACCUMULATION_TICKER!r} has no price dates")
+        report = screen_qqq_accumulation(
+            prices=prices,
+            ticker=_ACCUMULATION_TICKER,
+            start=cast(date, start_raw),
+            end=cast(date, end_raw),
+            monthly_contribution=float(contribution_krw),
+        )
+    except (PolicyError, UntrustedDatasetError, ValueError) as exc:
+        logger.error("[DATA] event=diagnose_qqq_accumulation_alpha_failed reason_type=%s", type(exc).__name__)
+        return 1
+    for row in report.rows:
+        logger.info(
+            "[DATA] event=qqq_accumulation_arm arm=%s verdict=%s tw=%.2f ratio_vs_month_end=%.6f"
+            " ci_low=%.6f ci_high=%.6f mean_log_gap=%s log_fill_p=%s",
+            row.name,
+            str(row.verdict),
+            row.terminal_wealth,
+            row.ratio_vs_month_end,
+            row.bootstrap_ci_low,
+            row.bootstrap_ci_high,
+            row.mean_log_fill_gap_vs_end,
+            row.log_fill_p_value,
+        )
+    logger.info(
+        "[DATA] event=qqq_accumulation_screen_done ticker=%s start=%s end=%s usable_months=%d"
+        " operational_unlock=%s recommended_research_arm=%s",
+        report.ticker,
+        report.start.isoformat(),
+        report.end.isoformat(),
+        report.usable_months,
+        report.operational_unlock,
+        report.recommended_research_arm,
+    )
     return 0
 
 
