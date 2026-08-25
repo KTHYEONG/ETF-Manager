@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from src.data.calendar import load_calendar, next_execution_session
+from src.data.calendar import clamp_inclusive_session_range, load_calendar, next_execution_session
 
 
 def test_cal_a08_holiday_fill_delay() -> None:
@@ -42,3 +42,13 @@ def test_cal_l_month_start_sessions(scenario_id: str) -> None:
         month_sessions = calendar.sessions(start.replace(day=1), date(start.year, start.month, 28))
         assert start == month_sessions[0]
     assert {(start.year, start.month) for start in starts} == {(2024, month) for month in range(1, 13)}
+
+
+def test_cal_clamp_inclusive_session_range() -> None:
+    """Non-session catalog dates clamp to the nearest in-range sessions."""
+    calendar = load_calendar("XNYS")
+    start, end = clamp_inclusive_session_range(calendar, date(2006, 8, 24), date(2026, 8, 21))
+    assert start == date(2006, 8, 25)
+    assert calendar.is_session(start)
+    assert calendar.is_session(end)
+    assert end <= date(2026, 8, 21)
