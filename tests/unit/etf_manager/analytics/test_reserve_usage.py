@@ -11,6 +11,7 @@ from src.etf_manager.analytics.reserve_usage import (
     compare_s8_reserve,
     summarize_reserve_usage,
 )
+from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import PolicyError, PolicyId
 from src.etf_manager.sim.allocation import AllocationConfig, AllocationResult, AllocationSnapshot
 
@@ -205,3 +206,27 @@ def test_rsv_u_skip_warmup(scenario_id: str) -> None:
 
     with pytest.raises(ValueError, match="contribution"):
         compare_s8_reserve(runner=_AlwaysBlockedRunner(), contribution_krw=-1.0, windows=_SKIP_WINDOWS)
+
+
+
+@pytest.mark.parametrize("scenario_id", ["RSV-U-compare-v2"])
+def test_rsv_u_compare_v2(scenario_id: str) -> None:
+    """RSV-U-compare-v2"""
+    runner = _FakeRunner(count=3)
+    comparisons = compare_s8_reserve(
+        runner=runner,
+        contribution_krw=1_000_000.0,
+        windows=_WINDOW,
+        reserve=ReserveConfig(max_withhold=0.10, schedule="v2"),
+    )
+
+    assert len(comparisons) == 1
+    assert runner.configs[1].reserve is not None
+    assert runner.configs[1].reserve.schedule == "v2"
+    assert runner.configs[1].reserve.max_withhold == pytest.approx(0.10)
+
+    default_runner = _FakeRunner(count=3)
+    compare_s8_reserve(runner=default_runner, contribution_krw=1_000_000.0, windows=_WINDOW)
+    assert default_runner.configs[1].reserve is not None
+    assert default_runner.configs[1].reserve.schedule == "v1"
+    assert default_runner.configs[1].reserve.max_withhold == pytest.approx(0.10)

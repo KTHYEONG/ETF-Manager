@@ -143,3 +143,107 @@ def test_rsv_a_fail_closed_guards(scenario_id: str) -> None:
             signal_at=_SIGNAL_AT,
             config=config,
         )
+
+
+
+@pytest.mark.parametrize("scenario_id", ["RSV-V2-piecewise-and-i6"])
+def test_rsv_v2_piecewise_and_i6(scenario_id: str) -> None:
+    """RSV-V2-piecewise-and-i6"""
+    config = ReserveConfig(max_withhold=0.10, schedule="v2")
+
+    fill = apply_reserve_schedule(
+        contribution_krw=_CONTRIBUTION_KRW,
+        reserve_krw=500_000.0,
+        prices=_price_panel(_rising_closes()),
+        ticker=_TICKER,
+        signal_at=_SIGNAL_AT,
+        config=config,
+    )
+    assert fill.investable_krw == pytest.approx(0.80 * _CONTRIBUTION_KRW)
+    assert fill.reserve_krw == pytest.approx(700_000.0)
+    assert fill.investable_krw + fill.reserve_krw == pytest.approx(1_500_000.0)
+
+    mild_panel = _price_panel([*[100.0] * (len(_PANEL_DAYS) - 1), 85.0])
+    expected_m = 1.25 + 0.25 * 0.5
+    deploy = apply_reserve_schedule(
+        contribution_krw=_CONTRIBUTION_KRW,
+        reserve_krw=500_000.0,
+        prices=mild_panel,
+        ticker=_TICKER,
+        signal_at=_SIGNAL_AT,
+        config=config,
+    )
+    assert deploy.investable_krw == pytest.approx(min(expected_m * _CONTRIBUTION_KRW, 1_500_000.0))
+    assert abs((deploy.investable_krw + deploy.reserve_krw) - 1_500_000.0) <= 1e-9
+
+    broke = apply_reserve_schedule(
+        contribution_krw=_CONTRIBUTION_KRW,
+        reserve_krw=0.0,
+        prices=mild_panel,
+        ticker=_TICKER,
+        signal_at=_SIGNAL_AT,
+        config=config,
+    )
+    assert broke.investable_krw == pytest.approx(min(expected_m * _CONTRIBUTION_KRW, _CONTRIBUTION_KRW))
+    assert broke.reserve_krw == pytest.approx(0.0)
+
+    deep_panel = _price_panel([*[100.0] * (len(_PANEL_DAYS) - 1), 70.0])
+    deep = apply_reserve_schedule(
+        contribution_krw=_CONTRIBUTION_KRW,
+        reserve_krw=1_500_000.0,
+        prices=deep_panel,
+        ticker=_TICKER,
+        signal_at=_SIGNAL_AT,
+        config=config,
+    )
+    assert deep.investable_krw == pytest.approx(2.0 * _CONTRIBUTION_KRW)
+    assert deep.reserve_krw == pytest.approx(500_000.0)
+    assert abs((deep.investable_krw + deep.reserve_krw) - 2_500_000.0) <= 1e-9
+    assert deep.investable_krw <= _CONTRIBUTION_KRW + 1_500_000.0
+
+
+@pytest.mark.parametrize("scenario_id", ["RSV-V2-stock-cap-and-fail-closed"])
+def test_rsv_v2_stock_cap_and_fail_closed(scenario_id: str) -> None:
+    """RSV-V2-stock-cap-and-fail-closed"""
+    config = ReserveConfig(max_withhold=0.10, schedule="v2")
+
+    capped = apply_reserve_schedule(
+        contribution_krw=_CONTRIBUTION_KRW,
+        reserve_krw=6.0 * _CONTRIBUTION_KRW,
+        prices=_price_panel(_rising_closes()),
+        ticker=_TICKER,
+        signal_at=_SIGNAL_AT,
+        config=config,
+    )
+    assert capped.reserve_krw == pytest.approx(6.0 * _CONTRIBUTION_KRW)
+    assert capped.investable_krw == pytest.approx(_CONTRIBUTION_KRW)
+    assert abs((capped.investable_krw + capped.reserve_krw) - 7.0 * _CONTRIBUTION_KRW) <= 1e-9
+
+    with pytest.raises(ValueError, match="min_invest_multiplier"):
+        ReserveConfig(max_withhold=0.10, schedule="v2", min_invest_multiplier=1.0)
+    with pytest.raises(ValueError, match="max_invest_multiplier"):
+        ReserveConfig(max_withhold=0.10, schedule="v2", max_invest_multiplier=2.5)
+    with pytest.raises(ValueError, match="reserve_max_months"):
+        ReserveConfig(max_withhold=0.10, schedule="v2", reserve_max_months=6.5)
+    bad_schedule: str = "v3"
+    with pytest.raises(ValueError, match="schedule"):
+        ReserveConfig(max_withhold=0.10, schedule=bad_schedule)  # type: ignore[arg-type]
+
+    with pytest.raises(PolicyError):
+        apply_reserve_schedule(
+            contribution_krw=_CONTRIBUTION_KRW,
+            reserve_krw=0.0,
+            prices=_price_panel(_rising_closes()),
+            ticker=_TICKER,
+            signal_at=datetime(2024, 3, 28, 21),
+            config=config,
+        )
+    with pytest.raises(PolicyError):
+        apply_reserve_schedule(
+            contribution_krw=_CONTRIBUTION_KRW,
+            reserve_krw=0.0,
+            prices=_price_panel(_rising_closes()[-30:]),
+            ticker=_TICKER,
+            signal_at=_SIGNAL_AT,
+            config=config,
+        )

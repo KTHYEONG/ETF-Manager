@@ -1334,3 +1334,9 @@ def test_cli_o_diagnose_s8_reserve(scenario_id: str, monkeypatch: pytest.MonkeyP
 
     assert main(["run", "diagnose-s8-reserve", "--contribution-krw", "1000000"]) == 0
     assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
+    assert captured["reserve_schedule"] == "v1"
+    assert (
+        main(["run", "diagnose-s8-reserve", "--contribution-krw", "1000000", "--reserve-schedule", "v2"])
+        == 0
+    )
+    assert captured["reserve_schedule"] == "v2"
