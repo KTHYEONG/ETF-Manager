@@ -18,6 +18,7 @@ from src.etf_manager.data.settings import DataSettings
 from src.etf_manager.data.storage import RawPayload
 from src.etf_manager.policy.currency import CurrencyConfig
 from src.etf_manager.policy.overlay import OverlayConfig
+from src.etf_manager.policy.reserve import ReserveConfig
 from src.etf_manager.policy.targets import PolicyId
 from src.etf_manager.validation.experiment import (
     CandidateSpec,
@@ -31,6 +32,7 @@ from src.etf_manager.validation.feasibility import (
     currency_warmup_sessions,
     overlay_warmup_sessions,
     require_feasibility,
+    reserve_warmup_sessions,
     resolve_feasibility,
 )
 
@@ -412,3 +414,42 @@ def test_feas_k_currency_warmup(scenario_id: str, tmp_path: Path, monkeypatch: p
     assert excinfo.value.report is not None
     codes = {violation.code for violation in excinfo.value.report.violations}
     assert "currency_warmup" in codes
+
+
+@pytest.mark.parametrize("scenario_id", ["FEAS-H-reserve-warmup"])
+def test_feas_h_reserve_warmup(scenario_id: str, tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
+    """FEAS-H-reserve-warmup"""
+    assert reserve_warmup_sessions(None) == 0
+    assert reserve_warmup_sessions(ReserveConfig(max_withhold=0.10)) == 252
+
+    days = _panel_days(date(2023, 12, 11), date(2024, 2, 1))
+    settings = _catalog(
+        monkeypatch,
+        tmp_path,
+        days=days,
+        tickers=("QQQ",),
+        close_of_day=_constant_closes,
+        cpi_period_end=_CPI_VISIBLE_PERIOD_END,
+    )
+    kwargs = {
+        "start": _THIN_WINDOW[0],
+        "end": _THIN_WINDOW[1],
+        "fill_delay_sessions": 1,
+        "mark_policies": (PolicyId.S8_US_NASDAQ,),
+        "overlay": None,
+        "overlay_policies": (),
+        "settings": settings,
+        "reserve": ReserveConfig(max_withhold=0.10),
+        "reserve_policies": (PolicyId.S8_US_NASDAQ,),
+    }
+
+    report = resolve_feasibility(**kwargs)  # type: ignore[arg-type]
+
+    assert {violation.code for violation in report.violations} == {"reserve_warmup"}
+    assert report.warmup_sessions == 252
+    warmup_violation = next(v for v in report.violations if v.code == "reserve_warmup")
+    match = re.search(r"found (\d+) usable", warmup_violation.message)
+    assert match is not None
+    assert int(match.group(1)) < 252
+    with pytest.raises(FeasibilityError):
+        require_feasibility(**kwargs)  # type: ignore[arg-type]

@@ -409,6 +409,68 @@ def test_sim_j04_overlay_buy_only_long_panel(scenario_id: str) -> None:
             assert current.shares[ticker] >= previous.shares[ticker]
 
 
+@pytest.mark.parametrize("scenario_id", ["SIM-J05-s8-overlay-defensive-cash"])
+def test_sim_j05_s8_overlay_defensive_cash(scenario_id: str) -> None:
+    """SIM-J05-s8-overlay-defensive-cash"""
+    days = _CALENDAR.sessions(_LONG_PANEL_START, date(2024, 2, 29))
+    spec = spec_for(Dataset.PRICES)
+    tickers: list[str] = []
+    dates: list[date] = []
+    closes: list[float] = []
+    for index, day in enumerate(days):
+        tickers.append("QQQ")
+        dates.append(day)
+        closes.append(100.0 * 1.001**index)
+    n = len(dates)
+    prices = ingest(
+        pl.DataFrame(
+            {
+                "ticker": tickers,
+                "date": dates,
+                "open": [close * 0.98 for close in closes],
+                "high": [close * 1.02 for close in closes],
+                "low": [close * 0.97 for close in closes],
+                "close": closes,
+                "volume": [10_000] * n,
+                "adjusted_close": closes,
+                "dividend": [0.0] * n,
+                "split_factor": [1.0] * n,
+                "source": ["synthetic"] * n,
+                "retrieved_at": [_RETRIEVED_AT] * n,
+            },
+            schema=dict(spec.columns),
+        ),
+        Dataset.PRICES,
+    )
+    fx = ingest(_fx_panel(days), Dataset.FX)
+    cpi_spec = spec_for(Dataset.CPI)
+    cpi = ingest(
+        pl.DataFrame(
+            {
+                "period_end": [date(2023, 6, 1), date(2023, 12, 1)],
+                "value": [100.0, 100.0],
+                "source": ["synthetic", "synthetic"],
+                "retrieved_at": [_RETRIEVED_AT, _RETRIEVED_AT],
+            },
+            schema=dict(cpi_spec.columns),
+        ),
+        Dataset.CPI,
+    )
+    config = AllocationConfig(
+        policy=PolicyId.S8_US_NASDAQ,
+        start=date(2024, 1, 31),
+        end=date(2024, 2, 26),
+        monthly_contribution_krw=_CONTRIBUTION_KRW,
+        overlay=OverlayConfig(max_shift=0.10),
+    )
+
+    result = run_allocation(config, prices, fx, cpi)
+
+    assert len(result.snapshots) >= 1
+    assert result.terminal_wealth_krw > 0.0
+    assert result.snapshots[-1].shares.get("QQQ", 0) > 0
+
+
 def _rising_fx_panel(days: tuple[date, ...]) -> pl.DataFrame:
     """Strictly increasing usdkrw prints so every trailing window flags expensive USD."""
     spec = spec_for(Dataset.FX)
