@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_AA_QQQ_RESERVE_V3_REGIME",
+      "date": "2026-08-25",
+      "adr_id": "ADR_20260825_WAVE_AA_QQQ_RESERVE_V3_REGIME",
+      "domain": "policy",
+      "title": "Wave AA: QQQ reserve v3 three-regime ERP (accumulate / pass-through / crisis deploy)",
+      "why": "Wave Z v3 matched plain QQQ (ratio 1.0, zero reserve events) because _erp_multiplier only withheld at cheap==0 while live QQQ almost always had cheap>0 with empty stock; growth_first WF for reserve was blocked in campaign.py.",
+      "resolution": "Retuned _erp_multiplier to three regimes (calm depth<10% and VIX<threshold -> min_invest; mid -> 1.0x; crisis depth>=20% or VIX>=threshold -> stock-capped deploy). v3 default vix_threshold 25, ReserveSpec rebase, wf_qqq_reserve_v3.json start 2007-10-31 and reserve_max_months 2.0; run_walk_forward_adoption growth_first XOR cadence|reserve; contract tests RSV-V3-mid-pass-through, GF-C reserve-only, EXP-L.",
+      "impact": "Empirical: v3 now diverges from plain (shipped_old deploy_events=2, ratio 0.984 vs plain, -1.6% real TW) but still trails DCA; bear_2022 and recent windows ratio 1.0. WF wf_qqq_reserve_v3.json still blocked pre-2012 by VIXCLS catalog start 2012-06-01; 2014 smoke WF process_adopted=False (candidate ratio 1.0). Operational PolicyId.QQQ month-end lock unchanged."
+    },
+    {
       "task_id": "WAVE_Z_QQQ_RISK_SIZING",
       "date": "2026-08-25",
       "adr_id": "ADR_20260825_WAVE_Z_QQQ_RISK_SIZING",
