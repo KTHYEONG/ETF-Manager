@@ -127,7 +127,7 @@ def _arm_config(
     reserve: ReserveConfig | None,
     mapping: MappingConfig | None,
     currency: CurrencyConfig | None,
-    cadence: Literal["monthly", "month_open"] = "monthly",
+    cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
 ) -> AllocationConfig:
     """Identical cashflow/costs for every arm on one sliced window."""
     return AllocationConfig(
@@ -199,7 +199,7 @@ def run_walk_forward_adoption(
         arm_reserve: ReserveConfig | None,
         arm_mapping: MappingConfig | None,
         arm_currency: CurrencyConfig | None,
-        arm_cadence: Literal["monthly", "month_open"] = "monthly",
+        arm_cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
     ) -> float:
         return runner(
             _arm_config(

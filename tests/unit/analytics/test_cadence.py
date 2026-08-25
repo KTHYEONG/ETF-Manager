@@ -63,25 +63,25 @@ class _FakeRunner:
 
 
 class _DivergingRunner:
-    """Shortens the path whenever the month-open cadence participates."""
+    """Shortens the path whenever any non-monthly cadence participates."""
 
     def __init__(self) -> None:
         self.configs: list[AllocationConfig] = []
 
     def __call__(self, config: AllocationConfig) -> AllocationResult:
         self.configs.append(config)
-        return _result(config, 2 if config.cadence == "month_open" else 3)
+        return _result(config, 3 if config.cadence == "monthly" else 2)
 
 
 class _WarmupBlockedRunner:
-    """Fails closed with PolicyError on the month-open arm of the first window only."""
+    """Fails closed with PolicyError on the month-open and twice-monthly arms of the first window only."""
 
     def __init__(self) -> None:
         self.configs: list[AllocationConfig] = []
 
     def __call__(self, config: AllocationConfig) -> AllocationResult:
         self.configs.append(config)
-        if config.cadence == "month_open" and config.start == _SKIP_WINDOWS[0][1]:
+        if config.cadence != "monthly" and config.start == _SKIP_WINDOWS[0][1]:
             raise PolicyError("calendar_max requires 252 sessions of QQQ warmup")
         return _result(config, 3)
 
@@ -105,9 +105,8 @@ def test_cad_u_compare_qqq(scenario_id: str) -> None:
     assert comparison.name == _WINDOW[0][0]
     assert comparison.start == _WINDOW[0][1]
     assert comparison.end == _WINDOW[0][2]
-    assert len(runner.configs) == 2
-    assert runner.configs[0].cadence == "monthly"
-    assert runner.configs[1].cadence == "month_open"
+    assert len(runner.configs) == 3
+    assert [config.cadence for config in runner.configs] == ["monthly", "month_open", "twice_monthly"]
     for config in runner.configs:
         assert config.policy is PolicyId.QQQ
         assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
@@ -118,6 +117,9 @@ def test_cad_u_compare_qqq(scenario_id: str) -> None:
         assert config.currency is None
         assert config.mapping is None
         assert config.targets_override is None
+    assert comparison.monthly.config.cadence == "monthly"
+    assert comparison.month_open.config.cadence == "month_open"
+    assert comparison.twice_monthly.config.cadence == "twice_monthly"
 
     default_comparisons = compare_qqq_cadence(runner=_FakeRunner(count=2), contribution_krw=1.0)
     assert len(default_comparisons) == len(QQQ_REGIME_WINDOWS)

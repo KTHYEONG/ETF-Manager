@@ -895,13 +895,16 @@ def run_diagnose_qqq_cadence_command(*, contribution_krw: float, settings: DataS
         logger.info(
             "[DATA] event=qqq_cadence_ratio name=%s start=%s end=%s"
             " month_open_real_terminal_krw=%.2f monthly_real_terminal_krw=%.2f"
-            " ratio_month_open_vs_monthly=%.6f steps=%d",
+            " ratio_month_open_vs_monthly=%.6f"
+            " twice_monthly_real_terminal_krw=%.2f ratio_twice_monthly_vs_monthly=%.6f steps=%d",
             comparison.name,
             comparison.start.isoformat(),
             comparison.end.isoformat(),
             comparison.month_open.terminal_wealth_real_krw,
             comparison.monthly.terminal_wealth_real_krw,
             comparison.month_open.terminal_wealth_real_krw / comparison.monthly.terminal_wealth_real_krw,
+            comparison.twice_monthly.terminal_wealth_real_krw,
+            comparison.twice_monthly.terminal_wealth_real_krw / comparison.monthly.terminal_wealth_real_krw,
             len(comparison.month_open.snapshots),
         )
     return 0

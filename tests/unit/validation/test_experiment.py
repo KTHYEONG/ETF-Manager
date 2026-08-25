@@ -747,3 +747,41 @@ def test_exp_l_qqq_cadence_json(scenario_id: str) -> None:
     assert spec.reserve is None
     assert spec.mapping is None
     assert spec.currency is None
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-L-qqq-cadence-twice"])
+def test_exp_l_qqq_cadence_twice(scenario_id: str) -> None:
+    """EXP-L-qqq-cadence-twice"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_cadence_twice.json")
+
+    assert spec.name == "wf_qqq_cadence_twice"
+    assert spec.start == date(2007, 8, 31)
+    assert spec.end == date(2026, 6, 30)
+    assert spec.contribution_krw == pytest.approx(1_000_000.0)
+    assert spec.hurdle == pytest.approx(0.02)
+    assert spec.train_months == 60
+    assert spec.test_months == 36
+    assert spec.cadence is not None
+    assert spec.cadence.anchor == "twice_monthly"
+    assert resolve_cadence(spec) == "twice_monthly"
+    assert spec.baseline.id == "s8_us_nasdaq"
+    assert spec.baseline.policy is PolicyId.QQQ
+    assert spec.baseline.modules == 0
+    assert len(spec.candidates) == 1
+    candidate = spec.candidates[0]
+    assert candidate.id == "s8_us_nasdaq_twice"
+    assert candidate.policy is PolicyId.QQQ
+    assert candidate.modules == 1
+    assert spec.overlay is None
+    assert spec.reserve is None
+    assert spec.mapping is None
+    assert spec.currency is None
+
+    with pytest.raises(ValueError, match="anchor"):
+        CadenceSpec(anchor="month_end")
+
+    overlay_and_cadence = _payload()
+    overlay_and_cadence["overlay"] = {"max_shift": 0.10}
+    overlay_and_cadence["cadence"] = {"anchor": "twice_monthly"}
+    with pytest.raises(ValueError, match="cadence"):
+        ExperimentSpec.model_validate(overlay_and_cadence)
