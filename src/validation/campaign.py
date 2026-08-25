@@ -207,8 +207,8 @@ def run_walk_forward_adoption(
         raise ValueError("walk-forward adoption requires both train_months and test_months")
     if len(spec.candidates) != 1:
         raise ValueError(f"expected exactly one candidate, got {len(spec.candidates)}")
-    if spec.objective == "growth_first" and spec.cadence is None:
-        raise ValueError("objective 'growth_first' requires a cadence module")
+    if spec.objective == "growth_first" and (spec.cadence is None) == (spec.reserve is None):
+        raise ValueError("objective 'growth_first' requires exactly one of a cadence or reserve module")
     candidate = spec.candidates[0]
     windows = walk_forward_windows(
         spec.start,

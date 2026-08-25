@@ -30,6 +30,7 @@ _LEGACY_MIN_INVEST: Final[float] = 0.80
 _LEGACY_MAX_INVEST: Final[float] = 2.00
 _V3_MIN_INVEST: Final[float] = 0.70
 _DEFAULT_VIX_THRESHOLD: Final[float] = 20.0
+_V3_DEFAULT_VIX_THRESHOLD: Final[float] = 25.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +61,8 @@ class ReserveConfig:
                 object.__setattr__(self, "min_invest_multiplier", _V3_MIN_INVEST)
             if self.max_invest_multiplier == _LEGACY_MAX_INVEST:
                 object.__setattr__(self, "max_invest_multiplier", _V3_MAX_INVEST_CEILING)
+            if self.vix_threshold == _DEFAULT_VIX_THRESHOLD:
+                object.__setattr__(self, "vix_threshold", _V3_DEFAULT_VIX_THRESHOLD)
         if not 0.0 < self.min_invest_multiplier < _MIN_INVEST_CEILING:
             raise ValueError(
                 f"min_invest_multiplier must lie in (0, {_MIN_INVEST_CEILING}), "
@@ -101,14 +104,18 @@ def _erp_multiplier(
     min_invest_multiplier: float,
     max_invest_multiplier: float,
 ) -> float:
-    """Map drawdown depth or VIX stress (whichever is cheaper) onto the v3 invest multiplier."""
-    cheap = max(
-        min(1.0, max(0.0, depth) / _DEEP_DEPTH),
-        min(1.0, max(0.0, vix / vix_threshold - 1.0)),
-    )
-    if cheap == 0.0:
+    """Map drawdown depth or VIX stress onto the v3 invest multiplier (three regimes)."""
+    if depth < _SHALLOW_DEPTH and vix < vix_threshold:
         return min_invest_multiplier
-    return 1.0 + cheap * (max_invest_multiplier - 1.0)
+    if depth >= _MODERATE_DEPTH or vix >= vix_threshold:
+        stress = max(
+            min(1.0, max(0.0, depth) / _DEEP_DEPTH),
+            min(1.0, max(0.0, vix / vix_threshold - 1.0)),
+        )
+        if stress == 0.0:
+            stress = _MODERATE_DEPTH / _DEEP_DEPTH
+        return 1.0 + stress * (max_invest_multiplier - 1.0)
+    return 1.0
 
 
 @dataclass(frozen=True, slots=True)
