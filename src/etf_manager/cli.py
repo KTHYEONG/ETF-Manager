@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Final, NoReturn
 from src.etf_manager.analytics.blends import compare_s8_blends
 from src.etf_manager.analytics.metrics import XirrError
 from src.etf_manager.analytics.regimes import compare_policy_regimes
+from src.etf_manager.analytics.reserve_usage import compare_s8_reserve
 from src.etf_manager.analytics.us_vehicles import (
     compare_vehicle_dca,
     history_price_tickers,
@@ -316,6 +317,11 @@ def _build_parser() -> _Parser:
         help="S8 drawdown-blend recipe ratios versus S8/S1 anchors on identical cashflows; reporting only, never an adoption gate",
     )
     diagnose_s8_blends.add_argument("--contribution-krw", required=True, type=float)
+    diagnose_s8_reserve = run_targets.add_parser(
+        "diagnose-s8-reserve",
+        help="S8 reserve-versus-plain ratios and reserve usage per regime window; reporting only, never an adoption gate",
+    )
+    diagnose_s8_reserve.add_argument("--contribution-krw", required=True, type=float)
     return parser
 
 
@@ -484,6 +490,11 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         )
     if args.target == "diagnose-s8-blends":
         return run_diagnose_s8_blends_command(
+            contribution_krw=float(args.contribution_krw),
+            settings=DataSettings(),
+        )
+    if args.target == "diagnose-s8-reserve":
+        return run_diagnose_s8_reserve_command(
             contribution_krw=float(args.contribution_krw),
             settings=DataSettings(),
         )
@@ -798,6 +809,46 @@ def run_diagnose_s8_blends_command(*, contribution_krw: float, settings: DataSet
             comparison.candidate.max_drawdown,
             comparison.candidate.terminal_wealth_real_krw / comparison.s8_baseline.terminal_wealth_real_krw,
             comparison.candidate.terminal_wealth_real_krw / comparison.s1_baseline.terminal_wealth_real_krw,
+        )
+    return 0
+
+
+def run_diagnose_s8_reserve_command(*, contribution_krw: float, settings: DataSettings) -> int:
+    """Log S8 reserved-arm ratios, MDD, and reconstructed reserve usage per regime window.
+
+    Reporting-only diagnostics: no ablation, walk-forward gate, or adoption
+    decision may run here, and the operational policy lock stays unchanged.
+    """
+    try:
+        comparisons = compare_s8_reserve(
+            contribution_krw=float(contribution_krw),
+            runner=lambda config: run_allocation_from_store(config, settings),
+        )
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        logger.error("[DATA] event=diagnose_s8_reserve_failed reason_type=%s", type(exc).__name__)
+        return 1
+    for comparison in comparisons:
+        logger.info(
+            "[DATA] event=s8_reserve_ratio name=%s start=%s end=%s"
+            " reserved_real_terminal_krw=%.2f plain_real_terminal_krw=%.2f ratio_reserved_vs_plain=%.6f"
+            " reserved_mdd=%.4f plain_mdd=%.4f withheld_total=%.2f redeployed_total=%.2f"
+            " extra_investment_ratio=%.8f cash_drag_ratio=%.8f reserve_idle_months=%d"
+            " reserve_deployment_events=%d steps=%d",
+            comparison.name,
+            comparison.start.isoformat(),
+            comparison.end.isoformat(),
+            comparison.reserved.terminal_wealth_real_krw,
+            comparison.plain.terminal_wealth_real_krw,
+            comparison.reserved.terminal_wealth_real_krw / comparison.plain.terminal_wealth_real_krw,
+            comparison.reserved.max_drawdown,
+            comparison.plain.max_drawdown,
+            comparison.reserved_usage.withheld_total,
+            comparison.reserved_usage.redeployed_total,
+            comparison.reserved_usage.extra_investment_ratio,
+            comparison.reserved_usage.cash_drag_ratio,
+            comparison.reserved_usage.reserve_idle_months,
+            comparison.reserved_usage.reserve_deployment_events,
+            len(comparison.reserved.snapshots),
         )
     return 0
 
