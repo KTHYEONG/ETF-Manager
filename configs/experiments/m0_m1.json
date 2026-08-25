@@ -7,29 +7,29 @@
   "horizon_months": 0,
   "baseline": {
     "id": "m0_global",
-    "policy": "global",
-    "extra_rules": 0
+    "policy": "vt",
+    "modules": 0
   },
   "candidates": [
     {
       "id": "s1_us",
-      "policy": "us",
-      "extra_rules": 1
+      "policy": "vti",
+      "modules": 1
     },
     {
       "id": "s2_regional",
-      "policy": "regional",
-      "extra_rules": 1
+      "policy": "world_split",
+      "modules": 1
     },
     {
       "id": "s3_global_bond",
-      "policy": "global_bond",
-      "extra_rules": 1
+      "policy": "vt_bnd",
+      "modules": 1
     },
     {
       "id": "s4_defensive",
-      "policy": "defensive",
-      "extra_rules": 1
+      "policy": "vt_treas",
+      "modules": 1
     }
   ]
 }
