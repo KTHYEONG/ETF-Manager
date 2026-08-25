@@ -836,7 +836,7 @@ def test_exp_l_qqq_reserve_v3_json(scenario_id: str) -> None:
 
     assert spec.name == "wf_qqq_reserve_v3"
     assert spec.objective == "growth_first"
-    assert spec.start == date(2007, 8, 31)
+    assert spec.start == date(2007, 10, 31)
     assert spec.end == date(2026, 6, 30)
     assert spec.contribution_krw == pytest.approx(1_000_000.0)
     assert spec.hurdle == pytest.approx(0.02)
@@ -851,9 +851,12 @@ def test_exp_l_qqq_reserve_v3_json(scenario_id: str) -> None:
     assert spec.reserve.schedule == "v3"
     assert spec.reserve.min_invest_multiplier == pytest.approx(0.70)
     assert spec.reserve.max_invest_multiplier == pytest.approx(3.0)
+    assert spec.reserve.vix_threshold == pytest.approx(25.0)
+    assert spec.reserve.reserve_max_months == pytest.approx(2.0)
 
     resolved = resolve_reserve(spec)
     assert resolved is not None
     assert resolved.schedule == "v3"
-    assert resolved.vix_threshold == pytest.approx(20.0)
+    assert resolved.vix_threshold == pytest.approx(25.0)
+    assert resolved.reserve_max_months == pytest.approx(2.0)
     assert resolved.max_invest_multiplier == pytest.approx(3.0)
