@@ -15,7 +15,7 @@ ETF tickers are implementation vehicles, not the strategy. `PolicyId` names an e
 | --- | --- | --- | --- |
 | `s0_global` | VT 100% | Baseline | Global equity DCA reference |
 | `s1_us` | VTI 100% | CE baseline | US total market; prior operational lock |
-| **`s8_us_nasdaq`** | **QQQ 100%** | **Operational lock** | Nasdaq-100; WF + cost grid + ablation adopted 2026-08-24 |
+| **`qqq`** | **QQQ 100%** | **Operational lock** | Nasdaq-100; WF + cost grid + ablation adopted 2026-08-24 |
 | `s2_regional` | VTI 50 / VEA 30 / VWO 20 | Rejected (M1) | Regional diversification |
 | `s3_global_bond` | VT 70 / BND 30 | Rejected (M1) | Equity + bonds |
 | `s4_defensive` | VT 60 / IEF 20 / TLT 20 | Rejected (M1) | Defensive mix |
@@ -30,7 +30,7 @@ ETF tickers are implementation vehicles, not the strategy. `PolicyId` names an e
 | --- | --- | --- |
 | `us_total_market` | VTI | `s1_us` |
 | `us_large_cap` | IVV | `s7_us_large_cap` |
-| `us_nasdaq_100` | QQQ | `s8_us_nasdaq` |
+| `us_nasdaq_100` | QQQ | `qqq` |
 
 `all_policy_tickers()` returns the sorted union of every `PolicyId` sleeve. `history_price_tickers()`
 also includes diagnostic-only tickers for operator ingest where not already a policy sleeve.

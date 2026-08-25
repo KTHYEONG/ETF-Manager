@@ -25,7 +25,7 @@ ETF-Manager는 단방향 의존성 규칙(`L(n) -> L(m < n)`)을 엄격히 준�
 
 ```mermaid
 flowchart TD
-    subgraph L1["L1 Data Layer (src/etf_manager/data)"]
+    subgraph L1["L1 Data Layer (src/data)"]
         P[Vendor Providers<br/>Tiingo / FRED / ECOS / French] --> R[(Raw Immutable Data)]
         R --> N[Data Normalization]
         N --> A[PIT Availability & Calendars]
@@ -33,13 +33,13 @@ flowchart TD
         Q --> S[(Normalized Parquet + Manifest)]
     end
 
-    subgraph L2["L2 Features Layer (src/etf_manager/features)"]
+    subgraph L2["L2 Features Layer (src/features)"]
         S --> F1[Returns / Volatility / Drawdown]
         S --> F2[Fama-French Factor OLS]
         S --> F3[Macro / FX Trends]
     end
 
-    subgraph L3["L3 Policy Layer (src/etf_manager/policy)"]
+    subgraph L3["L3 Policy Layer (src/policy)"]
         F1 & F2 & F3 --> ST[Strategic Targets<br/>PolicyId Resolution]
         ST --> FT[Factor Tilt<br/>optional]
         FT --> OV[Bounded Overlay<br/>optional]
@@ -47,13 +47,13 @@ flowchart TD
         FX --> TG[Target Weights at t]
     end
 
-    subgraph L4["L4 Simulation Engine (src/etf_manager/sim)"]
+    subgraph L4["L4 Simulation Engine (src/sim)"]
         TG --> CA[allocate_contribution<br/>Band & Cost-aware Mix]
         CA --> EX[Delayed Execution + FX Spread]
         EX --> LG[(Portfolio Ledger SSOT)]
     end
 
-    subgraph L5["L5 Validation & Gate (src/etf_manager/validation)"]
+    subgraph L5["L5 Validation & Gate (src/validation)"]
         LG --> AB[Cohort Ablation]
         LG --> WF[Walk-Forward Engine]
         LG --> CG[Cost-Grid Analysis]
@@ -62,7 +62,7 @@ flowchart TD
         LG --> CE[Certainty Equivalent Gate]
     end
 
-    subgraph L6["L6 ETF Mapping & Execution (src/etf_manager/etf, execution)"]
+    subgraph L6["L6 ETF Mapping & Execution (src/etf, execution)"]
         S --> MD[PIT ETF Metadata]
         MD --> MP[Scoring & Hysteresis Mapping]
         LG --> ORD[BuyOrder Generation]
@@ -86,16 +86,16 @@ flowchart TD
 
 | PolicyId | 대상 자산군 (Sleeves) | 분류 | 상태 |
 | :--- | :--- | :--- | :--- |
-| `s0_global` | Global All-Cap (VT 100%) | Baseline | 글로벌 분산 적립 기준선 |
-| `s1_us` | US Total Market (VTI 100%) | CE Baseline | 미국 전체 시장 (검증 기준선) |
-| **`s8_us_nasdaq`** | **Nasdaq-100 (QQQ 100%)** | **Operational Lock** | **최종 채택 및 운용 정책** (2026-08) |
-| `s2_regional` | US 50% / 선진국 30% / 신흥국 20% | Research | 지역 다변화 (기각) |
-| `s3_global_bond`| 글로벌 주식 70% / 채권 30% | Research | 주식-채권 혼합 (기각) |
-| `s4_defensive` | 주식 60% / 중기채 20% / 장기채 20% | Research | 방어적 배분 (기각) |
-| `s5_invvol` | 지역별 역변동성(Inverse-Vol) 동적 배분 | Research | 동적 배분 연구 |
-| `s6_us_core_value` | 미국 시장 80% / 가치주 20% | Research | 가치 팩터 틸트 (기각) |
-| `s7_us_large_cap` | US Large-Cap (IVV 100% - S&P 500) | Research | 대형주 전용 (기각) |
-| `r1_us_mkt_ff` | French Daily Market Factor (Proxy) | Research | 장기 연구용 팩터 프록시 |
+| `vt` | Global All-Cap (VT 100%) | Baseline | 글로벌 분산 적립 기준선 |
+| `vti` | US Total Market (VTI 100%) | CE Baseline | 미국 전체 시장 (검증 기준선) |
+| **`qqq`** | **Nasdaq-100 (QQQ 100%)** | **Operational Lock** | **최종 채택 및 운용 정책** (2026-08) |
+| `world_split` | US 50% / 선진국 30% / 신흥국 20% | Research | 지역 다변화 (기각) |
+| `vt_bnd`      | 글로벌 주식 70% / 채권 30% | Research | 주식-채권 혼합 (기각) |
+| `vt_treas` | 주식 60% / 중기채 20% / 장기채 20% | Research | 방어적 배분 (기각) |
+| `inv_vol` | 지역별 역변동성(Inverse-Vol) 동적 배분 | Research | 동적 배분 연구 |
+| `vti_vtv` | 미국 시장 80% / 가치주 20% | Research | 가치 팩터 틸트 (기각) |
+| `ivv` | US Large-Cap (IVV 100% - S&P 500) | Research | 대형주 전용 (기각) |
+| `ff_proxy` | French Daily Market Factor (Proxy) | Research | 장기 연구용 팩터 프록시 |
 
 ---
 
@@ -133,7 +133,7 @@ ETF-Manager/
 │   └── experiments/            # 검증 캠페인 결과 리포트
 ├── docs/
 │   └── architecture/           # 시스템 상세 아키텍처 설계 문서
-├── src/etf_manager/
+├── src/
 │   ├── analytics/              # 팩터 프로파일링, 성과 지표, 레짐 분석
 │   ├── data/                   # 데이터 수집, 캘린더, PIT 조회, 품질 게이트
 │   ├── etf/                    # ETF 매핑 및 히스테리시스 스코어링
@@ -180,23 +180,23 @@ export ECOS_API_KEY="your_ecos_key"
 ### 1) 데이터 수집 (Ingest)
 ```bash
 # 전체 패널 데이터 수집 (Prices, FX, Macro, CPI, Factors, Returns)
-uv run python -m src.etf_manager.cli ingest history \
+uv run python -m src.cli ingest history \
   --start 2012-06-01 --end 2024-10-31
 
 # 스모크 테스트용 소규모 데이터 수집
-uv run python -m src.etf_manager.cli ingest smoke
+uv run python -m src.cli ingest smoke
 ```
 
 ### 2) 시뮬레이션 및 정책 실행 (Simulation)
 ```bash
-# 현재 운용 락 정책 (S8 Nasdaq-100) 시뮬레이션
-uv run python -m src.etf_manager.cli run policy \
-  --id s8_us_nasdaq \
+# 현재 운용 락 정책 (QQQ Nasdaq-100) 시뮬레이션
+uv run python -m src.cli run policy \
+  --id qqq \
   --start 2012-06-01 --end 2024-10-31 \
   --contribution-krw 1000000
 
 # 단일 종목 베이스라인 DCA 실행 (예: VTI)
-uv run python -m src.etf_manager.cli run baseline \
+uv run python -m src.cli run baseline \
   --id dca_us --ticker VTI \
   --start 2012-06-01 --end 2024-10-31 \
   --contribution-krw 1000000
@@ -205,22 +205,22 @@ uv run python -m src.etf_manager.cli run baseline \
 ### 3) 가설 검증 및 어블레이션 (Validation Campaigns)
 ```bash
 # 코호트 어블레이션 (Ablation) 실행
-uv run python -m src.etf_manager.cli run ablation \
+uv run python -m src.cli run ablation \
   --config configs/experiments/m1_m2.json
 
 # Walk-Forward 분석 실행
-uv run python -m src.etf_manager.cli run walk-forward \
-  --config configs/experiments/wf_s1_s7.json
+uv run python -m src.cli run walk-forward \
+  --config configs/experiments/wf_vti_ivv.json
 
 # 비용 시나리오 그리드 스트레스 테스트
-uv run python -m src.etf_manager.cli run walk-forward-costs \
-  --config configs/experiments/wf_s0_s1.json
+uv run python -m src.cli run walk-forward-costs \
+  --config configs/experiments/wf_vt_vti.json
 ```
 
 ### 4) 진단 및 분석 (Diagnostics)
 ```bash
 # 미국 주요 ETF(VTI, IVV, QQQ) 팩터 로딩 및 DCA 비교 진단
-uv run python -m src.etf_manager.cli run diagnose-us-vehicles \
+uv run python -m src.cli run diagnose-us-vehicles \
   --start 2012-06-01 --end 2024-10-31 \
   --contribution-krw 1000000
 ```

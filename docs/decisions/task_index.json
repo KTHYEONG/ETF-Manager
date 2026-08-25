@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_U_LAYOUT_VOCAB",
+      "date": "2026-08-25",
+      "adr_id": "ADR_20260825_WAVE_U_LAYOUT_VOCAB",
+      "domain": "general",
+      "title": "Wave U: Flatten src/ package + QQQ/VTI policy vocabulary",
+      "why": "src/etf_manager nested the repo name twice; PolicyId S0–S8, JSON dual keys (extra_rules/hurdle/max_tilt), and diagnose-s8/wf_s8_* filenames forced agents to map opaque serial IDs to QQQ/VTI on every task, hurting maintainability and AI navigation.",
+      "resolution": "Moved layers to src/{data,features,policy,sim,validation,analytics,execution,etf}/ and src/cli.py; renamed PolicyId to sleeve-centric members (QQQ, VTI, VT, …) with legacy parse aliases; canonical experiment JSON keys hurdle/modules/max_shift/max_withhold; renamed wf_s8_*→wf_qqq_*, wf_s1_*→wf_vti_*, CLI diagnose-qqq-*; contract tests NAM-A/CLI-A/PKG-A.",
+      "impact": "Imports are src.<layer>.*; operational lock is PolicyId.QQQ; economics and CE gate unchanged; docs/architecture and code_map paths updated; historical ADR text preserved."
+    },
+    {
       "task_id": "WAVE_T_S8_CADENCE",
       "date": "2026-08-25",
       "adr_id": "ADR_20260825_WAVE_T_S8_CADENCE",

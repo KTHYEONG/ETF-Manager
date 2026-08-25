@@ -1,89 +1,89 @@
 {
-  "src/etf_manager/data/pit.py": {
+  "src/data/pit.py": {
     "architecture": "docs/architecture/01_data_contracts.md",
-    "testing": "tests/unit/etf_manager/data/test_pit.py"
+    "testing": "tests/unit/data/test_pit.py"
   },
-  "src/etf_manager/data/quality.py": {
+  "src/data/quality.py": {
     "architecture": "docs/architecture/01_data_contracts.md",
-    "testing": "tests/unit/etf_manager/data/test_quality.py"
+    "testing": "tests/unit/data/test_quality.py"
   },
-  "src/etf_manager/data/providers/tiingo.py": {
+  "src/data/providers/tiingo.py": {
     "architecture": "docs/architecture/01_data_contracts.md",
-    "testing": "tests/unit/etf_manager/data/test_tiingo.py"
+    "testing": "tests/unit/data/test_tiingo.py"
   },
-  "src/etf_manager/sim/baseline.py": {
+  "src/sim/baseline.py": {
     "architecture": "docs/architecture/00_system_overview.md",
-    "testing": "tests/unit/etf_manager/sim/test_baseline.py"
+    "testing": "tests/unit/sim/test_baseline.py"
   },
-  "src/etf_manager/cli.py": {
+  "src/cli.py": {
     "architecture": "docs/architecture/00_system_overview.md",
-    "testing": "tests/unit/etf_manager/test_cli.py"
+    "testing": "tests/unit/test_cli.py"
   },
-  "src/etf_manager/sim/allocation.py": {
+  "src/sim/allocation.py": {
     "architecture": "docs/architecture/00_system_overview.md",
-    "testing": "tests/unit/etf_manager/sim/test_allocation.py"
+    "testing": "tests/unit/sim/test_allocation.py"
   },
-  "src/etf_manager/policy/tilt.py": {
+  "src/policy/tilt.py": {
     "architecture": "docs/architecture/00_system_overview.md",
-    "testing": "tests/unit/etf_manager/policy/test_tilt.py"
+    "testing": "tests/unit/policy/test_tilt.py"
   },
-  "src/etf_manager/sim/contribution.py": {
+  "src/sim/contribution.py": {
     "architecture": "docs/architecture/00_system_overview.md",
-    "testing": "tests/unit/etf_manager/sim/test_contribution.py"
+    "testing": "tests/unit/sim/test_contribution.py"
   },
-  "src/etf_manager/policy/overlay.py": {
-    "testing": "tests/unit/etf_manager/policy/test_overlay.py"
+  "src/policy/overlay.py": {
+    "testing": "tests/unit/policy/test_overlay.py"
   },
-  "src/etf_manager/policy/currency.py": {
-    "testing": "tests/unit/etf_manager/policy/test_currency.py"
+  "src/policy/currency.py": {
+    "testing": "tests/unit/policy/test_currency.py"
   },
-  "src/etf_manager/etf/mapping.py": {
-    "testing": "tests/unit/etf_manager/etf/test_mapping.py"
+  "src/etf/mapping.py": {
+    "testing": "tests/unit/etf/test_mapping.py"
   },
-  "src/etf_manager/validation/evaluate.py": {},
-  "src/etf_manager/execution/broker.py": {
-    "testing": "tests/unit/etf_manager/execution/test_broker.py"
+  "src/validation/evaluate.py": {},
+  "src/execution/broker.py": {
+    "testing": "tests/unit/execution/test_broker.py"
   },
-  "src/etf_manager/validation/ablation.py": {
-    "testing": "tests/unit/etf_manager/validation/test_ablation.py"
+  "src/validation/ablation.py": {
+    "testing": "tests/unit/validation/test_ablation.py"
   },
-  "src/etf_manager/policy/targets.py": {
-    "testing": "tests/unit/etf_manager/policy/test_targets.py"
+  "src/policy/targets.py": {
+    "testing": "tests/unit/policy/test_targets.py"
   },
-  "src/etf_manager/validation/campaign.py": {
-    "testing": "tests/unit/etf_manager/validation/test_campaign.py"
+  "src/validation/campaign.py": {
+    "testing": "tests/unit/validation/test_campaign.py"
   },
-  "src/etf_manager/sim/research_proxy.py": {
-    "testing": "tests/unit/etf_manager/sim/test_research_proxy.py"
+  "src/sim/research_proxy.py": {
+    "testing": "tests/unit/sim/test_research_proxy.py"
   },
-  "src/etf_manager/analytics/us_vehicles.py": {
-    "testing": "tests/unit/etf_manager/analytics/test_us_vehicles.py"
+  "src/analytics/us_vehicles.py": {
+    "testing": "tests/unit/analytics/test_us_vehicles.py"
   },
-  "src/etf_manager/validation/experiment.py": {
-    "testing": "tests/unit/etf_manager/validation/test_experiment.py"
+  "src/validation/experiment.py": {
+    "testing": "tests/unit/validation/test_experiment.py"
   },
-  "src/etf_manager/validation/feasibility.py": {
-    "testing": "tests/unit/etf_manager/validation/test_feasibility.py"
+  "src/validation/feasibility.py": {
+    "testing": "tests/unit/validation/test_feasibility.py"
   },
-  "src/etf_manager/policy/reserve.py": {
-    "testing": "tests/unit/etf_manager/policy/test_reserve.py"
+  "src/policy/reserve.py": {
+    "testing": "tests/unit/policy/test_reserve.py"
   },
-  "src/etf_manager/sim/lots.py": {
-    "testing": "tests/unit/etf_manager/sim/test_lots.py"
+  "src/sim/lots.py": {
+    "testing": "tests/unit/sim/test_lots.py"
   },
-  "src/etf_manager/data/schedule.py": {
-    "testing": "tests/unit/etf_manager/data/test_schedule.py"
+  "src/data/schedule.py": {
+    "testing": "tests/unit/data/test_schedule.py"
   },
-  "src/etf_manager/analytics/regimes.py": {
-    "testing": "tests/unit/etf_manager/analytics/test_regimes.py"
+  "src/analytics/regimes.py": {
+    "testing": "tests/unit/analytics/test_regimes.py"
   },
-  "src/etf_manager/analytics/blends.py": {
-    "testing": "tests/unit/etf_manager/analytics/test_blends.py"
+  "src/analytics/blends.py": {
+    "testing": "tests/unit/analytics/test_blends.py"
   },
-  "src/etf_manager/analytics/reserve_usage.py": {
-    "testing": "tests/unit/etf_manager/analytics/test_reserve_usage.py"
+  "src/analytics/reserve_usage.py": {
+    "testing": "tests/unit/analytics/test_reserve_usage.py"
   },
-  "src/etf_manager/analytics/cadence.py": {
-    "testing": "tests/unit/etf_manager/analytics/test_cadence.py"
+  "src/analytics/cadence.py": {
+    "testing": "tests/unit/analytics/test_cadence.py"
   }
 }

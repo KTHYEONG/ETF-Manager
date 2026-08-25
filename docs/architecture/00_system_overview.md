@@ -15,7 +15,7 @@ variable external cashflow without an explicit reserve ledger.
 
 | Field | Value |
 | --- | --- |
-| Policy | `S8_US_NASDAQ` — Nasdaq-100, QQQ 100% |
+| Policy | `QQQ` — Nasdaq-100, QQQ 100% |
 | Contribution | Fixed monthly KRW |
 | Rebalancing | Buy-only via `allocate_contribution` |
 | Active modules | Strategic targets only (`modules = 0`) |
@@ -28,31 +28,31 @@ challengers** until they pass the CE adoption gate under walk-forward or cohort 
 
 ```mermaid
 flowchart TD
-    subgraph L1["L1 Data (src/etf_manager/data)"]
+    subgraph L1["L1 Data (src/data)"]
         P[providers] --> R[(raw immutable)]
         R --> N[normalization]
         N --> A[pit + availability]
         A --> Q[quality gate]
         Q --> S[(parquet + manifest)]
     end
-    subgraph L2["L2 Features (src/etf_manager/features)"]
+    subgraph L2["L2 Features (src/features)"]
         S --> F1[returns / vol / drawdown]
         S --> F2[factors OLS]
         S --> F3[fx / macro]
     end
-    subgraph L3["L3 Policy (src/etf_manager/policy)"]
+    subgraph L3["L3 Policy (src/policy)"]
         F1 & F2 & F3 --> ST[resolve_targets PolicyId]
         ST --> FT[FactorTilt optional]
         FT --> OV[bounded overlay optional]
         OV --> FX[currency defer optional]
         FX --> TG[target weights_t]
     end
-    subgraph L4["L4 Simulation (src/etf_manager/sim)"]
+    subgraph L4["L4 Simulation (src/sim)"]
         TG --> CA[allocate_contribution]
         CA --> EX[delayed fill + FX]
         EX --> LG[(ledger SSOT)]
     end
-    subgraph L5["L5 Validation (src/etf_manager/validation)"]
+    subgraph L5["L5 Validation (src/validation)"]
         LG --> AB[ablation + CE gate]
         LG --> WF[walk-forward adoption]
         LG --> CG[cost-grid walk-forward]
@@ -60,16 +60,16 @@ flowchart TD
         LG --> CH[rolling cohorts]
         LG --> BS[block bootstrap]
     end
-    subgraph L6["L6 ETF mapping (src/etf_manager/etf)"]
+    subgraph L6["L6 ETF mapping (src/etf)"]
         S --> MD[PIT metadata]
         MD --> MP[score + hysteresis]
         MP --> TG
     end
-    subgraph AN["Analytics (src/etf_manager/analytics)"]
+    subgraph AN["Analytics (src/analytics)"]
         S --> DV[us_vehicles diagnostics]
         LG --> MET[metrics / attribution]
     end
-    subgraph EXE["Execution (src/etf_manager/execution)"]
+    subgraph EXE["Execution (src/execution)"]
         LG --> ORD[BuyOrder]
         ORD --> PB[PaperBroker]
     end
@@ -101,7 +101,7 @@ realized inside `L4`, not added as objective penalties.
 
 | Mode | Entry | Adoption gate | Overlay in JSON experiments |
 | --- | --- | --- | --- |
-| **Operations** | `run policy --id s8_us_nasdaq` | N/A (locked policy) | CLI flags only (`--overlay-max-shift`) |
+| **Operations** | `run policy --id qqq` | N/A (locked policy) | CLI flags only (`--overlay-max-shift`) |
 | **Ablation** | `run ablation --config` | CE on cohort wealths | Disabled (`overlay=None` in `_arm_config`) |
 | **Walk-forward** | `run walk-forward --config` | Train select → test CE | Disabled (pending Wave G) |
 | **Diagnostics** | `run diagnose-us-vehicles` | Never | Never |
