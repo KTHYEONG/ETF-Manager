@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_X_QQQ_GROWTH_FIRST_GATE",
+      "date": "2026-08-25",
+      "adr_id": "ADR_20260825_WAVE_X_QQQ_GROWTH_FIRST_GATE",
+      "domain": "quant",
+      "title": "Wave X: QQQ growth-first walk-forward gate (month-open cadence)",
+      "why": "Reserve/overlay/FX/blend failed OOS on QQQ; month-open beats month-end +2.1% real TW on calendar-max but CE hurdle 2% blocks adoption (process_adopted False at ~1.01 CE ratio). next.md growth-first objective needs TW+MDD gate distinct from CE modules penalty.",
+      "resolution": "Added ExperimentSpec.objective ce|growth_first (default ce), growth_first_train_passes and growth_first_process_passes in gate.py, wired run_walk_forward_adoption to use train TW/MDD and pooled test TW with worst_fold_floor 0.97; set wf_qqq_cadence.json objective growth_first; contract tests GF-A/GF-C/NAM-GF.",
+      "impact": "QQQ month-open passes growth_first process_adopted on 2007-08-31..2026-06-30 WF (+0.55% pooled test TW, min fold ratio 1.0) while CE gate still fails; operational PolicyId.QQQ month-end lock unchanged; cadence remains XOR with overlay/reserve/mapping/currency."
+    },
+    {
       "task_id": "WAVE_W_QQQ_ACCUMULATION_ALPHA",
       "date": "2026-08-25",
       "adr_id": "ADR_20260825_WAVE_W_QQQ_ACCUMULATION_ALPHA",
