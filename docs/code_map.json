@@ -79,5 +79,8 @@
   },
   "src/etf_manager/analytics/blends.py": {
     "testing": "tests/unit/etf_manager/analytics/test_blends.py"
+  },
+  "src/etf_manager/analytics/reserve_usage.py": {
+    "testing": "tests/unit/etf_manager/analytics/test_reserve_usage.py"
   }
 }
