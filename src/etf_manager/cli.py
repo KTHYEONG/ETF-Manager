@@ -10,6 +10,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Final, NoReturn
 
 from src.etf_manager.analytics.blends import compare_s8_blends
+from src.etf_manager.analytics.cadence import compare_s8_cadence
 from src.etf_manager.analytics.metrics import XirrError
 from src.etf_manager.analytics.regimes import compare_policy_regimes
 from src.etf_manager.analytics.reserve_usage import compare_s8_reserve
@@ -323,6 +324,11 @@ def _build_parser() -> _Parser:
     )
     diagnose_s8_reserve.add_argument("--contribution-krw", required=True, type=float)
     diagnose_s8_reserve.add_argument("--reserve-schedule", choices=("v1", "v2"), default="v1")
+    diagnose_s8_cadence = run_targets.add_parser(
+        "diagnose-s8-cadence",
+        help="S8 month-open-cadence ratios versus the default monthly cadence per regime window; reporting only, never an adoption gate",
+    )
+    diagnose_s8_cadence.add_argument("--contribution-krw", required=True, type=float)
     return parser
 
 
@@ -499,6 +505,11 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             contribution_krw=float(args.contribution_krw),
             settings=DataSettings(),
             reserve_schedule=args.reserve_schedule,
+        )
+    if args.target == "diagnose-s8-cadence":
+        return run_diagnose_s8_cadence_command(
+            contribution_krw=float(args.contribution_krw),
+            settings=DataSettings(),
         )
     raise _UsageError(f"unsupported target {args.target!r}")
 
@@ -862,6 +873,36 @@ def run_diagnose_s8_reserve_command(
             comparison.reserved_usage.reserve_idle_months,
             comparison.reserved_usage.reserve_deployment_events,
             len(comparison.reserved.snapshots),
+        )
+    return 0
+
+
+def run_diagnose_s8_cadence_command(*, contribution_krw: float, settings: DataSettings) -> int:
+    """Log S8 month-open-cadence real-terminal ratios versus the monthly cadence per regime window.
+
+    Reporting-only diagnostics: no ablation, walk-forward gate, or adoption
+    decision may run here, and no operational policy lock changes.
+    """
+    try:
+        comparisons = compare_s8_cadence(
+            contribution_krw=float(contribution_krw),
+            runner=lambda config: run_allocation_from_store(config, settings),
+        )
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        logger.error("[DATA] event=diagnose_s8_cadence_failed reason_type=%s", type(exc).__name__)
+        return 1
+    for comparison in comparisons:
+        logger.info(
+            "[DATA] event=s8_cadence_ratio name=%s start=%s end=%s"
+            " month_open_real_terminal_krw=%.2f monthly_real_terminal_krw=%.2f"
+            " ratio_month_open_vs_monthly=%.6f steps=%d",
+            comparison.name,
+            comparison.start.isoformat(),
+            comparison.end.isoformat(),
+            comparison.month_open.terminal_wealth_real_krw,
+            comparison.monthly.terminal_wealth_real_krw,
+            comparison.month_open.terminal_wealth_real_krw / comparison.monthly.terminal_wealth_real_krw,
+            len(comparison.month_open.snapshots),
         )
     return 0
 
