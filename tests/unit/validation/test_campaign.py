@@ -658,6 +658,22 @@ class _GrowthRunner:
         )
 
 
+class _ReserveGrowthRunner:
+    """Reserve arms run 1.5% above baseline each window; MDD never worsens."""
+
+    def __call__(self, config: AllocationConfig) -> AllocationResult:
+        wealth, mdd = (101.5, -0.24) if config.reserve is not None else (100.0, -0.25)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=mdd,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+
 @pytest.mark.parametrize("scenario_id", ["GF-C-wf-objective"])
 def test_gf_c_wf_objective(scenario_id: str) -> None:
     """GF-C-wf-objective"""
@@ -693,9 +709,24 @@ def test_gf_c_wf_objective(scenario_id: str) -> None:
     assert all(fold.train_adopted is True for fold in gf_report.folds)
     assert gf_report.process_adopted_vs_baseline is True
 
+    gf_reserve_spec = ExperimentSpec(
+        **common,
+        objective="growth_first",
+        reserve=ReserveSpec(max_withhold=0.10, schedule="v3"),
+    )
+    gf_reserve_report = run_walk_forward_adoption(gf_reserve_spec, _ReserveGrowthRunner())
+
+    assert all(fold.train_adopted is True for fold in gf_reserve_report.folds)
+    assert gf_reserve_report.process_adopted_vs_baseline is True
+
     # model_copy bypasses model validation, so the campaign must fail closed itself.
     with pytest.raises(ValueError, match="cadence"):
         run_walk_forward_adoption(gf_spec.model_copy(update={"cadence": None}), _GrowthRunner())
+    with pytest.raises(ValueError, match="reserve"):
+        run_walk_forward_adoption(
+            gf_reserve_spec.model_copy(update={"reserve": None}),
+            _ReserveGrowthRunner(),
+        )
 
 
 class _CadenceEdgeRunner:
