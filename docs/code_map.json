@@ -85,5 +85,8 @@
   },
   "src/analytics/cadence.py": {
     "testing": "tests/unit/analytics/test_cadence.py"
+  },
+  "src/analytics/accumulation_alpha.py": {
+    "testing": "tests/unit/analytics/test_accumulation_alpha.py"
   }
 }

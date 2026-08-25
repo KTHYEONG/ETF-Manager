@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_W_QQQ_ACCUMULATION_ALPHA",
+      "date": "2026-08-25",
+      "adr_id": "ADR_20260825_WAVE_W_QQQ_ACCUMULATION_ALPHA",
+      "domain": "quant",
+      "title": "Wave W: QQQ accumulation-alpha screen + calendar/dip fixes",
+      "why": "QQQ month-end DCA needed I5-safe empirical screening of calendar/dip alternatives; diagnose CLI crashed on catalog start before NYSE first session; dip arms scanned the full month past max_wait and falsely ranked above session_k4.",
+      "resolution": "Added analytics/accumulation_alpha (screen_qqq_accumulation, ArmVerdict, bootstrap CI), CLI run diagnose-qqq-accumulation-alpha, calendar clamp_inclusive_session_range, dip search limited to max_wait+1 sessions; contract tests ACC-A/CLI-A and CAL clamp.",
+      "impact": "Reporting-only QQQ cadence/dip screen on catalog prices; operational_unlock=False and PolicyId.QQQ month-end lock unchanged; CLI exit 0 on full catalog window; dip2_wait5 demoted to reject vs session_k2 research_only."
+    },
+    {
       "task_id": "WAVE_V_QQQ_COMPOUND_MAX",
       "date": "2026-08-25",
       "adr_id": "ADR_20260825_WAVE_V_QQQ_COMPOUND_MAX",
