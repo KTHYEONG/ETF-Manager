@@ -206,6 +206,7 @@ def run_allocation(
                 ticker=reserve_ticker,
                 signal_at=point.signal_at,
                 config=config.reserve,
+                macro=macro,
             )
             # The ledger splits the fresh credit: withheld KRW leaves cash, deployed KRW returns.
             cash_krw += decision.investable_krw - contribution
@@ -310,8 +311,8 @@ def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) 
     """Load latest PRICES, FX, and CPI partitions (plus FACTORS/MACRO/ETF_METADATA when required), then simulate.
 
     FACTORS is required only when ``config.tilt`` is set; a plain policy must not
-    depend on the factors dataset at all. MACRO is loaded only for an overlay
-    with a VIX threshold, and ETF_METADATA only for ETF mapping.
+    depend on the factors dataset at all. MACRO is loaded for an overlay with a
+    VIX threshold or a v3 reserve schedule, and ETF_METADATA only for ETF mapping.
 
     Raises:
         UntrustedDatasetError: When any required dataset lacks a manifest-verified partition.
@@ -320,7 +321,9 @@ def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) 
     """
     if config.policy is PolicyId.FF_PROXY:
         raise ValueError(_RESEARCH_PROXY_REJECT)
-    need_macro = config.overlay is not None and config.overlay.vix_threshold is not None
+    need_macro = (config.overlay is not None and config.overlay.vix_threshold is not None) or (
+        config.reserve is not None and config.reserve.schedule == "v3"
+    )
     need_metadata = config.mapping is not None
     datasets = (
         (Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.FACTORS)

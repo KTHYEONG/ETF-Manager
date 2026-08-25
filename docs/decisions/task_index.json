@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "WAVE_Z_QQQ_RISK_SIZING",
+      "date": "2026-08-25",
+      "adr_id": "ADR_20260825_WAVE_Z_QQQ_RISK_SIZING",
+      "domain": "quant",
+      "title": "Wave Z: QQQ ERP reserve v3 (VIX/drawdown contribution sizing)",
+      "why": "Prior QQQ levers (overlay, reserve v1/v2, cadence) failed to beat plain DCA on identical monthly KRW; user requested risk/sizing via regime signals without changing QQQ 100% or external cashflow (I5).",
+      "resolution": "Added ReserveConfig.schedule v3 with _erp_multiplier (cheap=max(dd/30%, VIX/threshold-1)), visible_macro_level in overlay.py, v3 macro wiring in run_allocation/feasibility, growth_first XOR cadence|reserve in ExperimentSpec, CLI diagnose-qqq-reserve --reserve-schedule v3, wf_qqq_reserve_v3.json; contract tests RSV-V3/NAM-GF/EXP-L/CLI-O/SIM-V3.",
+      "impact": "Empirical: v3 path equals plain QQQ on catalog windows (ratio 1.0, zero reserve events) because multiplier>1 is capped at monthly contribution without prior cheap=0 reserve buildup; v1/v2 still trail plain (-2% to -4%). WF blocked: campaign.py growth_first still requires cadence only; feasibility preflight calendar edge on 2007 start. Operational PolicyId.QQQ month-end lock unchanged."
+    },
+    {
       "task_id": "WAVE_Y_QQQ_MONTH_OPEN_ROBUSTNESS",
       "date": "2026-08-25",
       "adr_id": "ADR_20260825_WAVE_Y_QQQ_MONTH_OPEN_ROBUSTNESS",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import polars as pl
 import pytest
@@ -46,6 +46,29 @@ def _crash_closes() -> list[float]:
     """Flat closes that fall 22% below the running peak inside the final window."""
     flat = [100.0] * (len(_PANEL_DAYS) - 5)
     return [*flat, *[78.0] * 5]
+
+
+def _vix_frame(value: float, series_id: str = "VIXCLS") -> pl.DataFrame:
+    """Single vintage macro row published one day before the signal instant."""
+    return pl.DataFrame(
+        {
+            "series_id": [series_id],
+            "observation_date": [date(2024, 2, 1)],
+            "value": [value],
+            AVAILABLE_AT: [_SIGNAL_AT - timedelta(days=1)],
+        },
+        schema={
+            "series_id": pl.String,
+            "observation_date": pl.Date,
+            "value": pl.Float64,
+            AVAILABLE_AT: pl.Datetime("us", "UTC"),
+        },
+    )
+
+
+_V3_CONFIG = ReserveConfig(
+    max_withhold=0.10, schedule="v3", min_invest_multiplier=0.70, max_invest_multiplier=3.0
+)
 
 
 @pytest.mark.parametrize("scenario_id", ["RSV-A-identity-and-bounds"])
@@ -225,7 +248,7 @@ def test_rsv_v2_stock_cap_and_fail_closed(scenario_id: str) -> None:
         ReserveConfig(max_withhold=0.10, schedule="v2", max_invest_multiplier=2.5)
     with pytest.raises(ValueError, match="reserve_max_months"):
         ReserveConfig(max_withhold=0.10, schedule="v2", reserve_max_months=6.5)
-    bad_schedule: str = "v3"
+    bad_schedule: str = "v4"
     with pytest.raises(ValueError, match="schedule"):
         ReserveConfig(max_withhold=0.10, schedule=bad_schedule)  # type: ignore[arg-type]
 
@@ -247,3 +270,112 @@ def test_rsv_v2_stock_cap_and_fail_closed(scenario_id: str) -> None:
             signal_at=_SIGNAL_AT,
             config=config,
         )
+
+
+@pytest.mark.parametrize("scenario_id", ["RSV-V3-identity-and-erp"])
+def test_rsv_v3_complacent_bull_withholds(scenario_id: str) -> None:
+    """RSV-V3-identity-and-erp"""
+    decision = apply_reserve_schedule(
+        contribution_krw=_CONTRIBUTION_KRW,
+        reserve_krw=500_000.0,
+        prices=_price_panel(_rising_closes()),
+        ticker=_TICKER,
+        signal_at=_SIGNAL_AT,
+        config=_V3_CONFIG,
+        macro=_vix_frame(15.0),
+    )
+
+    assert decision.investable_krw == pytest.approx(700_000.0)
+    assert decision.reserve_krw == pytest.approx(800_000.0)
+    assert abs((decision.investable_krw + decision.reserve_krw) - 1_500_000.0) <= 1e-9
+
+
+@pytest.mark.parametrize("scenario_id", ["RSV-V3-identity-and-erp"])
+def test_rsv_v3_elevated_vix_deploys(scenario_id: str) -> None:
+    """RSV-V3-identity-and-erp"""
+    decision = apply_reserve_schedule(
+        contribution_krw=_CONTRIBUTION_KRW,
+        reserve_krw=500_000.0,
+        prices=_price_panel(_rising_closes()),
+        ticker=_TICKER,
+        signal_at=_SIGNAL_AT,
+        config=_V3_CONFIG,
+        macro=_vix_frame(40.0),
+    )
+
+    # cheap == 1 at twice the threshold: the 1.5m stock caps the boosted buy.
+    assert decision.investable_krw == pytest.approx(1_500_000.0)
+    assert decision.reserve_krw == pytest.approx(0.0)
+    assert abs((decision.investable_krw + decision.reserve_krw) - 1_500_000.0) <= 1e-9
+
+
+@pytest.mark.parametrize("scenario_id", ["RSV-V3-identity-and-erp"])
+def test_rsv_v3_drawdown_depth_scales(scenario_id: str) -> None:
+    """RSV-V3-identity-and-erp"""
+    expected_m = 1.0 + (0.22 / 0.30) * (_V3_CONFIG.max_invest_multiplier - 1.0)
+    decision = apply_reserve_schedule(
+        contribution_krw=_CONTRIBUTION_KRW,
+        reserve_krw=500_000.0,
+        prices=_price_panel(_crash_closes()),
+        ticker=_TICKER,
+        signal_at=_SIGNAL_AT,
+        config=_V3_CONFIG,
+        macro=_vix_frame(15.0),
+    )
+
+    assert decision.investable_krw == pytest.approx(min(expected_m * _CONTRIBUTION_KRW, 1_500_000.0))
+    assert decision.reserve_krw == pytest.approx(max(0.0, 1_500_000.0 - expected_m * _CONTRIBUTION_KRW))
+    assert abs((decision.investable_krw + decision.reserve_krw) - 1_500_000.0) <= 1e-9
+
+
+@pytest.mark.parametrize("scenario_id", ["RSV-V3-identity-and-erp"])
+def test_rsv_v3_fail_closed_without_macro(scenario_id: str) -> None:
+    """RSV-V3-identity-and-erp"""
+    with pytest.raises(PolicyError):
+        apply_reserve_schedule(
+            contribution_krw=_CONTRIBUTION_KRW,
+            reserve_krw=500_000.0,
+            prices=_price_panel(_rising_closes()),
+            ticker=_TICKER,
+            signal_at=_SIGNAL_AT,
+            config=_V3_CONFIG,
+        )
+    with pytest.raises(PolicyError):
+        apply_reserve_schedule(
+            contribution_krw=_CONTRIBUTION_KRW,
+            reserve_krw=500_000.0,
+            prices=_price_panel(_rising_closes()),
+            ticker=_TICKER,
+            signal_at=_SIGNAL_AT,
+            config=_V3_CONFIG,
+            macro=_vix_frame(15.0).clear(),
+        )
+    with pytest.raises(PolicyError):
+        apply_reserve_schedule(
+            contribution_krw=_CONTRIBUTION_KRW,
+            reserve_krw=500_000.0,
+            prices=_price_panel(_rising_closes()),
+            ticker=_TICKER,
+            signal_at=_SIGNAL_AT,
+            config=_V3_CONFIG,
+            macro=_vix_frame(15.0, series_id="OTHER"),
+        )
+
+
+@pytest.mark.parametrize("scenario_id", ["RSV-V3-identity-and-erp"])
+def test_rsv_v3_bounds_and_defaults(scenario_id: str) -> None:
+    """RSV-V3-identity-and-erp"""
+    with pytest.raises(ValueError, match="max_invest_multiplier"):
+        ReserveConfig(max_withhold=0.10, schedule="v2", max_invest_multiplier=2.5)
+    assert (
+        ReserveConfig(max_withhold=0.10, schedule="v3", max_invest_multiplier=3.0).max_invest_multiplier
+        == pytest.approx(3.0)
+    )
+    with pytest.raises(ValueError, match="max_invest_multiplier"):
+        ReserveConfig(max_withhold=0.10, schedule="v3", max_invest_multiplier=3.1)
+
+    defaults = ReserveConfig(max_withhold=0.10, schedule="v3")
+    assert defaults.min_invest_multiplier == pytest.approx(0.70)
+    assert defaults.max_invest_multiplier == pytest.approx(3.0)
+    assert defaults.vix_threshold == pytest.approx(20.0)
+    assert defaults.vix_series_id == "VIXCLS"

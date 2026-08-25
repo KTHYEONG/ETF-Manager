@@ -807,3 +807,53 @@ def test_nam_gf_json_objective(scenario_id: str) -> None:
     no_cadence["objective"] = "growth_first"
     with pytest.raises(ValueError, match="cadence"):
         ExperimentSpec.model_validate(no_cadence)
+
+    reserve_only = _payload()
+    reserve_only["objective"] = "growth_first"
+    reserve_only["reserve"] = {
+        "schedule": "v3",
+        "max_withhold": 0.10,
+        "min_invest_multiplier": 0.70,
+        "max_invest_multiplier": 3.0,
+    }
+    parsed = ExperimentSpec.model_validate(reserve_only)
+    assert parsed.cadence is None
+    assert parsed.reserve is not None
+    assert parsed.reserve.schedule == "v3"
+
+    both_modules = _payload()
+    both_modules["objective"] = "growth_first"
+    both_modules["cadence"] = {"anchor": "month_open"}
+    both_modules["reserve"] = {"schedule": "v3", "max_withhold": 0.10}
+    with pytest.raises(ValueError, match="cadence"):
+        ExperimentSpec.model_validate(both_modules)
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-L-qqq-reserve-v3"])
+def test_exp_l_qqq_reserve_v3_json(scenario_id: str) -> None:
+    """EXP-L-qqq-reserve-v3"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_reserve_v3.json")
+
+    assert spec.name == "wf_qqq_reserve_v3"
+    assert spec.objective == "growth_first"
+    assert spec.start == date(2007, 8, 31)
+    assert spec.end == date(2026, 6, 30)
+    assert spec.contribution_krw == pytest.approx(1_000_000.0)
+    assert spec.hurdle == pytest.approx(0.02)
+    assert spec.train_months == 60
+    assert spec.test_months == 36
+    assert spec.baseline.policy is PolicyId.QQQ
+    assert spec.baseline.modules == 0
+    assert [candidate.policy for candidate in spec.candidates] == [PolicyId.QQQ]
+    assert [candidate.modules for candidate in spec.candidates] == [1]
+    assert spec.cadence is None
+    assert spec.reserve is not None
+    assert spec.reserve.schedule == "v3"
+    assert spec.reserve.min_invest_multiplier == pytest.approx(0.70)
+    assert spec.reserve.max_invest_multiplier == pytest.approx(3.0)
+
+    resolved = resolve_reserve(spec)
+    assert resolved is not None
+    assert resolved.schedule == "v3"
+    assert resolved.vix_threshold == pytest.approx(20.0)
+    assert resolved.max_invest_multiplier == pytest.approx(3.0)

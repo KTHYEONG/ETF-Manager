@@ -130,9 +130,9 @@ def resolve_feasibility(
 ) -> FeasibilityReport:
     """Check that the requested window can trade without lookahead or data gaps.
 
-    Loads PRICES/FX/CPI (plus MACRO only for a VIX-gated overlay and
-    ETF_METADATA only for mapping) once at the requested schedule's last
-    execution close — the allocator's own visibility cutoff — then evaluates CPI
+    Loads PRICES/FX/CPI (plus MACRO for a VIX-gated overlay or a v3 reserve
+    schedule, and ETF_METADATA only for mapping) once at the requested schedule's
+    last execution close — the allocator's own visibility cutoff — then evaluates CPI
     visibility, first/last execution marks (plus mapped implementations), the
     exact overlay feature stack at the first signal instant, a reserve ledger dry run at
     that instant when configured, and a full
@@ -169,7 +169,9 @@ def resolve_feasibility(
         prices = load_visible(settings, Dataset.PRICES, last_exec_close)
         fx = load_visible(settings, Dataset.FX, last_exec_close)
         cpi = load_visible(settings, Dataset.CPI, last_exec_close)
-        need_macro = overlay is not None and overlay.vix_threshold is not None
+        need_macro = (overlay is not None and overlay.vix_threshold is not None) or (
+            reserve is not None and reserve.schedule == "v3"
+        )
         macro = load_visible(settings, Dataset.MACRO, last_exec_close) if need_macro else None
         metadata: pl.DataFrame | None = None
         if mapping is not None:
@@ -207,8 +209,8 @@ def resolve_feasibility(
             warmup_violation = _overlay_warmup_violation(prices, overlay, overlay_tickers, first_point.signal_at)
             if warmup_violation is not None:
                 violations.append(warmup_violation)
-            if need_macro and macro is not None:
-                vix_violation = _vix_violation(macro, overlay, first_point.signal_at)
+            if need_macro and macro is not None and overlay is not None:
+                vix_violation = _vix_violation(macro, overlay.vix_series_id, first_point.signal_at)
                 if vix_violation is not None:
                     violations.append(vix_violation)
 
@@ -222,10 +224,14 @@ def resolve_feasibility(
         if reserve is not None:
             reserve_tickers = _union_sleeves(reserve_policies)
             reserve_violation = _reserve_warmup_violation(
-                prices, reserve, reserve_tickers, first_point.signal_at
+                prices, reserve, reserve_tickers, first_point.signal_at, macro=macro
             )
             if reserve_violation is not None:
                 violations.append(reserve_violation)
+            if reserve.schedule == "v3" and macro is not None:
+                vix_violation = _vix_violation(macro, reserve.vix_series_id, first_point.signal_at)
+                if vix_violation is not None:
+                    violations.append(vix_violation)
 
         if currency is not None:
             currency_violation = _currency_warmup_violation(fx, currency, first_point.signal_at)
@@ -421,6 +427,7 @@ def _reserve_warmup_violation(
     reserve: ReserveConfig,
     tickers: tuple[str, ...],
     signal_at: datetime,
+    macro: pl.DataFrame | None = None,
 ) -> FeasibilityViolation | None:
     """Run the exact reserve feature stack at the first signal; windows are never shortened."""
     if not tickers:
@@ -439,6 +446,7 @@ def _reserve_warmup_violation(
                 ticker=ticker,
                 signal_at=signal_at,
                 config=reserve,
+                macro=macro,
             )
         except (PolicyError, ValueError) as exc:
             return FeasibilityViolation(
@@ -484,18 +492,18 @@ def _currency_warmup_violation(
     return None
 
 
-def _vix_violation(macro: pl.DataFrame, overlay: OverlayConfig, signal_at: datetime) -> FeasibilityViolation | None:
+def _vix_violation(macro: pl.DataFrame, series_id: str, signal_at: datetime) -> FeasibilityViolation | None:
     """A finite VIX row must be published at or before the first signal instant."""
     cutoff = signal_at.astimezone(UTC)
     visible = macro.filter(
-        (pl.col("series_id") == overlay.vix_series_id)
+        (pl.col("series_id") == series_id)
         & (pl.col(AVAILABLE_AT) <= pl.lit(cutoff, dtype=TS_DTYPE))
         & pl.col("value").is_finite()
     )
     if visible.is_empty():
         return FeasibilityViolation(
             code="vix",
-            message=f"no finite {overlay.vix_series_id!r} macro row visible at {cutoff.isoformat()}",
+            message=f"no finite {series_id!r} macro row visible at {cutoff.isoformat()}",
         )
     return None
 
@@ -522,11 +530,21 @@ def _point_passes(
         if (
             overlay.vix_threshold is not None
             and macro is not None
-            and _vix_violation(macro, overlay, point.signal_at) is not None
+            and _vix_violation(macro, overlay.vix_series_id, point.signal_at) is not None
         ):
             return False
     if reserve is not None:
-        return _reserve_warmup_violation(prices, reserve, reserve_tickers, point.signal_at) is None
+        if (
+            _reserve_warmup_violation(prices, reserve, reserve_tickers, point.signal_at, macro=macro)
+            is not None
+        ):
+            return False
+        if (
+            reserve.schedule == "v3"
+            and macro is not None
+            and _vix_violation(macro, reserve.vix_series_id, point.signal_at) is not None
+        ):
+            return False
     return True
 
 

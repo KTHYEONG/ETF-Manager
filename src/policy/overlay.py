@@ -18,7 +18,7 @@ from src.policy.targets import PolicyError
 if TYPE_CHECKING:
     from datetime import datetime
 
-__all__ = ["OverlayConfig", "apply_bounded_overlay"]
+__all__ = ["OverlayConfig", "apply_bounded_overlay", "visible_macro_level"]
 
 _MAX_SHIFT_CEILING: Final[float] = 0.10
 
@@ -88,7 +88,7 @@ def apply_bounded_overlay(
         score = 0.5 * trend_signs[sleeve] + 0.25 * vol_sign + 0.25 * dd_sign
         scores[sleeve] = min(1.0, max(-1.0, score))
     if overlay.vix_threshold is not None:
-        vix_level = _visible_macro_level(macro, overlay.vix_series_id, signal_at)
+        vix_level = visible_macro_level(macro, overlay.vix_series_id, signal_at)
         if vix_level > overlay.vix_threshold:
             scores = {sleeve: min(1.0, max(-1.0, score - 1.0)) for sleeve, score in scores.items()}
 
@@ -102,7 +102,7 @@ def apply_bounded_overlay(
     return shifted
 
 
-def _visible_macro_level(macro: pl.DataFrame | None, series_id: str, signal_at: datetime) -> float:
+def visible_macro_level(macro: pl.DataFrame | None, series_id: str, signal_at: datetime) -> float:
     """Latest finite MACRO level for ``series_id`` visible at ``signal_at``; fail-closed."""
     if macro is None:
         raise PolicyError(f"VIX gate requires a macro frame for {series_id!r}")
