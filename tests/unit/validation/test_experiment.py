@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from src.etf.mapping import DEFAULT_CANDIDATES, MappingConfig
 from src.policy.currency import CurrencyConfig
@@ -785,3 +786,24 @@ def test_exp_l_qqq_cadence_twice(scenario_id: str) -> None:
     overlay_and_cadence["cadence"] = {"anchor": "twice_monthly"}
     with pytest.raises(ValueError, match="cadence"):
         ExperimentSpec.model_validate(overlay_and_cadence)
+
+
+@pytest.mark.parametrize("scenario_id", ["NAM-GF-json-objective"])
+def test_nam_gf_json_objective(scenario_id: str) -> None:
+    """NAM-GF-json-objective"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_cadence.json")
+
+    assert spec.objective == "growth_first"
+
+    omitted = ExperimentSpec.model_validate(_payload())
+    assert omitted.objective == "ce"
+
+    unknown = _payload()
+    unknown["objective"] = "median_tw"
+    with pytest.raises(ValidationError):
+        ExperimentSpec.model_validate(unknown)
+
+    no_cadence = _payload()
+    no_cadence["objective"] = "growth_first"
+    with pytest.raises(ValueError, match="cadence"):
+        ExperimentSpec.model_validate(no_cadence)
