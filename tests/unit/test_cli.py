@@ -1407,3 +1407,75 @@ def test_cli_o_diagnose_qqq_cadence(scenario_id: str, monkeypatch: pytest.Monkey
 
     assert main(["run", "diagnose-qqq-cadence", "--contribution-krw", "1000000"]) == 0
     assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-R-cadence-robustness"])
+def test_cli_r_cadence_robustness(
+    scenario_id: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI-R-cadence-robustness"""
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        wealth, mdd = (105.0, -0.24) if config.cadence != "monthly" else (100.0, -0.25)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=mdd,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+    monkeypatch.setattr(cli, "assert_experiment_feasible", lambda spec, settings: None)
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "latest_artifact", lambda settings, dataset: _FakeArtifact(8))
+    data_root = tmp_path / "data"
+    monkeypatch.setattr(cli, "DataSettings", lambda: DataSettings(data_root=data_root))
+
+    assert main(["run", "cadence-robustness"]) == 2
+
+    payload = {
+        "name": "wf_qqq_cadence",
+        "start": "2014-01-03",
+        "end": "2024-09-30",
+        "contribution_krw": 1_000_000,
+        "hurdle": 0.02,
+        "objective": "growth_first",
+        "horizon_months": 0,
+        "train_months": 60,
+        "test_months": 36,
+        "baseline": {"id": "s8_us_nasdaq", "policy": "qqq", "modules": 0},
+        "candidates": [{"id": "s8_us_nasdaq_month_open", "policy": "qqq", "modules": 1}],
+        "cadence": {"anchor": "month_open"},
+    }
+    config_path = tmp_path / "wf_qqq_cadence.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    # Seed is mandatory; a non-positive path count is a usage error.
+    assert main(["run", "cadence-robustness", "--config", str(config_path)]) == 2
+    assert (
+        main(
+            [
+                "run",
+                "cadence-robustness",
+                "--config",
+                str(config_path),
+                "--seed",
+                "7",
+                "--bootstrap-paths",
+                "0",
+            ]
+        )
+        == 2
+    )
+
+    exit_code = main(["run", "cadence-robustness", "--config", str(config_path), "--seed", "7"])
+
+    assert exit_code == 0
+    reports = list((data_root / "experiments").glob("*_robustness_*.json"))
+    assert len(reports) == 1
+    written = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert written["robust_adopted"] is True
