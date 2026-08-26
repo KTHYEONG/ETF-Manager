@@ -195,9 +195,9 @@ class AdaptiveContributionSpec(BaseModel):
     credit_series_id: str = "BAA10Y"
     min_multiplier: float = Field(default=0.0, ge=0.0, lt=1.0)
     max_multiplier: float = Field(default=2.0, gt=1.0, le=2.0)
-    downside_power: float = Field(default=2.0, gt=0.0)
-    upside_power: float = Field(default=1.0, gt=0.0)
-    rank_window: int = Field(default=252, ge=63)
+    downside_power: float = Field(default=2.5, gt=0.0)
+    upside_power: float = Field(default=0.7, gt=0.0)
+    rank_window: int = Field(default=126, ge=63)
 
 
 class ExperimentSpec(BaseModel):
@@ -419,7 +419,10 @@ def resolve_kafi_deployment(spec: ExperimentSpec) -> KafiDeploymentConfig | None
 
 
 def resolve_adaptive_contribution(spec: ExperimentSpec) -> AdaptiveContributionConfig | None:
-    """Map the JSON adaptive-contribution onto the runtime config, keeping window defaults."""
+    """Map the JSON adaptive-contribution onto the runtime config, keeping window defaults.
+
+    Mapping shape: AdaptiveContributionConfig(equity_ticker=..., bond_ticker=..., credit_series_id=..., min_multiplier=..., max_multiplier=..., downside_power=..., upside_power=..., rank_window=...)
+    """
     if spec.adaptive_contribution is None:
         return None
     return AdaptiveContributionConfig(

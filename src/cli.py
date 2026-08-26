@@ -56,6 +56,7 @@ from src.policy.tilt import TILT_FACTORS, FactorTilt
 from src.sim.allocation import (
     AllocationConfig,
     AllocationDataError,
+    apply_operational_contribution_lock,
     run_allocation_from_store,
 )
 from src.sim.baseline import (
@@ -162,7 +163,7 @@ def _build_parser() -> _Parser:
         "--id",
         choices=tuple(POLICY_ALIASES),
         required=True,
-        help=f"Policy id (operational default: {OPERATIONAL_POLICY_ID.value})",
+        help=f"Policy id (operational default: {OPERATIONAL_POLICY_ID.value} with locked adaptive contribution)",
     )
     policy.add_argument("--start", required=True, type=_iso_date)
     policy.add_argument("--end", required=True, type=_iso_date)
@@ -1168,19 +1169,21 @@ def run_policy_command(
     """
     if rebalance_band is not None and not 0.0 <= rebalance_band < 1.0:
         raise ValueError(f"rebalance_band must lie in [0, 1), got {rebalance_band!r}")
-    config = AllocationConfig(
-        policy=PolicyId.parse(policy_id),
-        start=start,
-        end=end,
-        monthly_contribution_krw=float(contribution_krw),
-        fill_delay_sessions=1,
-        commission_bps=0.0,
-        tilt=tilt,
-        rebalance_band=rebalance_band,
-        overlay=overlay,
-        reserve=reserve,
-        currency=currency,
-        mapping=mapping,
+    config = apply_operational_contribution_lock(
+        AllocationConfig(
+            policy=PolicyId.parse(policy_id),
+            start=start,
+            end=end,
+            monthly_contribution_krw=float(contribution_krw),
+            fill_delay_sessions=1,
+            commission_bps=0.0,
+            tilt=tilt,
+            rebalance_band=rebalance_band,
+            overlay=overlay,
+            reserve=reserve,
+            currency=currency,
+            mapping=mapping,
+        )
     )
     try:
         require_feasibility(
@@ -1591,13 +1594,15 @@ def run_paper_command(
     settings: DataSettings,
 ) -> int:
     """Replay a stored-data policy onto PaperBroker and fail closed on lot mismatch."""
-    config = AllocationConfig(
-        policy=PolicyId(policy_id),
-        start=start,
-        end=end,
-        monthly_contribution_krw=float(contribution_krw),
-        fill_delay_sessions=1,
-        commission_bps=0.0,
+    config = apply_operational_contribution_lock(
+        AllocationConfig(
+            policy=PolicyId(policy_id),
+            start=start,
+            end=end,
+            monthly_contribution_krw=float(contribution_krw),
+            fill_delay_sessions=1,
+            commission_bps=0.0,
+        )
     )
     try:
         result = run_allocation_from_store(config, settings)

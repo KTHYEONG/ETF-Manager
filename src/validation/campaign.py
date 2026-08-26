@@ -256,12 +256,7 @@ def run_walk_forward_adoption(
             "contribution_shape, or kafi_deployment module"
         )
     candidate = spec.candidates[0]
-    windows = walk_forward_windows(
-        spec.start,
-        spec.end,
-        train_months=spec.train_months,
-        test_months=spec.test_months,
-    )
+    windows = walk_forward_windows(spec.start, spec.end, train_months=spec.train_months, test_months=spec.test_months)
     if not windows:
         raise ValueError("no walk-forward folds fit the experiment window")
     candidate_overlay = resolve_overlay(spec)
