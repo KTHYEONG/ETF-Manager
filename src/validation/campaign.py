@@ -15,6 +15,7 @@ from src.validation.experiment import (
     resolve_cadence,
     resolve_contribution_shape,
     resolve_currency,
+    resolve_kafi_deployment,
     resolve_mapping,
     resolve_overlay,
     resolve_reserve,
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
     from src.etf.mapping import MappingConfig
     from src.policy.contribution_shape import ContributionShapeConfig
     from src.policy.currency import CurrencyConfig
+    from src.policy.kafi_deployment import KafiDeploymentConfig
     from src.policy.overlay import OverlayConfig
     from src.policy.reserve import ReserveConfig
     from src.sim.allocation import AllocationResult
@@ -154,6 +156,7 @@ def _arm_config(
     mapping: MappingConfig | None,
     currency: CurrencyConfig | None,
     contribution_shape: ContributionShapeConfig | None = None,
+    kafi_deployment: KafiDeploymentConfig | None = None,
     cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
 ) -> AllocationConfig:
     """Identical cashflow/costs for every arm on one sliced window."""
@@ -172,6 +175,7 @@ def _arm_config(
         currency=currency,
         mapping=mapping,
         contribution_shape=contribution_shape,
+        kafi_deployment=kafi_deployment,
         cadence=cadence,
     )
 
@@ -211,14 +215,14 @@ def run_walk_forward_adoption(
         raise ValueError("walk-forward adoption requires both train_months and test_months")
     if len(spec.candidates) != 1:
         raise ValueError(f"expected exactly one candidate, got {len(spec.candidates)}")
-    growth_first_modules = (spec.cadence, spec.reserve, spec.contribution_shape)
+    growth_first_modules = (spec.cadence, spec.reserve, spec.contribution_shape, spec.kafi_deployment)
     if (
         spec.objective == "growth_first"
         and sum(module is not None for module in growth_first_modules) != 1
     ):
         raise ValueError(
             "objective 'growth_first' requires exactly one of a cadence, reserve, "
-            "or contribution_shape module"
+            "contribution_shape, or kafi_deployment module"
         )
     candidate = spec.candidates[0]
     windows = walk_forward_windows(
@@ -234,6 +238,7 @@ def run_walk_forward_adoption(
     candidate_mapping = resolve_mapping(spec)
     candidate_currency = resolve_currency(spec)
     candidate_contribution_shape = resolve_contribution_shape(spec)
+    candidate_kafi_deployment = resolve_kafi_deployment(spec)
     candidate_cadence = resolve_cadence(spec) or "monthly"
 
     def arm_result(
@@ -245,6 +250,7 @@ def run_walk_forward_adoption(
         arm_mapping: MappingConfig | None,
         arm_currency: CurrencyConfig | None,
         arm_contribution_shape: ContributionShapeConfig | None = None,
+        arm_kafi_deployment: KafiDeploymentConfig | None = None,
         arm_cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
     ) -> AllocationResult:
         return runner(
@@ -258,6 +264,7 @@ def run_walk_forward_adoption(
                 arm_mapping,
                 arm_currency,
                 arm_contribution_shape,
+                arm_kafi_deployment,
                 arm_cadence,
             )
         )
@@ -271,6 +278,7 @@ def run_walk_forward_adoption(
         arm_mapping: MappingConfig | None,
         arm_currency: CurrencyConfig | None,
         arm_contribution_shape: ContributionShapeConfig | None = None,
+        arm_kafi_deployment: KafiDeploymentConfig | None = None,
         arm_cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
     ) -> float:
         return arm_result(
@@ -282,6 +290,7 @@ def run_walk_forward_adoption(
             arm_mapping,
             arm_currency,
             arm_contribution_shape,
+            arm_kafi_deployment,
             arm_cadence,
         ).terminal_wealth_real_krw
 
@@ -302,6 +311,7 @@ def run_walk_forward_adoption(
             candidate_mapping,
             candidate_currency,
             candidate_contribution_shape,
+            candidate_kafi_deployment,
             candidate_cadence,
         )
         if spec.objective == "growth_first":
@@ -325,6 +335,7 @@ def run_walk_forward_adoption(
             else (None, None, None, None)
         )
         chosen_contribution_shape = candidate_contribution_shape if train_adopted else None
+        chosen_kafi_deployment = candidate_kafi_deployment if train_adopted else None
         chosen_cadence = candidate_cadence if train_adopted else "monthly"
         baseline_test = real_wealth(spec.baseline.policy, test_start, test_end, None, None, None, None)
         candidate_test = real_wealth(
@@ -336,6 +347,7 @@ def run_walk_forward_adoption(
             candidate_mapping,
             candidate_currency,
             candidate_contribution_shape,
+            candidate_kafi_deployment,
             candidate_cadence,
         )
         chosen_test = real_wealth(
@@ -344,6 +356,7 @@ def run_walk_forward_adoption(
             test_end,
             *keep_extras,
             chosen_contribution_shape,
+            chosen_kafi_deployment,
             chosen_cadence,
         )
         folds.append(

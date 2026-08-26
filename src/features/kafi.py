@@ -16,8 +16,11 @@ if TYPE_CHECKING:
 __all__ = [
     "DEFAULT_CREDIT_SERIES_ID",
     "KAFI_COMPONENT_IDS",
+    "KAFI_OPPORTUNITY_COMPONENT_IDS",
     "earliest_kafi_signal_session",
     "kafi_components",
+    "kafi_opportunity_components",
+    "kafi_opportunity_score",
     "kafi_score",
 ]
 
@@ -29,6 +32,8 @@ KAFI_COMPONENT_IDS: Final[tuple[str, ...]] = (
     "fx_stress",
     "vol_dampener",
 )
+
+KAFI_OPPORTUNITY_COMPONENT_IDS: Final[tuple[str, ...]] = KAFI_COMPONENT_IDS
 
 _SMA_WINDOW: Final[int] = 125
 _DRAWDOWN_WINDOW: Final[int] = 252
@@ -84,6 +89,71 @@ def kafi_components(
         if not math.isfinite(value) or not 0.0 <= value <= 100.0:
             raise ValueError(f"kafi component {component!r} produced an out-of-range score {value!r}")
     return ordered
+
+
+def kafi_opportunity_components(
+    *,
+    prices: pl.DataFrame,
+    fx: pl.DataFrame,
+    macro: pl.DataFrame,
+    equity_ticker: str,
+    bond_ticker: str,
+    signal_at: datetime,
+    rank_window: int = 252,
+    credit_series_id: str = DEFAULT_CREDIT_SERIES_ID,
+) -> dict[str, float]:
+    """Equal-weight opportunity scores in [0, 100]; higher means a better QQQ entry."""
+    greed = kafi_components(
+        prices=prices,
+        fx=fx,
+        macro=macro,
+        equity_ticker=equity_ticker,
+        bond_ticker=bond_ticker,
+        signal_at=signal_at,
+        rank_window=rank_window,
+        credit_series_id=credit_series_id,
+    )
+    opportunity = {
+        "momentum": 100.0 - greed["momentum"],
+        "drawdown_depth": greed["drawdown_depth"],
+        "equity_bond_rel": 100.0 - greed["equity_bond_rel"],
+        "credit_oas": greed["credit_oas"],
+        "fx_stress": 100.0 - greed["fx_stress"],
+        "vol_dampener": 50.0,
+    }
+    ordered = {component: float(opportunity[component]) for component in KAFI_OPPORTUNITY_COMPONENT_IDS}
+    for component, value in ordered.items():
+        if not math.isfinite(value) or not 0.0 <= value <= 100.0:
+            raise ValueError(f"kafi opportunity component {component!r} produced an out-of-range score {value!r}")
+    return ordered
+
+
+def kafi_opportunity_score(
+    *,
+    prices: pl.DataFrame,
+    fx: pl.DataFrame,
+    macro: pl.DataFrame,
+    equity_ticker: str,
+    bond_ticker: str,
+    signal_at: datetime,
+    rank_window: int = 252,
+    credit_series_id: str = DEFAULT_CREDIT_SERIES_ID,
+) -> float:
+    """Equal-weight mean of the six opportunity component scores in [0, 100]."""
+    components = kafi_opportunity_components(
+        prices=prices,
+        fx=fx,
+        macro=macro,
+        equity_ticker=equity_ticker,
+        bond_ticker=bond_ticker,
+        signal_at=signal_at,
+        rank_window=rank_window,
+        credit_series_id=credit_series_id,
+    )
+    score = sum(components.values()) / len(components)
+    if not math.isfinite(score):
+        raise ValueError(f"kafi opportunity score collapsed to a non-finite value {score!r}")
+    return score
 
 
 def kafi_score(

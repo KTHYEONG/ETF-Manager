@@ -98,5 +98,8 @@
   },
   "src/features/kafi.py": {
     "testing": "tests/unit/features/test_kafi.py"
+  },
+  "src/policy/kafi_deployment.py": {
+    "testing": "tests/unit/policy/test_kafi_deployment.py"
   }
 }
