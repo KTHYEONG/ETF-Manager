@@ -860,3 +860,33 @@ def test_exp_l_qqq_reserve_v3_json(scenario_id: str) -> None:
     assert resolved.vix_threshold == pytest.approx(25.0)
     assert resolved.reserve_max_months == pytest.approx(2.0)
     assert resolved.max_invest_multiplier == pytest.approx(3.0)
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-L-qqq-reserve-v4"])
+def test_exp_l_qqq_reserve_v4_json(scenario_id: str) -> None:
+    """EXP-L-qqq-reserve-v4"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_reserve_v4.json")
+
+    assert spec.name == "wf_qqq_reserve_v4"
+    assert spec.objective == "growth_first"
+    assert spec.start == date(2007, 8, 31)
+    assert spec.end == date(2026, 6, 30)
+    assert spec.contribution_krw == pytest.approx(1_000_000.0)
+    assert spec.train_months == 60
+    assert spec.test_months == 36
+    assert spec.baseline.policy is PolicyId.QQQ
+    assert spec.baseline.modules == 0
+    assert [candidate.policy for candidate in spec.candidates] == [PolicyId.QQQ]
+    assert [candidate.modules for candidate in spec.candidates] == [1]
+    assert spec.cadence is None
+    assert spec.reserve is not None
+    assert spec.reserve.schedule == "v4"
+    assert spec.reserve.min_invest_multiplier == pytest.approx(0.70)
+    assert spec.reserve.max_invest_multiplier == pytest.approx(3.0)
+    assert spec.reserve.vix_threshold == pytest.approx(20.0)
+    assert spec.reserve.reserve_max_months == pytest.approx(2.0)
+
+    resolved = resolve_reserve(spec)
+    assert resolved is not None
+    assert resolved.schedule == "v4"
+    assert resolved.vix_threshold == pytest.approx(20.0)
