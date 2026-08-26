@@ -1393,8 +1393,9 @@ def test_cli_o_diagnose_qqq_reserve(scenario_id: str, monkeypatch: pytest.Monkey
     assert captured["reserve_schedule"] == "v3"
     assert (
         main(["run", "diagnose-qqq-reserve", "--contribution-krw", "1000000", "--reserve-schedule", "v4"])
-        == 2
+        == 0
     )
+    assert captured["reserve_schedule"] == "v4"
 
 
 @pytest.mark.parametrize("scenario_id", ["CLI-O-diagnose-qqq-cadence"])

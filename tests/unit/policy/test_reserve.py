@@ -254,7 +254,7 @@ def test_rsv_v2_stock_cap_and_fail_closed(scenario_id: str) -> None:
         ReserveConfig(max_withhold=0.10, schedule="v2", max_invest_multiplier=2.5)
     with pytest.raises(ValueError, match="reserve_max_months"):
         ReserveConfig(max_withhold=0.10, schedule="v2", reserve_max_months=6.5)
-    bad_schedule: str = "v4"
+    bad_schedule: str = "v5"
     with pytest.raises(ValueError, match="schedule"):
         ReserveConfig(max_withhold=0.10, schedule=bad_schedule)  # type: ignore[arg-type]
 
@@ -421,3 +421,55 @@ def test_rsv_v3_mid_pass_through(scenario_id: str) -> None:
     assert decision.investable_krw == pytest.approx(_CONTRIBUTION_KRW)
     assert decision.reserve_krw == pytest.approx(0.0)
     assert abs((decision.investable_krw + decision.reserve_krw) - _CONTRIBUTION_KRW) <= 1e-9
+
+
+_V4_CONFIG = ReserveConfig(
+    max_withhold=0.10, schedule="v4", min_invest_multiplier=0.70, max_invest_multiplier=3.0
+)
+
+
+@pytest.mark.parametrize("scenario_id", ["RSV-V4-ledger"])
+def test_rsv_v4_ledger(scenario_id: str) -> None:
+    """RSV-V4-ledger"""
+    passthrough = apply_reserve_schedule(
+        contribution_krw=_CONTRIBUTION_KRW,
+        reserve_krw=0.0,
+        prices=_price_panel(_rising_closes()),
+        ticker=_TICKER,
+        signal_at=_SIGNAL_AT,
+        config=_V4_CONFIG,
+    )
+    assert passthrough.investable_krw == pytest.approx(_CONTRIBUTION_KRW)
+    assert passthrough.reserve_krw == pytest.approx(0.0)
+
+    withheld = apply_reserve_schedule(
+        contribution_krw=_CONTRIBUTION_KRW,
+        reserve_krw=500_000.0,
+        prices=_price_panel(_rising_closes()),
+        ticker=_TICKER,
+        signal_at=_SIGNAL_AT,
+        config=_V4_CONFIG,
+    )
+    assert withheld.investable_krw == pytest.approx(_CONTRIBUTION_KRW)
+    assert withheld.reserve_krw == pytest.approx(500_000.0)
+    assert abs((withheld.investable_krw + withheld.reserve_krw) - 1_500_000.0) <= 1e-9
+
+    deploy = apply_reserve_schedule(
+        contribution_krw=_CONTRIBUTION_KRW,
+        reserve_krw=500_000.0,
+        prices=_price_panel(_crash_closes()),
+        ticker=_TICKER,
+        signal_at=_SIGNAL_AT,
+        config=_V4_CONFIG,
+    )
+    assert deploy.investable_krw == pytest.approx(1_500_000.0)
+    assert deploy.reserve_krw == pytest.approx(0.0)
+    assert abs((deploy.investable_krw + deploy.reserve_krw) - 1_500_000.0) <= 1e-9
+
+    defaults = ReserveConfig(max_withhold=0.10, schedule="v4")
+    assert defaults.min_invest_multiplier == pytest.approx(0.70)
+    assert defaults.max_invest_multiplier == pytest.approx(3.0)
+
+    bad_schedule: str = "v5"
+    with pytest.raises(ValueError, match="schedule"):
+        ReserveConfig(max_withhold=0.10, schedule=bad_schedule)  # type: ignore[arg-type]
