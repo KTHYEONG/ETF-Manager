@@ -10,6 +10,8 @@ from src.validation.gate import (
     adoption_passes,
     bootstrap_tail_passes,
     certainty_equivalent,
+    contribution_growth_process_passes,
+    contribution_growth_train_passes,
     growth_first_process_passes,
     growth_first_train_passes,
     select_plateau,
@@ -104,3 +106,74 @@ def test_gf_r_worst_and_tail(scenario_id: str) -> None:
     assert bootstrap_tail_passes(degraded, (1.0,) * 8, n_paths=40, seed=7) is False
     with pytest.raises(ValueError, match="n_paths"):
         bootstrap_tail_passes(flat, (1.0,) * 8, n_paths=0, seed=7)
+
+
+@pytest.mark.parametrize("scenario_id", ["GATE-ACG-capital-aware"])
+def test_gate_acg_capital_aware(scenario_id: str) -> None:
+    """GATE-ACG-capital-aware"""
+    common = {
+        "candidate_tw": 110.0,
+        "baseline_tw": 100.0,
+        "candidate_real_gain": 11.0,
+        "baseline_real_gain": 10.0,
+        "candidate_xirr_real": 0.09,
+        "baseline_xirr_real": 0.08,
+        "candidate_mdd": -0.25,
+        "baseline_mdd": -0.25,
+    }
+    # Higher TW with a weaker real gain fails: extra invested inflows cannot win.
+    assert contribution_growth_train_passes(**{**common, "candidate_real_gain": 9.0}) is False
+    # Higher TW and gain but inferior real XIRR fails.
+    assert (
+        contribution_growth_train_passes(**{**common, "candidate_xirr_real": 0.07}) is False
+    )
+    # MDD deeper than baseline by more than the default slack fails; at it passes.
+    deep = common | {"candidate_mdd": -0.31, "baseline_mdd": -0.28}
+    assert contribution_growth_train_passes(**deep) is False
+    edge = common | {"candidate_xirr_real": 0.08, "candidate_mdd": -0.30, "baseline_mdd": -0.28}
+    assert contribution_growth_train_passes(**edge) is True
+    # Exact TW tie fails the strict inequality.
+    assert contribution_growth_train_passes(**{**common, "candidate_tw": 100.0}) is False
+    with pytest.raises(ValueError, match="finite"):
+        contribution_growth_train_passes(**{**common, "candidate_tw": float("nan")})
+
+    passing = {
+        "chosen_test_tw": (102.0, 101.0),
+        "baseline_test_tw": (100.0, 100.0),
+        "chosen_test_real_gain": (12.0, 11.0),
+        "baseline_test_real_gain": (10.0, 10.0),
+        "chosen_test_xirr_real": (0.09, 0.08),
+        "baseline_test_xirr_real": (0.08, 0.08),
+    }
+    assert contribution_growth_process_passes(**passing) is True
+    # One fold below the 0.97 TW floor vetoes despite pooled TW and gain gains.
+    weak_fold = passing | {"chosen_test_tw": (120.0, 96.0)}
+    assert contribution_growth_process_passes(**weak_fold) is False
+    # Pooled real gain failing vetoes even when pooled TW gains.
+    weak_gain = {
+        "chosen_test_tw": (105.0,),
+        "baseline_test_tw": (100.0,),
+        "chosen_test_real_gain": (4.0,),
+        "baseline_test_real_gain": (5.0,),
+        "chosen_test_xirr_real": (0.09,),
+        "baseline_test_xirr_real": (0.08,),
+    }
+    assert contribution_growth_process_passes(**weak_gain) is False
+    # An inferior fold XIRR vetoes.
+    weak_xirr = {
+        "chosen_test_tw": (102.0,),
+        "baseline_test_tw": (100.0,),
+        "chosen_test_real_gain": (11.0,),
+        "baseline_test_real_gain": (10.0,),
+        "chosen_test_xirr_real": (0.06,),
+        "baseline_test_xirr_real": (0.08,),
+    }
+    assert contribution_growth_process_passes(**weak_xirr) is False
+    # The fold-floor boundary is inclusive at exactly 0.97.
+    boundary = passing | {"chosen_test_tw": (97.0, 110.0)}
+    assert contribution_growth_process_passes(**boundary) is True
+
+    with pytest.raises(ValueError, match="length"):
+        contribution_growth_process_passes(**{**passing, "chosen_test_tw": (102.0,)})
+    with pytest.raises(ValueError, match="finite"):
+        contribution_growth_process_passes(**{**passing, "chosen_test_tw": (float("inf"), 101.0)})

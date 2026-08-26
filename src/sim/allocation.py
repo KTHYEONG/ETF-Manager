@@ -17,6 +17,7 @@ from src.data.query import load_as_of
 from src.data.schedule import build_decision_schedule, contribution_krw_for_point
 from src.data.schema import Dataset
 from src.etf.mapping import MappingConfig, apply_etf_mapping
+from src.policy.adaptive_contribution import AdaptiveContributionConfig, size_adaptive_contribution
 from src.policy.contribution_shape import (
     ContributionBudgetState,
     ContributionShapeConfig,
@@ -84,6 +85,7 @@ class AllocationConfig:
     mapping: MappingConfig | None = None
     contribution_shape: ContributionShapeConfig | None = None
     kafi_deployment: KafiDeploymentConfig | None = None
+    adaptive_contribution: AdaptiveContributionConfig | None = None
     targets_override: Mapping[str, float] | None = None
 
 
@@ -112,6 +114,7 @@ class AllocationResult:
     max_drawdown: float
     terminal_wealth_real_krw: float
     xirr_real: float
+    total_contribution_real_krw: float = 0.0
 
 
 def run_allocation(
@@ -135,7 +138,9 @@ def run_allocation(
     ``mark_krw``, never a second external cashflow. When ``config.contribution_shape``
     is set, each month's external credit itself is shaped from the KAFI score and
     projected to conserve Σ credits over the schedule while every credited KRW is
-    fully invested (no reserve book). New money follows the mapped targets
+    fully invested (no reserve book). When ``config.adaptive_contribution`` is set,
+    each month's external credit is sized independently from the KAFI opportunity
+    score with no horizon conservation or reserve book. New money follows the mapped targets
     and no position is ever sold; integer-lot rounding dust recycles into the
     next conversion instead of idling. Nominal marks drive the equity path; CPI levels only deflate
     terminal wealth and the money-weighted rate into first-snapshot purchasing power.
@@ -157,11 +162,18 @@ def run_allocation(
     if config.contribution_shape is not None:
         if any(
             module is not None
-            for module in (config.overlay, config.reserve, config.currency, config.mapping, config.kafi_deployment)
+            for module in (
+                config.overlay,
+                config.reserve,
+                config.currency,
+                config.mapping,
+                config.kafi_deployment,
+                config.adaptive_contribution,
+            )
         ):
             raise ValueError(
                 "contribution_shape is mutually exclusive with overlay, reserve, currency, "
-                "mapping, and kafi_deployment allocation modules"
+                "mapping, kafi_deployment, and adaptive_contribution allocation modules"
             )
         if config.cadence != "monthly":
             # Shaping credits one I5h budget per calendar month; split months would double-count.
@@ -169,14 +181,40 @@ def run_allocation(
     if config.kafi_deployment is not None:
         if any(
             module is not None
-            for module in (config.overlay, config.reserve, config.currency, config.mapping, config.contribution_shape)
+            for module in (
+                config.overlay,
+                config.reserve,
+                config.currency,
+                config.mapping,
+                config.contribution_shape,
+                config.adaptive_contribution,
+            )
         ):
             raise ValueError(
                 "kafi_deployment is mutually exclusive with overlay, reserve, currency, "
-                "mapping, and contribution_shape allocation modules"
+                "mapping, contribution_shape, and adaptive_contribution allocation modules"
             )
         if config.cadence != "monthly":
             raise ValueError("kafi_deployment requires the monthly decision cadence")
+    if config.adaptive_contribution is not None:
+        if any(
+            module is not None
+            for module in (
+                config.overlay,
+                config.reserve,
+                config.currency,
+                config.mapping,
+                config.contribution_shape,
+                config.kafi_deployment,
+            )
+        ):
+            raise ValueError(
+                "adaptive_contribution is mutually exclusive with overlay, reserve, currency, "
+                "mapping, contribution_shape, and kafi_deployment allocation modules"
+            )
+        if config.cadence != "monthly":
+            # Sizing is one independent credit per calendar month; split months double-count.
+            raise ValueError("adaptive_contribution requires the monthly decision cadence")
     if config.tilt is not None and config.targets_override is not None:
         raise ValueError("targets_override and tilt are mutually exclusive allocation modules")
     if config.targets_override is not None:
@@ -248,7 +286,18 @@ def run_allocation(
         fraction = 1.0 if config.currency is None else conversion_fraction(fx, point.signal_at, config.currency)
 
         # Σ external KRW per calendar month stays invariant: twice_monthly splits 50/50.
-        if shaped_credits is not None:
+        if config.adaptive_contribution is not None:
+            if macro is None:
+                raise PolicyError("adaptive contribution requires a MACRO frame")
+            contribution = size_adaptive_contribution(
+                base_contribution_krw=config.monthly_contribution_krw,
+                signal_at=point.signal_at,
+                prices=prices,
+                fx=fx,
+                macro=macro,
+                config=config.adaptive_contribution,
+            )
+        elif shaped_credits is not None:
             # Shaped credits already conserve Σ = N * base over the schedule (I5h).
             contribution = shaped_credits[month_index]
         else:
@@ -349,6 +398,11 @@ def run_allocation(
         )
         cpi_levels.append(cpi_level)
 
+    if config.adaptive_contribution is not None and all(
+        snapshot.contribution_krw == 0.0 for snapshot in snapshots
+    ):
+        raise PolicyError("adaptive contribution produced an all-zero external cashflow path")
+
     terminal_wealth_krw = snapshots[-1].mark_krw
     cashflows = [(calendar.close_ts(snapshot.session), -snapshot.contribution_krw) for snapshot in snapshots]
     cashflows.append((cashflows[-1][0], terminal_wealth_krw))
@@ -362,6 +416,10 @@ def run_allocation(
         for snapshot, level in zip(snapshots, cpi_levels, strict=True)
     ]
     real_cashflows.append((real_cashflows[-1][0], terminal_wealth_real_krw))
+    total_contribution_real_krw = sum(
+        snapshot.contribution_krw * base_cpi / level
+        for snapshot, level in zip(snapshots, cpi_levels, strict=True)
+    )
     result = AllocationResult(
         config=config,
         snapshots=tuple(snapshots),
@@ -370,6 +428,7 @@ def run_allocation(
         max_drawdown=max_drawdown([snapshot.mark_krw for snapshot in snapshots]),
         terminal_wealth_real_krw=terminal_wealth_real_krw,
         xirr_real=xirr(real_cashflows),
+        total_contribution_real_krw=total_contribution_real_krw,
     )
     logger.info(
         "[DATA] event=allocation_done policy=%s steps=%d terminal_krw=%.2f xirr=%.6f mdd=%.4f",
@@ -401,6 +460,7 @@ def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) 
         or (config.reserve is not None and config.reserve.schedule == "v3")
         or config.contribution_shape is not None
         or config.kafi_deployment is not None
+        or config.adaptive_contribution is not None
     )
     need_metadata = config.mapping is not None
     datasets = (

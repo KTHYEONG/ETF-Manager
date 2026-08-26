@@ -298,3 +298,27 @@ def test_abl_l_cadence_candidate(scenario_id: str) -> None:
         assert (config.start, config.end) == _WINDOW
         assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
         assert config.fill_delay_sessions == 1
+
+
+@pytest.mark.parametrize("scenario_id", ["ABL-ACG-identical-cashflow-reject"])
+def test_abl_acg_identical_cashflow_reject(scenario_id: str) -> None:
+    """ABL-ACG-identical-cashflow-reject"""
+    spec = ExperimentSpec(
+        name="abl_acg",
+        start=_WINDOW[0],
+        end=_WINDOW[1],
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        objective="adaptive_growth",
+        adaptive_contribution={},
+        baseline=CandidateSpec(id="m0_global", policy="s0_global", modules=0),
+        candidates=[CandidateSpec(id="m1_us", policy="s1_us", modules=1)],
+    )
+    runner = _runner()
+
+    with pytest.raises(ValueError, match="identical cashflow"):
+        run_ablation(spec, runner)
+
+    # The rejection happens before the runner is ever invoked.
+    assert runner.configs == []

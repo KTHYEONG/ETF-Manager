@@ -10,6 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.etf.mapping import MappingConfig
+from src.policy.adaptive_contribution import AdaptiveContributionConfig
 from src.policy.contribution_shape import ContributionShapeConfig
 from src.policy.currency import CurrencyConfig
 from src.policy.kafi_deployment import KafiDeploymentConfig
@@ -18,6 +19,7 @@ from src.policy.reserve import ReserveConfig
 from src.policy.targets import PolicyId
 
 __all__ = [
+    "AdaptiveContributionSpec",
     "CadenceSpec",
     "CandidateSpec",
     "ContributionShapeSpec",
@@ -28,6 +30,7 @@ __all__ = [
     "OverlaySpec",
     "ReserveSpec",
     "load_experiment_config",
+    "resolve_adaptive_contribution",
     "resolve_cadence",
     "resolve_contribution_shape",
     "resolve_currency",
@@ -182,12 +185,28 @@ class KafiDeploymentSpec(BaseModel):
     rank_window: int = Field(default=252, ge=63)
 
 
+class AdaptiveContributionSpec(BaseModel):
+    """Stateless adaptive-contribution parameters accepted in experiment JSON."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    equity_ticker: str = "QQQ"
+    bond_ticker: str = "IEF"
+    credit_series_id: str = "BAA10Y"
+    min_multiplier: float = Field(default=0.0, ge=0.0, lt=1.0)
+    max_multiplier: float = Field(default=2.0, gt=1.0, le=2.0)
+    downside_power: float = Field(default=2.0, gt=0.0)
+    upside_power: float = Field(default=1.0, gt=0.0)
+    rank_window: int = Field(default=252, ge=63)
+
+
 class ExperimentSpec(BaseModel):
     """Frozen experiment contract: shared cashflow/window plus gated arms.
 
     ``modules`` is declared per arm (never inferred from sleeve counts) so the
     complexity-penalized adoption gate stays explicit and reproducible.
-    ``objective`` picks the verdict gate: ``ce`` (default) or ``growth_first``.
+    ``objective`` picks the verdict gate: ``ce`` (default), ``growth_first``, or
+    ``adaptive_growth``.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -197,7 +216,7 @@ class ExperimentSpec(BaseModel):
     end: date
     contribution_krw: float = Field(gt=0)
     hurdle: float = Field(ge=0)
-    objective: Literal["ce", "growth_first"] = "ce"
+    objective: Literal["ce", "growth_first", "adaptive_growth"] = "ce"
     horizon_months: int = Field(ge=0)
     commission_bps: float = Field(default=0.0, ge=0)
     fx_spread_bps: float = Field(default=0.0, ge=0)
@@ -210,6 +229,7 @@ class ExperimentSpec(BaseModel):
     cadence: CadenceSpec | None = None
     contribution_shape: ContributionShapeSpec | None = None
     kafi_deployment: KafiDeploymentSpec | None = None
+    adaptive_contribution: AdaptiveContributionSpec | None = None
     baseline: CandidateSpec
     candidates: list[CandidateSpec] = Field(min_length=1)
 
@@ -257,10 +277,11 @@ class ExperimentSpec(BaseModel):
                 or self.currency is not None
                 or self.contribution_shape is not None
                 or self.kafi_deployment is not None
+                or self.adaptive_contribution is not None
             ):
                 raise ValueError(
                     "cadence cannot be combined with overlay, reserve, mapping, currency, "
-                    "contribution_shape, or kafi_deployment experiment modules"
+                    "contribution_shape, kafi_deployment, or adaptive_contribution experiment modules"
                 )
             if any(candidate.modules < 1 for candidate in self.candidates):
                 raise ValueError("cadence requires every candidate.modules >= 1")
@@ -274,11 +295,12 @@ class ExperimentSpec(BaseModel):
                     self.currency,
                     self.cadence,
                     self.kafi_deployment,
+                    self.adaptive_contribution,
                 )
             ):
                 raise ValueError(
                     "contribution_shape cannot be combined with overlay, reserve, mapping, "
-                    "currency, cadence, or kafi_deployment experiment modules"
+                    "currency, cadence, kafi_deployment, or adaptive_contribution experiment modules"
                 )
             if any(candidate.modules < 1 for candidate in self.candidates):
                 raise ValueError("contribution_shape requires every candidate.modules >= 1")
@@ -292,14 +314,34 @@ class ExperimentSpec(BaseModel):
                     self.currency,
                     self.cadence,
                     self.contribution_shape,
+                    self.adaptive_contribution,
                 )
             ):
                 raise ValueError(
                     "kafi_deployment cannot be combined with overlay, reserve, mapping, "
-                    "currency, cadence, or contribution_shape experiment modules"
+                    "currency, cadence, contribution_shape, or adaptive_contribution experiment modules"
                 )
             if any(candidate.modules < 1 for candidate in self.candidates):
                 raise ValueError("kafi_deployment requires every candidate.modules >= 1")
+        if self.adaptive_contribution is not None:
+            if any(
+                module is not None
+                for module in (
+                    self.overlay,
+                    self.reserve,
+                    self.mapping,
+                    self.currency,
+                    self.cadence,
+                    self.contribution_shape,
+                    self.kafi_deployment,
+                )
+            ):
+                raise ValueError(
+                    "adaptive_contribution cannot be combined with overlay, reserve, mapping, "
+                    "currency, cadence, contribution_shape, or kafi_deployment experiment modules"
+                )
+            if any(candidate.modules < 1 for candidate in self.candidates):
+                raise ValueError("adaptive_contribution requires every candidate.modules >= 1")
         growth_first_modules = (self.cadence, self.reserve, self.contribution_shape, self.kafi_deployment)
         if (
             self.objective == "growth_first"
@@ -309,6 +351,8 @@ class ExperimentSpec(BaseModel):
                 "objective 'growth_first' requires exactly one of a cadence, reserve, "
                 "contribution_shape, or kafi_deployment module"
             )
+        if self.objective == "adaptive_growth" and self.adaptive_contribution is None:
+            raise ValueError("objective 'adaptive_growth' requires exactly one adaptive_contribution module")
         seen: set[str] = set()
         for candidate in self.candidates:
             if candidate.id in seen:
@@ -371,6 +415,22 @@ def resolve_kafi_deployment(spec: ExperimentSpec) -> KafiDeploymentConfig | None
         min_multiplier=spec.kafi_deployment.min_multiplier,
         max_multiplier=spec.kafi_deployment.max_multiplier,
         rank_window=spec.kafi_deployment.rank_window,
+    )
+
+
+def resolve_adaptive_contribution(spec: ExperimentSpec) -> AdaptiveContributionConfig | None:
+    """Map the JSON adaptive-contribution onto the runtime config, keeping window defaults."""
+    if spec.adaptive_contribution is None:
+        return None
+    return AdaptiveContributionConfig(
+        equity_ticker=spec.adaptive_contribution.equity_ticker,
+        bond_ticker=spec.adaptive_contribution.bond_ticker,
+        credit_series_id=spec.adaptive_contribution.credit_series_id,
+        min_multiplier=spec.adaptive_contribution.min_multiplier,
+        max_multiplier=spec.adaptive_contribution.max_multiplier,
+        downside_power=spec.adaptive_contribution.downside_power,
+        upside_power=spec.adaptive_contribution.upside_power,
+        rank_window=spec.adaptive_contribution.rank_window,
     )
 
 
