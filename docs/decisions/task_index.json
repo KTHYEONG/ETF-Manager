@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_WAVE_AF_QQQ_ADAPTIVE_REFINE_LOCK",
+      "date": "2026-08-26",
+      "adr_id": "ADR_20260826_WAVE_AF_QQQ_ADAPTIVE_REFINE_LOCK",
+      "domain": "quant",
+      "title": "Wave AF: QQQ adaptive contribution refine + operational lock",
+      "why": "Wave AE WF failed on 0-day partial fold and fold1 train XIRR (-4bp) with rank_window=252; empirical grid showed rank126+2.5/0.7 passes WF (+15.5% pooled TW); user locked adaptive as operational QQQ main path.",
+      "resolution": "walk_forward_windows require_full_test=True (drop incomplete folds); AdaptiveContributionConfig defaults rank_window=126 downside_power=2.5 upside_power=0.7; wf_qqq_adaptive_contribution.json pins params; OPERATIONAL_ADAPTIVE_CONTRIBUTION + apply_operational_contribution_lock on bare QQQ policy/paper CLI; tests ACR/SIM-ACG-operational-lock/POL-AF/CLI-G07-operational.",
+      "impact": "WF wf_qqq_adaptive_contribution process_adopted=True (2 folds, pooled chosen TW ratio ~1.155, train adopt T/T); run policy/paper --id qqq auto KAFI 0-2x base sizing; overlay/reserve/mapping/currency CLI flags still flat DCA."
+    },
+    {
       "task_id": "TASK_WAVE_AE_QQQ_ADAPTIVE_CONTRIBUTION",
       "date": "2026-08-26",
       "adr_id": "ADR_20260826_WAVE_AE_QQQ_ADAPTIVE_CONTRIBUTION",
