@@ -86,7 +86,7 @@ class ReserveSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     max_withhold: float = Field(gt=0.0, le=0.10)
-    schedule: Literal["v1", "v2", "v3"] = "v1"
+    schedule: Literal["v1", "v2", "v3", "v4"] = "v1"
     min_invest_multiplier: float = Field(default=0.80, gt=0.0, lt=1.0)
     max_invest_multiplier: float = Field(default=2.00, gt=1.0)
     reserve_max_months: float = Field(default=6.00, gt=0.0, le=6.0)
@@ -100,22 +100,22 @@ class ReserveSpec(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _rebase_v3_baselines(cls, data: object) -> object:
-        """Rebase omitted or legacy-baseline multipliers and VIX threshold onto the wider v3 band."""
-        if not isinstance(data, dict) or data.get("schedule") != "v3":
+        """Rebase omitted or legacy-baseline multipliers onto the wider v3/v4 band; VIX stays v3-only."""
+        if not isinstance(data, dict) or data.get("schedule") not in ("v3", "v4"):
             return data
         merged = dict(data)
         if merged.get("min_invest_multiplier") in (None, 0.80):
             merged["min_invest_multiplier"] = 0.70
         if merged.get("max_invest_multiplier") in (None, 2.00):
             merged["max_invest_multiplier"] = 3.00
-        if merged.get("vix_threshold") in (None, 20.0):
+        if data.get("schedule") == "v3" and merged.get("vix_threshold") in (None, 20.0):
             merged["vix_threshold"] = 25.0
         return merged
 
     @model_validator(mode="after")
     def _check_schedule_band(self) -> ReserveSpec:
-        """Enforce the schedule-dependent max-invest ceiling (2.0 for v1/v2, 3.0 for v3)."""
-        ceiling = 3.00 if self.schedule == "v3" else 2.00
+        """Enforce the schedule-dependent max-invest ceiling (2.0 for v1/v2, 3.0 for v3/v4)."""
+        ceiling = 3.00 if self.schedule in ("v3", "v4") else 2.00
         if not 1.0 < self.max_invest_multiplier <= ceiling:
             raise ValueError(
                 f"max_invest_multiplier must lie in (1.0, {ceiling}] for schedule "
@@ -247,14 +247,7 @@ def resolve_reserve(spec: ExperimentSpec) -> ReserveConfig | None:
     """Map the JSON reserve onto the runtime config, keeping window defaults."""
     if spec.reserve is None:
         return None
-    return ReserveConfig(
-        max_withhold=spec.reserve.max_withhold,
-        schedule=spec.reserve.schedule,
-        min_invest_multiplier=spec.reserve.min_invest_multiplier,
-        max_invest_multiplier=spec.reserve.max_invest_multiplier,
-        reserve_max_months=spec.reserve.reserve_max_months,
-        vix_threshold=spec.reserve.vix_threshold,
-    )
+    return ReserveConfig(max_withhold=spec.reserve.max_withhold, schedule=spec.reserve.schedule, min_invest_multiplier=spec.reserve.min_invest_multiplier, max_invest_multiplier=spec.reserve.max_invest_multiplier, reserve_max_months=spec.reserve.reserve_max_months, vix_threshold=spec.reserve.vix_threshold)
 
 
 def resolve_mapping(spec: ExperimentSpec) -> MappingConfig | None:
