@@ -156,8 +156,15 @@ def run_ablation(
     keeping the ablation linear in arms times sessions; ``spec`` is never mutated.
 
     Raises:
-        ValueError: When any wealth vector is empty or non-positive.
+        ValueError: When the objective is ``adaptive_growth`` (its CE contract
+            assumes identical external cashflows) or any wealth vector is empty
+            or non-positive.
     """
+    if spec.objective == "adaptive_growth":
+        raise ValueError(
+            "ablation assumes identical cashflow across arms; objective 'adaptive_growth' "
+            "varies external contributions and cannot share the CE hurdle"
+        )
     baseline_config = _arm_config(
         spec, spec.baseline.policy, overlay=None, reserve=None, mapping=None, currency=None
     )

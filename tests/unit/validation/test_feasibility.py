@@ -11,11 +11,12 @@ from typing import Final
 import polars as pl
 import pytest
 
+import src.validation.feasibility as feasibility_module
 from src.data.calendar import load_calendar
 from src.data.pipeline import persist_ingest
 from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
-from src.data.storage import RawPayload
+from src.data.storage import RawPayload, UntrustedDatasetError
 from src.policy.currency import CurrencyConfig
 from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
@@ -453,3 +454,69 @@ def test_feas_h_reserve_warmup(scenario_id: str, tmp_path: object, monkeypatch: 
     assert int(match.group(1)) < 252
     with pytest.raises(FeasibilityError):
         require_feasibility(**kwargs)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("scenario_id", ["FEAS-ACG-macro-trust"])
+def test_feas_acg_macro_trust(scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """FEAS-ACG-macro-trust"""
+    days = _panel_days(*_SHORT_PANEL)
+    settings = _catalog(
+        monkeypatch,
+        tmp_path,
+        days=days,
+        tickers=("VT", "VTI"),
+        close_of_day=_constant_closes,
+        cpi_period_end=_CPI_VISIBLE_PERIOD_END,
+    )
+    macro_spec = spec_for(Dataset.MACRO)
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "series_id": ["BAA10Y"],
+                "observation_date": [date(2023, 12, 20)],
+                "release_date": [datetime(2023, 12, 20, 21, 0, tzinfo=UTC)],
+                "value": [3.5],
+            },
+            schema=dict(macro_spec.columns),
+        ),
+        Dataset.MACRO,
+        _payload(),
+        settings,
+    )
+    spec = ExperimentSpec.model_validate(
+        {
+            "name": "feas_acg",
+            "start": _SHORT_WINDOW[0].isoformat(),
+            "end": _SHORT_WINDOW[1].isoformat(),
+            "contribution_krw": 1_000_000,
+            "delta0": 0.02,
+            "horizon_months": 0,
+            "objective": "adaptive_growth",
+            "adaptive_contribution": {},
+            "baseline": {"id": "m0_global", "policy": "s0_global", "modules": 0},
+            "candidates": [{"id": "s1_us", "policy": "s1_us", "modules": 1}],
+        }
+    )
+
+    requested: list[Dataset] = []
+    real_latest_artifact = feasibility_module.latest_artifact
+
+    def spy(settings: DataSettings, dataset: Dataset) -> object:
+        requested.append(dataset)
+        return real_latest_artifact(settings, dataset)
+
+    monkeypatch.setattr(feasibility_module, "latest_artifact", spy)
+
+    report = assert_experiment_feasible(spec, settings)
+
+    # The trusted MACRO artifact is requested before any allocation can run.
+    assert Dataset.MACRO in requested
+    assert report.violations == ()
+    assert report.requested_start == spec.start
+
+    def boom(_settings: DataSettings, _dataset: Dataset) -> object:
+        raise UntrustedDatasetError("untrusted MACRO partition")
+
+    monkeypatch.setattr(feasibility_module, "latest_artifact", boom)
+    with pytest.raises(UntrustedDatasetError, match="MACRO"):
+        assert_experiment_feasible(spec, settings)

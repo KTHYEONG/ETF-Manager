@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_WAVE_AE_QQQ_ADAPTIVE_CONTRIBUTION",
+      "date": "2026-08-26",
+      "adr_id": "ADR_20260826_WAVE_AE_QQQ_ADAPTIVE_CONTRIBUTION",
+      "domain": "quant",
+      "title": "Wave AE: QQQ adaptive contribution (0-2x base KAFI sizing)",
+      "why": "Reserve, fixed kafi_deployment, and horizon-conserved shaping failed OOS or assumed fixed monthly KRW; user reframed 100만원 as neutral base with flexible 0-2M monthly capacity sized by KAFI.",
+      "resolution": "Added src/policy/adaptive_contribution.py (piecewise opportunity sizing 0-2x), AllocationConfig.adaptive_contribution, ExperimentSpec objective adaptive_growth, capital-aware contribution_growth train/process gates, campaign fold real-gain/XIRR metrics, wf_qqq_adaptive_contribution.json; contract tests ACG/SIM-ACG/EXP-ACG/GATE-ACG/WF-ACG/ABL-ACG/FEAS-ACG.",
+      "impact": "WF wf_qqq_adaptive_contribution process_adopted=False (fold3 TW ratio 0.961, fold1 train not adopted); candidate OOS TW +5.6% to +10.9% vs flat DCA with higher real gain/XIRR, vs kafi_deployment -0.5% to -0.8%. Operational PolicyId.QQQ month-end lock unchanged."
+    },
+    {
       "task_id": "TASK_WAVE_AD_QQQ_KAFI_DEPLOYMENT",
       "date": "2026-08-26",
       "adr_id": "ADR_20260826_WAVE_AD_QQQ_KAFI_DEPLOYMENT",

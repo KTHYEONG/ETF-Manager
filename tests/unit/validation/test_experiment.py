@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.etf.mapping import DEFAULT_CANDIDATES, MappingConfig
+from src.policy.adaptive_contribution import AdaptiveContributionConfig
 from src.policy.contribution_shape import ContributionShapeConfig
 from src.policy.kafi_deployment import KafiDeploymentConfig
 from src.policy.currency import CurrencyConfig
@@ -20,6 +21,7 @@ from src.validation.experiment import (
     CadenceSpec,
     ExperimentSpec,
     load_experiment_config,
+    resolve_adaptive_contribution,
     resolve_cadence,
     resolve_contribution_shape,
     resolve_currency,
@@ -1019,3 +1021,86 @@ def test_exp_m_deployment_xor(scenario_id: str) -> None:
             payload[conflict] = {"anchor": "month_open"}
         with pytest.raises(ValidationError):
             ExperimentSpec.model_validate(payload)
+
+
+def _adaptive_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "name": "wf_qqq_adaptive_contribution",
+        "start": "2015-06-01",
+        "end": "2026-06-30",
+        "contribution_krw": 1_000_000,
+        "hurdle": 0.02,
+        "objective": "adaptive_growth",
+        "horizon_months": 0,
+        "train_months": 60,
+        "test_months": 36,
+        "baseline": {"id": "s8_us_nasdaq", "policy": "qqq", "modules": 0},
+        "candidates": [{"id": "s8_us_nasdaq_adaptive_contribution", "policy": "qqq", "modules": 1}],
+        "adaptive_contribution": {},
+    }
+    payload.update(overrides)  # type: ignore[arg-type]
+    return payload
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-ACG-schema-wiring"])
+def test_exp_acg_schema_wiring(scenario_id: str) -> None:
+    """EXP-ACG-schema-wiring"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_contribution.json")
+
+    assert spec.objective == "adaptive_growth"
+    assert spec.contribution_krw == pytest.approx(1_000_000.0)
+    assert spec.train_months == 60
+    assert spec.test_months == 36
+    assert spec.baseline.policy is PolicyId.QQQ
+    assert spec.baseline.modules == 0
+    assert [candidate.modules for candidate in spec.candidates] == [1]
+    module = spec.adaptive_contribution
+    assert module is not None
+    assert module.min_multiplier == pytest.approx(0.0)
+    assert module.max_multiplier == pytest.approx(2.0)
+    assert module.downside_power == pytest.approx(2.0)
+    assert module.upside_power == pytest.approx(1.0)
+
+    resolved = resolve_adaptive_contribution(spec)
+    assert isinstance(resolved, AdaptiveContributionConfig)
+    assert resolved.min_multiplier == pytest.approx(0.0)
+    assert resolved.max_multiplier == pytest.approx(2.0)
+    assert resolved.downside_power == pytest.approx(2.0)
+    assert resolved.upside_power == pytest.approx(1.0)
+
+    omitted = ExperimentSpec.model_validate(_payload())
+    assert resolve_adaptive_contribution(omitted) is None
+
+    for conflict_key, conflict_value in (
+        ("overlay", {"max_shift": 0.05}),
+        ("reserve", {"max_withhold": 0.05}),
+        ("mapping", {"min_improvement": 0.02}),
+        ("currency", {"max_defer": 0.10}),
+        ("cadence", {"anchor": "month_open"}),
+        ("contribution_shape", {}),
+        ("kafi_deployment", {}),
+    ):
+        payload = _adaptive_payload()
+        payload[conflict_key] = conflict_value
+        with pytest.raises(ValidationError):
+            ExperimentSpec.model_validate(payload)
+
+    missing_module = _adaptive_payload()
+    missing_module["adaptive_contribution"] = None
+    with pytest.raises(ValueError, match="adaptive_contribution"):
+        ExperimentSpec.model_validate(missing_module)
+
+    growth_first_conflict = _adaptive_payload()
+    growth_first_conflict["objective"] = "growth_first"
+    with pytest.raises(ValidationError, match="growth_first"):
+        ExperimentSpec.model_validate(growth_first_conflict)
+
+    weak_modules = _adaptive_payload()
+    weak_modules["candidates"] = [{"id": "c", "policy": "qqq", "modules": 0}]
+    with pytest.raises(ValidationError):
+        ExperimentSpec.model_validate(weak_modules)
+
+    unknown_key = _adaptive_payload()
+    unknown_key["adaptive_contribution"] = {"bogus": True}
+    with pytest.raises(ValueError, match="bogus"):
+        ExperimentSpec.model_validate(unknown_key)

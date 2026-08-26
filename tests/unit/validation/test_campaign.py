@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import FrozenInstanceError
 from datetime import date
 
 import pytest
 
+from src.data.settings import DataSettings
+from src.policy.adaptive_contribution import AdaptiveContributionConfig
 from src.policy.targets import PolicyId
 from src.sim.allocation import AllocationConfig, AllocationResult
 from src.validation.campaign import (
@@ -15,6 +18,7 @@ from src.validation.campaign import (
     run_walk_forward_adoption,
     run_walk_forward_cost_grid,
     run_walk_forward_proxy_adoption,
+    write_campaign_report,
 )
 from src.validation.experiment import (
     CadenceSpec,
@@ -808,3 +812,139 @@ def test_gf_r_cadence_and(scenario_id: str) -> None:
             n_paths=40,
             seed=7,
         )
+
+
+class _AdaptiveWealthRunner:
+    """Adaptive arms gain real wealth, profit, and XIRR over baseline arms."""
+
+    def __init__(self) -> None:
+        self.configs: list[AllocationConfig] = []
+
+    def __call__(self, config: AllocationConfig) -> AllocationResult:
+        self.configs.append(config)
+        if config.adaptive_contribution is not None:
+            wealth, contribution, xirr_real, mdd = 120.0, 95.0, 0.20, -0.24
+        else:
+            wealth, contribution, xirr_real, mdd = 100.0, 90.0, 0.10, -0.25
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=mdd,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=xirr_real,
+            total_contribution_real_krw=contribution,
+        )
+
+
+class _LosingAdaptiveRunner:
+    """Adaptive arms lose real TW and profit on train, so adoption never happens."""
+
+    def __init__(self) -> None:
+        self.configs: list[AllocationConfig] = []
+
+    def __call__(self, config: AllocationConfig) -> AllocationResult:
+        self.configs.append(config)
+        if config.adaptive_contribution is not None:
+            wealth, contribution, xirr_real = 90.0, 90.0, 0.05
+        else:
+            wealth, contribution, xirr_real = 100.0, 90.0, 0.10
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=-0.25,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=xirr_real,
+            total_contribution_real_krw=contribution,
+        )
+
+
+def _acg_spec() -> ExperimentSpec:
+    """Adaptive-growth candidate on the shared walk-forward window."""
+    return ExperimentSpec(
+        name="wf_acg",
+        start=date(2012, 4, 1),
+        end=date(2024, 11, 30),
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        objective="adaptive_growth",
+        train_months=60,
+        test_months=36,
+        adaptive_contribution={},
+        baseline=CandidateSpec(id="s0_global", policy="s0_global", modules=0),
+        candidates=[CandidateSpec(id="cand_acg", policy="vti", modules=1)],
+    )
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-ACG-adoption"])
+def test_wf_acg_adoption(scenario_id: str, tmp_path) -> None:
+    """WF-ACG-adoption"""
+    runner = _AdaptiveWealthRunner()
+    report = run_walk_forward_adoption(_acg_spec(), runner)
+
+    assert len(report.folds) > 0
+    assert all(fold.train_adopted is True for fold in report.folds)
+    assert report.process_adopted_vs_baseline is True
+    for fold_index in range(len(report.folds)):
+        chunk = runner.configs[fold_index * 5 : (fold_index + 1) * 5]
+        assert len(chunk) == 5
+        adaptive_states = [config.adaptive_contribution is not None for config in chunk]
+        # Baseline train/test stay flat; candidate and adopted chosen arms carry the module.
+        assert adaptive_states == [False, True, False, True, True]
+        assert isinstance(chunk[1].adaptive_contribution, AdaptiveContributionConfig)
+        fold = report.folds[fold_index]
+        # Every arm records TW, total real contribution, real gain, and real XIRR.
+        assert fold.baseline_test_wealth == pytest.approx(100.0)
+        assert fold.candidate_test_wealth == pytest.approx(120.0)
+        assert fold.chosen_test_wealth == pytest.approx(120.0)
+        assert fold.baseline_total_contribution_real_krw == pytest.approx(90.0)
+        assert fold.candidate_total_contribution_real_krw == pytest.approx(95.0)
+        assert fold.chosen_total_contribution_real_krw == pytest.approx(95.0)
+        assert fold.baseline_real_gain == pytest.approx(10.0)
+        assert fold.candidate_real_gain == pytest.approx(25.0)
+        assert fold.chosen_xirr_real == pytest.approx(0.20)
+
+    settings = DataSettings(data_root=str(tmp_path))
+    out_path = write_campaign_report(report, settings, experiment_id="acg")
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    record = payload["folds"][0]
+    for arm in ("baseline", "candidate", "chosen"):
+        assert f"{arm}_test_wealth" in record
+        assert f"{arm}_total_contribution_real_krw" in record
+        assert f"{arm}_real_gain" in record
+        assert f"{arm}_xirr_real" in record
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-ACG-adoption"])
+def test_wf_acg_rejection_and_delegation(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """WF-ACG-adoption"""
+    losing = _LosingAdaptiveRunner()
+    rejected = run_walk_forward_adoption(_acg_spec(), losing)
+
+    assert len(rejected.folds) > 0
+    assert all(fold.train_adopted is False for fold in rejected.folds)
+    assert rejected.process_adopted_vs_baseline is False
+    for fold_index in range(len(rejected.folds)):
+        chunk = losing.configs[fold_index * 5 : (fold_index + 1) * 5]
+        adaptive_states = [config.adaptive_contribution is not None for config in chunk]
+        # Without train adoption the chosen arm falls back to the flat baseline.
+        assert adaptive_states == [False, True, False, True, False]
+
+    # Process adoption delegates to contribution_growth_process_passes.
+    monkeypatch.setattr(
+        "src.validation.campaign.contribution_growth_process_passes",
+        lambda **_kwargs: False,
+    )
+    vetoed = run_walk_forward_adoption(_acg_spec(), _AdaptiveWealthRunner())
+    assert vetoed.process_adopted_vs_baseline is False
+
+    # model_copy bypasses model validation, so the campaign must fail closed itself.
+    with pytest.raises(ValueError, match="adaptive_contribution"):
+        run_walk_forward_adoption(
+            _acg_spec().model_copy(update={"adaptive_contribution": None}), _AdaptiveWealthRunner()
+        )
+
