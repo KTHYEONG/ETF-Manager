@@ -373,3 +373,146 @@ def test_kafi_opp_invert_momentum(scenario_id: str, monkeypatch: pytest.MonkeyPa
     assert components["equity_bond_rel"] == pytest.approx(30.0)
     assert components["fx_stress"] == pytest.approx(70.0)
     assert components["vol_dampener"] == pytest.approx(50.0)
+
+
+@pytest.mark.parametrize("scenario_id", ["KAFI-OPP-v2-exclude-vol"])
+def test_kafi_opp_v2_exclude_vol(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """KAFI-OPP-v2-exclude-vol"""
+    import src.features.kafi as kafi_module
+
+    def fake_greed_components(**_kwargs: object) -> dict[str, float]:
+        return {
+            "momentum": 80.0,
+            "drawdown_depth": 60.0,
+            "equity_bond_rel": 70.0,
+            "credit_oas": 40.0,
+            "fx_stress": 30.0,
+            "vol_dampener": 55.0,
+        }
+
+    monkeypatch.setattr(kafi_module, "kafi_components", fake_greed_components)
+    kwargs: dict[str, object] = {
+        "equity_ticker": "QQQ",
+        "bond_ticker": "IEF",
+        "signal_at": _SIGNAL_AT,
+        "rank_window": _RANK_WINDOW,
+    }
+    components = kafi_opportunity_components(
+        prices=pl.DataFrame(), fx=pl.DataFrame(), macro=pl.DataFrame(), **kwargs
+    )  # type: ignore[arg-type]
+    assert components["vol_dampener"] == pytest.approx(50.0)
+    expected_five = (
+        sum(value for name, value in components.items() if name != "vol_dampener")
+        / (len(components) - 1)
+    )
+
+    score_five = kafi_opportunity_score(
+        prices=pl.DataFrame(),
+        fx=pl.DataFrame(),
+        macro=pl.DataFrame(),
+        include_vol_dampener=False,
+        **kwargs,
+    )  # type: ignore[arg-type]
+    score_six = kafi_opportunity_score(
+        prices=pl.DataFrame(),
+        fx=pl.DataFrame(),
+        macro=pl.DataFrame(),
+        include_vol_dampener=True,
+        **kwargs,
+    )  # type: ignore[arg-type]
+
+    assert abs(score_five - expected_five) <= 1e-9
+    assert abs(score_five - score_six) > 1e-9
+
+
+@pytest.mark.parametrize("scenario_id", ["KAFI-OPP-disp-identity"])
+def test_kafi_opp_disp_identity(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """KAFI-OPP-disp-identity"""
+    import src.features.kafi as kafi_module
+
+    def fake_greed_components(**_kwargs: object) -> dict[str, float]:
+        return {
+            "momentum": 80.0,
+            "drawdown_depth": 60.0,
+            "equity_bond_rel": 70.0,
+            "credit_oas": 40.0,
+            "fx_stress": 30.0,
+            "vol_dampener": 55.0,
+        }
+
+    monkeypatch.setattr(kafi_module, "kafi_components", fake_greed_components)
+    kwargs: dict[str, object] = {
+        "equity_ticker": "QQQ",
+        "bond_ticker": "IEF",
+        "signal_at": _SIGNAL_AT,
+        "rank_window": _RANK_WINDOW,
+    }
+    score_default = kafi_opportunity_score(
+        prices=pl.DataFrame(),
+        fx=pl.DataFrame(),
+        macro=pl.DataFrame(),
+        include_vol_dampener=True,
+        dispersion=1.0,
+        **kwargs,
+    )  # type: ignore[arg-type]
+    score_half = kafi_opportunity_score(
+        prices=pl.DataFrame(),
+        fx=pl.DataFrame(),
+        macro=pl.DataFrame(),
+        include_vol_dampener=True,
+        dispersion=0.5,
+        **kwargs,
+    )  # type: ignore[arg-type]
+
+    assert abs(score_default - score_half) > 1e-9
+    assert abs(score_half - (50.0 + 0.5 * (score_default - 50.0))) <= 1e-9
+    with pytest.raises(ValueError, match="dispersion"):
+        kafi_opportunity_score(
+            prices=pl.DataFrame(),
+            fx=pl.DataFrame(),
+            macro=pl.DataFrame(),
+            dispersion=0.0,
+            **kwargs,
+        )  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("scenario_id", ["KAFI-OPP-disp-novol-bridge"])
+def test_kafi_opp_disp_novol_bridge(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """KAFI-OPP-disp-novol-bridge"""
+    import src.features.kafi as kafi_module
+
+    def fake_greed_components(**_kwargs: object) -> dict[str, float]:
+        return {
+            "momentum": 80.0,
+            "drawdown_depth": 60.0,
+            "equity_bond_rel": 70.0,
+            "credit_oas": 40.0,
+            "fx_stress": 30.0,
+            "vol_dampener": 55.0,
+        }
+
+    monkeypatch.setattr(kafi_module, "kafi_components", fake_greed_components)
+    kwargs: dict[str, object] = {
+        "equity_ticker": "QQQ",
+        "bond_ticker": "IEF",
+        "signal_at": _SIGNAL_AT,
+        "rank_window": _RANK_WINDOW,
+    }
+    score_equal6 = kafi_opportunity_score(
+        prices=pl.DataFrame(),
+        fx=pl.DataFrame(),
+        macro=pl.DataFrame(),
+        include_vol_dampener=True,
+        dispersion=1.0,
+        **kwargs,
+    )  # type: ignore[arg-type]
+    score_bridge = kafi_opportunity_score(
+        prices=pl.DataFrame(),
+        fx=pl.DataFrame(),
+        macro=pl.DataFrame(),
+        include_vol_dampener=False,
+        dispersion=5.0 / 6.0,
+        **kwargs,
+    )  # type: ignore[arg-type]
+
+    assert abs(score_bridge - score_equal6) <= 1e-9

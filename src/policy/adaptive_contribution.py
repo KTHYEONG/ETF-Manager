@@ -46,6 +46,8 @@ class AdaptiveContributionConfig:
     downside_power: float = 2.5
     upside_power: float = 0.7
     rank_window: int = 126
+    include_vol_dampener: bool = True
+    dispersion: float = 1.0
 
     def __post_init__(self) -> None:
         if not self.equity_ticker or not self.bond_ticker or not self.credit_series_id:
@@ -72,6 +74,8 @@ class AdaptiveContributionConfig:
                 raise ValueError(f"{name} must be finite and positive, got {power!r}")
         if self.rank_window < _MIN_RANK_WINDOW:
             raise ValueError(f"rank_window must be at least {_MIN_RANK_WINDOW}, got {self.rank_window!r}")
+        if not math.isfinite(self.dispersion) or self.dispersion <= 0.0:
+            raise ValueError(f"dispersion must be finite and positive, got {self.dispersion!r}")
 
 
 def size_adaptive_contribution(
@@ -107,6 +111,8 @@ def size_adaptive_contribution(
             signal_at=signal_at,
             rank_window=config.rank_window,
             credit_series_id=config.credit_series_id,
+            include_vol_dampener=config.include_vol_dampener,
+            dispersion=config.dispersion,
         )
     except ValueError as exc:
         raise PolicyError(f"adaptive contribution failed closed: {exc}") from exc

@@ -23,6 +23,7 @@ from src.validation.experiment import (
     ExperimentSpec,
     load_experiment_config,
     resolve_adaptive_contribution,
+    resolve_baseline_adaptive_contribution,
     resolve_cadence,
     resolve_contribution_shape,
     resolve_currency,
@@ -1141,6 +1142,7 @@ def test_acr_exp_schema_defaults(scenario_id: str) -> None:
         "downside_power",
         "upside_power",
         "rank_window",
+        "dispersion",
     ):
         assert getattr(spec_defaults, field_name) == getattr(config_defaults, field_name)
 
@@ -1148,3 +1150,100 @@ def test_acr_exp_schema_defaults(scenario_id: str) -> None:
     conflict["reserve"] = {"max_withhold": 0.05}
     with pytest.raises(ValidationError):
         ExperimentSpec.model_validate(conflict)
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-AG-baseline-adaptive"])
+def test_exp_ag_baseline_adaptive(scenario_id: str) -> None:
+    """EXP-AG-baseline-adaptive"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_v2.json")
+
+    assert spec.objective == "adaptive_growth"
+    assert spec.train_months == 60
+    assert spec.test_months == 36
+    baseline_spec = spec.baseline_adaptive_contribution
+    candidate_spec = spec.adaptive_contribution
+    assert baseline_spec is not None
+    assert candidate_spec is not None
+    assert baseline_spec.include_vol_dampener is True
+    assert baseline_spec.upside_power == pytest.approx(0.7)
+    assert candidate_spec.include_vol_dampener is False
+    assert candidate_spec.upside_power == pytest.approx(0.5)
+
+    resolved_baseline = resolve_baseline_adaptive_contribution(spec)
+    resolved_candidate = resolve_adaptive_contribution(spec)
+    assert isinstance(resolved_baseline, AdaptiveContributionConfig)
+    assert isinstance(resolved_candidate, AdaptiveContributionConfig)
+    assert resolved_baseline.include_vol_dampener is True
+    assert resolved_baseline.upside_power == pytest.approx(0.7)
+    assert resolved_candidate.include_vol_dampener is False
+    assert resolved_candidate.upside_power == pytest.approx(0.5)
+    for field_name in (
+        "equity_ticker",
+        "bond_ticker",
+        "credit_series_id",
+        "min_multiplier",
+        "max_multiplier",
+        "downside_power",
+        "upside_power",
+        "rank_window",
+        "include_vol_dampener",
+    ):
+        assert getattr(resolved_baseline, field_name) == getattr(baseline_spec, field_name)
+        assert getattr(resolved_candidate, field_name) == getattr(candidate_spec, field_name)
+
+    missing_candidate = _adaptive_payload()
+    missing_candidate["baseline_adaptive_contribution"] = {}
+    missing_candidate["adaptive_contribution"] = None
+    with pytest.raises(ValueError, match="adaptive_contribution"):
+        ExperimentSpec.model_validate(missing_candidate)
+
+    wrong_objective = _adaptive_payload()
+    wrong_objective["baseline_adaptive_contribution"] = {}
+    wrong_objective["objective"] = "ce"
+    with pytest.raises(ValueError, match="adaptive_growth"):
+        ExperimentSpec.model_validate(wrong_objective)
+
+    xor_conflict = _adaptive_payload()
+    xor_conflict["baseline_adaptive_contribution"] = {}
+    xor_conflict["reserve"] = {"max_withhold": 0.05}
+    with pytest.raises(ValidationError):
+        ExperimentSpec.model_validate(xor_conflict)
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-AG-v3-config"])
+def test_exp_ag_v3_config(scenario_id: str) -> None:
+    """EXP-AG-v3-config"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_v3.json")
+
+    assert spec.objective == "adaptive_growth"
+    baseline_spec = spec.baseline_adaptive_contribution
+    candidate_spec = spec.adaptive_contribution
+    assert baseline_spec is not None
+    assert candidate_spec is not None
+    assert baseline_spec.include_vol_dampener is True
+    assert baseline_spec.upside_power == pytest.approx(0.7)
+    assert baseline_spec.downside_power == pytest.approx(2.5)
+    assert baseline_spec.dispersion == pytest.approx(1.0)
+    assert candidate_spec.include_vol_dampener is False
+    assert candidate_spec.upside_power == pytest.approx(0.5)
+    assert candidate_spec.downside_power == pytest.approx(3.0)
+    assert candidate_spec.dispersion == pytest.approx(1.0)
+
+    resolved_baseline = resolve_baseline_adaptive_contribution(spec)
+    resolved_candidate = resolve_adaptive_contribution(spec)
+    assert isinstance(resolved_baseline, AdaptiveContributionConfig)
+    assert isinstance(resolved_candidate, AdaptiveContributionConfig)
+    for field_name in (
+        "equity_ticker",
+        "bond_ticker",
+        "credit_series_id",
+        "min_multiplier",
+        "max_multiplier",
+        "downside_power",
+        "upside_power",
+        "rank_window",
+        "include_vol_dampener",
+        "dispersion",
+    ):
+        assert getattr(resolved_baseline, field_name) == getattr(baseline_spec, field_name)
+        assert getattr(resolved_candidate, field_name) == getattr(candidate_spec, field_name)
