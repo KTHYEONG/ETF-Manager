@@ -14,7 +14,11 @@ from src.policy.targets import PolicyError
 if TYPE_CHECKING:
     from datetime import datetime
 
-__all__ = ["AdaptiveContributionConfig", "size_adaptive_contribution"]
+__all__ = [
+    "OPERATIONAL_ADAPTIVE_CONTRIBUTION",
+    "AdaptiveContributionConfig",
+    "size_adaptive_contribution",
+]
 
 _MIN_MULTIPLIER_FLOOR: Final[float] = 0.00
 _MIN_MULTIPLIER_CEILING: Final[float] = 1.00
@@ -39,9 +43,9 @@ class AdaptiveContributionConfig:
     credit_series_id: str = DEFAULT_CREDIT_SERIES_ID
     min_multiplier: float = 0.0
     max_multiplier: float = 2.0
-    downside_power: float = 2.0
-    upside_power: float = 1.0
-    rank_window: int = 252
+    downside_power: float = 2.5
+    upside_power: float = 0.7
+    rank_window: int = 126
 
     def __post_init__(self) -> None:
         if not self.equity_ticker or not self.bond_ticker or not self.credit_series_id:
@@ -117,3 +121,7 @@ def size_adaptive_contribution(
     if not math.isfinite(credit):
         raise PolicyError("adaptive contribution collapsed to a non-finite credit")
     return credit
+
+
+# WF-adopted QQQ sizing (rank 126, asymmetric 2.5/0.7); locked on the operational path.
+OPERATIONAL_ADAPTIVE_CONTRIBUTION: Final[AdaptiveContributionConfig] = AdaptiveContributionConfig()
