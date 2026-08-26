@@ -12,12 +12,13 @@ import src.policy.adaptive_contribution as adaptive_module
 from src.data.calendar import load_calendar
 from src.data.pipeline import ingest
 from src.data.schema import Dataset, spec_for
-from src.policy.adaptive_contribution import AdaptiveContributionConfig
+from src.policy.adaptive_contribution import AdaptiveContributionConfig, OPERATIONAL_ADAPTIVE_CONTRIBUTION
 from src.policy.contribution_shape import ContributionShapeConfig
 from src.policy.kafi_deployment import KafiDeploymentConfig
+from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
-from src.policy.targets import PolicyError, PolicyId
-from src.sim.allocation import AllocationConfig, run_allocation
+from src.policy.targets import OPERATIONAL_POLICY_ID, PolicyError, PolicyId
+from src.sim.allocation import AllocationConfig, apply_operational_contribution_lock, run_allocation
 
 _CALENDAR = load_calendar("XNYS")
 _RETRIEVED_AT: Final[datetime] = datetime(2024, 4, 1, 5, 0, tzinfo=UTC)
@@ -184,3 +185,40 @@ def test_sim_acg_boundaries(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -
             _cpi_panel(),
             macro=_macro_panel(),
         )
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-ACG-operational-lock"])
+def test_sim_acg_operational_lock(scenario_id: str) -> None:
+    """SIM-ACG-operational-lock"""
+    bare_qqq = AllocationConfig(
+        policy=OPERATIONAL_POLICY_ID,
+        start=_CONFIG_START,
+        end=_CONFIG_END,
+        monthly_contribution_krw=_CONTRIBUTION_KRW,
+    )
+    locked = apply_operational_contribution_lock(bare_qqq)
+    assert locked.adaptive_contribution is OPERATIONAL_ADAPTIVE_CONTRIBUTION
+    assert locked.adaptive_contribution.rank_window == 126
+    assert locked.adaptive_contribution.downside_power == pytest.approx(2.5)
+    assert locked.adaptive_contribution.upside_power == pytest.approx(0.7)
+
+    vti = apply_operational_contribution_lock(
+        AllocationConfig(
+            policy=PolicyId.VTI,
+            start=_CONFIG_START,
+            end=_CONFIG_END,
+            monthly_contribution_krw=_CONTRIBUTION_KRW,
+        )
+    )
+    assert vti.adaptive_contribution is None
+
+    with_overlay = apply_operational_contribution_lock(
+        AllocationConfig(
+            policy=OPERATIONAL_POLICY_ID,
+            start=_CONFIG_START,
+            end=_CONFIG_END,
+            monthly_contribution_krw=_CONTRIBUTION_KRW,
+            overlay=OverlayConfig(),
+        )
+    )
+    assert with_overlay.adaptive_contribution is None

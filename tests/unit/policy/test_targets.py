@@ -9,6 +9,7 @@ import polars as pl
 import pytest
 
 from src.data.calendar import load_calendar
+from src.policy.adaptive_contribution import OPERATIONAL_ADAPTIVE_CONTRIBUTION
 from src.data.pipeline import ingest
 from src.data.pit import TS_DTYPE
 from src.data.schema import Dataset, spec_for
@@ -77,6 +78,16 @@ def test_pol_o_operational_qqq(scenario_id: str) -> None:
     """POL-O-operational-qqq"""
     assert OPERATIONAL_POLICY_ID is PolicyId.QQQ
     assert resolve_targets(OPERATIONAL_POLICY_ID, pl.DataFrame(), _SIGNAL_AT) == {"QQQ": 1.0}
+
+
+@pytest.mark.parametrize("scenario_id", ["POL-AF-operational-adaptive"])
+def test_pol_af_operational_adaptive(scenario_id: str) -> None:
+    """POL-AF-operational-adaptive"""
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.rank_window == 126
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.downside_power == pytest.approx(2.5)
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.upside_power == pytest.approx(0.7)
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.min_multiplier == pytest.approx(0.0)
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.max_multiplier == pytest.approx(2.0)
 
 
 @pytest.mark.parametrize("scenario_id", ["POL-N-qqq-nasdaq"])
