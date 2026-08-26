@@ -11,6 +11,7 @@ from src.features.drawdown import trailing_price_drawdown
 from src.features.momentum import trailing_compound_return
 from src.features.returns import session_returns
 from src.policy.overlay import visible_macro_level
+from src.policy.sizing import erp_preserving_multiplier
 from src.policy.targets import PolicyError
 
 if TYPE_CHECKING:
@@ -35,13 +36,13 @@ _V3_DEFAULT_VIX_THRESHOLD: Final[float] = 25.0
 
 @dataclass(frozen=True, slots=True)
 class ReserveConfig:
-    """Reserve ledger parameters for the binary ``v1``, piecewise ``v2``, or ERP ``v3`` schedule."""
+    """Reserve ledger parameters for the binary ``v1``, piecewise ``v2``, ERP ``v3``, or depth-trend ``v4`` schedule."""
 
     max_withhold: float
     trend_window: int = 126
     drawdown_window: int = 252
     drawdown_trigger: float = -0.15
-    schedule: Literal["v1", "v2", "v3"] = "v1"
+    schedule: Literal["v1", "v2", "v3", "v4"] = "v1"
     min_invest_multiplier: float = _LEGACY_MIN_INVEST
     max_invest_multiplier: float = _LEGACY_MAX_INVEST
     reserve_max_months: float = 6.00
@@ -53,22 +54,26 @@ class ReserveConfig:
             raise ValueError(
                 f"max_withhold must lie in (0, {_MAX_WITHHOLD_CEILING}], got {self.max_withhold!r}"
             )
-        if self.schedule not in ("v1", "v2", "v3"):
-            raise ValueError(f"schedule must be 'v1', 'v2', or 'v3', got {self.schedule!r}")
-        if self.schedule == "v3":
-            # Legacy v1/v2 baselines count as unset and rebase onto the wider v3 band.
+        if self.schedule not in ("v1", "v2", "v3", "v4"):
+            raise ValueError(
+                f"schedule must be 'v1', 'v2', 'v3', or 'v4', got {self.schedule!r}"
+            )
+        if self.schedule in ("v3", "v4"):
+            # Legacy v1/v2 baselines count as unset and rebase onto the wider band.
             if self.min_invest_multiplier == _LEGACY_MIN_INVEST:
                 object.__setattr__(self, "min_invest_multiplier", _V3_MIN_INVEST)
             if self.max_invest_multiplier == _LEGACY_MAX_INVEST:
                 object.__setattr__(self, "max_invest_multiplier", _V3_MAX_INVEST_CEILING)
-            if self.vix_threshold == _DEFAULT_VIX_THRESHOLD:
-                object.__setattr__(self, "vix_threshold", _V3_DEFAULT_VIX_THRESHOLD)
+        if self.schedule == "v3" and self.vix_threshold == _DEFAULT_VIX_THRESHOLD:
+            object.__setattr__(self, "vix_threshold", _V3_DEFAULT_VIX_THRESHOLD)
         if not 0.0 < self.min_invest_multiplier < _MIN_INVEST_CEILING:
             raise ValueError(
                 f"min_invest_multiplier must lie in (0, {_MIN_INVEST_CEILING}), "
                 f"got {self.min_invest_multiplier!r}"
             )
-        max_invest_ceiling = _V3_MAX_INVEST_CEILING if self.schedule == "v3" else _MAX_INVEST_CEILING
+        max_invest_ceiling = (
+            _V3_MAX_INVEST_CEILING if self.schedule in ("v3", "v4") else _MAX_INVEST_CEILING
+        )
         if not _MIN_INVEST_CEILING < self.max_invest_multiplier <= max_invest_ceiling:
             raise ValueError(
                 f"max_invest_multiplier must lie in ({_MIN_INVEST_CEILING}, {max_invest_ceiling}], "
@@ -142,13 +147,15 @@ def apply_reserve_schedule(
     call: deploy ``min(reserve_krw, cap)`` back into investable KRW when the trailing
     drawdown is at or below ``config.drawdown_trigger``; otherwise withhold ``cap`` when
     the trailing compound trend is positive; otherwise pass the contribution through
-    untouched. Schedules ``v2`` and ``v3`` scale the contribution by a deterministic
-    invest multiplier funded only from the explicit reserve stock; overflow above the
-    ``reserve_max_months`` stock cap is invested instead of withheld. ``v2`` keys the
-    multiplier on depth and trend alone; ``v3`` keys it on depth or VIX stress via the
-    latest macro row visible at the signal instant, so it fails closed without a usable
-    macro frame while ``v1`` and ``v2`` ignore ``macro`` entirely. The returned
-    ``reserve_krw`` never goes negative and every schedule closes the ledger identity
+    untouched. Schedules ``v2``, ``v3``, and ``v4`` scale the contribution by a
+    deterministic invest multiplier funded only from the explicit reserve stock;
+    overflow above the ``reserve_max_months`` stock cap is invested instead of
+    withheld. ``v2`` keys the multiplier on depth and trend alone; ``v3`` keys it on
+    depth or VIX stress via the latest macro row visible at the signal instant, so it
+    fails closed without a usable macro frame; ``v4`` applies the ERP-preserving
+    depth-trend polarity table and ignores ``macro`` entirely. ``v1`` and ``v2`` ignore
+    ``macro`` too. The returned ``reserve_krw`` never goes negative and every schedule
+    closes the ledger identity
     ``investable + reserve == contribution + old reserve``. Feature failures fail closed
     with ``PolicyError``.
 
@@ -175,6 +182,8 @@ def apply_reserve_schedule(
                 min_invest_multiplier=config.min_invest_multiplier,
                 max_invest_multiplier=config.max_invest_multiplier,
             )
+        elif config.schedule == "v4":
+            multiplier = erp_preserving_multiplier(depth=-drawdown, trend=trend, min_invest_multiplier=config.min_invest_multiplier, max_invest_multiplier=config.max_invest_multiplier)
         else:
             multiplier = _piecewise_multiplier(
                 depth=-drawdown,

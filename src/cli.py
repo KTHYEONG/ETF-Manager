@@ -342,7 +342,9 @@ def _build_parser() -> _Parser:
         help="QQQ reserve-versus-plain ratios and reserve usage per regime window; reporting only, never an adoption gate",
     )
     diagnose_qqq_reserve.add_argument("--contribution-krw", required=True, type=float)
-    diagnose_qqq_reserve.add_argument("--reserve-schedule", choices=("v1", "v2", "v3"), default="v1")
+    diagnose_qqq_reserve.add_argument(
+        "--reserve-schedule", choices=("v1", "v2", "v3", "v4"), default="v1"
+    )
     diagnose_qqq_cadence = run_targets.add_parser(
         "diagnose-qqq-cadence",
         help="QQQ month-open-cadence ratios versus the default monthly cadence per regime window; reporting only, never an adoption gate",
@@ -867,6 +869,13 @@ _RESERVE_SCHEDULES: Final[dict[str, ReserveConfig | None]] = {
     "v2": ReserveConfig(schedule="v2", max_withhold=0.10),
     "v3": ReserveConfig(
         schedule="v3", max_withhold=0.10, min_invest_multiplier=0.70, max_invest_multiplier=3.0
+    ),
+    "v4": ReserveConfig(
+        schedule="v4",
+        max_withhold=0.10,
+        min_invest_multiplier=0.70,
+        max_invest_multiplier=3.0,
+        reserve_max_months=2.0,
     ),
 }
 
