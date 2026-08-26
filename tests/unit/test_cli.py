@@ -18,6 +18,7 @@ from src.data.providers.base import ProviderError
 from src.data.schema import Dataset
 from src.data.settings import DataSettings
 from src.etf.mapping import MappingConfig
+from src.policy.adaptive_contribution import OPERATIONAL_ADAPTIVE_CONTRIBUTION
 from src.policy.currency import CurrencyConfig
 from src.policy.targets import PolicyId, all_policy_tickers
 from src.sim.allocation import (
@@ -476,6 +477,44 @@ def test_cli_g07_run_policy(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(cli, "run_allocation_from_store", failing_run)
     assert main(argv) == 1
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-G07-operational-qqq-adaptive"])
+def test_cli_g07_operational_qqq_adaptive(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-G07-operational-qqq-adaptive"""
+    captured: list[AllocationConfig] = []
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        captured.append(config)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=2.5,
+            xirr=0.12,
+            max_drawdown=-0.05,
+            terminal_wealth_real_krw=2.0,
+            xirr_real=0.09,
+        )
+
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "require_feasibility", lambda **kwargs: None)
+
+    argv = [
+        "run",
+        "policy",
+        "--id",
+        "qqq",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-01-31",
+        "--contribution-krw",
+        "1000000",
+    ]
+    assert main(argv) == 0
+    assert len(captured) == 1
+    assert captured[0].policy is PolicyId.QQQ
+    assert captured[0].adaptive_contribution is OPERATIONAL_ADAPTIVE_CONTRIBUTION
 
 
 @pytest.mark.parametrize("scenario_id", ["CLI-H06-ingest-factors-and-tilt-flags"])

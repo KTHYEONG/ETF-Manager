@@ -18,6 +18,7 @@ from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
 from src.policy.targets import PolicyId
 from src.validation.experiment import (
+    AdaptiveContributionSpec,
     CadenceSpec,
     ExperimentSpec,
     load_experiment_config,
@@ -1058,15 +1059,17 @@ def test_exp_acg_schema_wiring(scenario_id: str) -> None:
     assert module is not None
     assert module.min_multiplier == pytest.approx(0.0)
     assert module.max_multiplier == pytest.approx(2.0)
-    assert module.downside_power == pytest.approx(2.0)
-    assert module.upside_power == pytest.approx(1.0)
+    assert module.downside_power == pytest.approx(2.5)
+    assert module.upside_power == pytest.approx(0.7)
+    assert module.rank_window == 126
 
     resolved = resolve_adaptive_contribution(spec)
     assert isinstance(resolved, AdaptiveContributionConfig)
     assert resolved.min_multiplier == pytest.approx(0.0)
     assert resolved.max_multiplier == pytest.approx(2.0)
-    assert resolved.downside_power == pytest.approx(2.0)
-    assert resolved.upside_power == pytest.approx(1.0)
+    assert resolved.downside_power == pytest.approx(2.5)
+    assert resolved.upside_power == pytest.approx(0.7)
+    assert resolved.rank_window == 126
 
     omitted = ExperimentSpec.model_validate(_payload())
     assert resolve_adaptive_contribution(omitted) is None
@@ -1104,3 +1107,44 @@ def test_exp_acg_schema_wiring(scenario_id: str) -> None:
     unknown_key["adaptive_contribution"] = {"bogus": True}
     with pytest.raises(ValueError, match="bogus"):
         ExperimentSpec.model_validate(unknown_key)
+
+
+@pytest.mark.parametrize("scenario_id", ["ACR-EXP-schema-defaults"])
+def test_acr_exp_schema_defaults(scenario_id: str) -> None:
+    """ACR-EXP-schema-defaults"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_contribution.json")
+
+    module = spec.adaptive_contribution
+    assert module is not None
+    assert module.rank_window == 126
+    assert module.downside_power == pytest.approx(2.5)
+    assert module.upside_power == pytest.approx(0.7)
+    assert module.min_multiplier == pytest.approx(0.0)
+    assert module.max_multiplier == pytest.approx(2.0)
+
+    resolved = resolve_adaptive_contribution(spec)
+    assert isinstance(resolved, AdaptiveContributionConfig)
+    assert resolved.rank_window == 126
+    assert resolved.downside_power == pytest.approx(2.5)
+    assert resolved.upside_power == pytest.approx(0.7)
+    assert resolved.min_multiplier == pytest.approx(0.0)
+    assert resolved.max_multiplier == pytest.approx(2.0)
+
+    spec_defaults = AdaptiveContributionSpec()
+    config_defaults = AdaptiveContributionConfig()
+    for field_name in (
+        "equity_ticker",
+        "bond_ticker",
+        "credit_series_id",
+        "min_multiplier",
+        "max_multiplier",
+        "downside_power",
+        "upside_power",
+        "rank_window",
+    ):
+        assert getattr(spec_defaults, field_name) == getattr(config_defaults, field_name)
+
+    conflict = _adaptive_payload()
+    conflict["reserve"] = {"max_withhold": 0.05}
+    with pytest.raises(ValidationError):
+        ExperimentSpec.model_validate(conflict)

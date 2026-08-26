@@ -48,9 +48,32 @@ def test_acg_a_curve_anchors(scenario_id: str, forced_scores: list[float]) -> No
     forced_scores.extend([0.0, 25.0, 50.0, 75.0, 100.0])
     outputs = [_size(AdaptiveContributionConfig()) for _ in range(5)]
 
-    assert outputs == pytest.approx([0.0, 750_000.0, _BASE, 1_500_000.0, 2 * _BASE], abs=1e-6)
+    assert outputs == pytest.approx(
+        [0.0, _BASE * (1 - 0.5**2.5), _BASE, _BASE * (1 + 0.5**0.7), 2 * _BASE], abs=1e-6
+    )
     assert outputs == sorted(outputs)
     assert all(0.0 <= output <= 2 * _BASE for output in outputs)
+
+
+@pytest.mark.parametrize("scenario_id", ["ACR-ACG-default-curve"])
+def test_acr_acg_default_curve(scenario_id: str, forced_scores: list[float]) -> None:
+    """ACR-ACG-default-curve"""
+    config = AdaptiveContributionConfig()
+    assert config.rank_window == 126
+    assert config.downside_power == pytest.approx(2.5)
+    assert config.upside_power == pytest.approx(0.7)
+    assert config.min_multiplier == pytest.approx(0.0)
+    assert config.max_multiplier == pytest.approx(2.0)
+
+    forced_scores.extend([0.0, 50.0, 100.0])
+    anchors = [_size(config) for _ in range(3)]
+    assert anchors == pytest.approx([0.0, _BASE, 2 * _BASE], abs=1e-6)
+
+    forced_scores.extend([25.0, 75.0])
+    midpoints = [_size(config) for _ in range(2)]
+    assert midpoints == pytest.approx(
+        [_BASE * (1 - 0.5**2.5), _BASE * (1 + 0.5**0.7)], abs=1e-6
+    )
 
 
 @pytest.mark.parametrize("scenario_id", ["ACG-B-causal-no-conservation"])
