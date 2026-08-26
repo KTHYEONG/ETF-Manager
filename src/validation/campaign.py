@@ -12,6 +12,7 @@ from src.sim.allocation import AllocationConfig
 from src.validation.evaluate import evaluate_cohort_wealths
 from src.validation.experiment import (
     ExperimentSpec,
+    resolve_adaptive_contribution,
     resolve_cadence,
     resolve_contribution_shape,
     resolve_currency,
@@ -24,6 +25,8 @@ from src.validation.gate import (
     adoption_passes,
     bootstrap_tail_passes,
     certainty_equivalent,
+    contribution_growth_process_passes,
+    contribution_growth_train_passes,
     growth_first_process_passes,
     growth_first_train_passes,
     worst_cohort_passes,
@@ -36,6 +39,7 @@ if TYPE_CHECKING:
 
     from src.data.settings import DataSettings
     from src.etf.mapping import MappingConfig
+    from src.policy.adaptive_contribution import AdaptiveContributionConfig
     from src.policy.contribution_shape import ContributionShapeConfig
     from src.policy.currency import CurrencyConfig
     from src.policy.kafi_deployment import KafiDeploymentConfig
@@ -64,7 +68,12 @@ _CE_GAMMAS: Final[tuple[float, ...]] = (2.0, 5.0, 10.0)
 
 @dataclass(frozen=True, slots=True)
 class FoldOutcome:
-    """Train-phase adoption decision plus realized test-phase wealths."""
+    """Train-phase adoption decision plus realized test-phase wealths.
+
+    ``*_test_wealth`` is real terminal wealth (TW); the contribution/gain/XIRR
+    triplets carry each arm's total real contributed capital, real profit, and
+    money-weighted real rate so variable-cashflow arms stay capital-aware.
+    """
 
     train_start: date
     train_end: date
@@ -75,6 +84,15 @@ class FoldOutcome:
     baseline_test_wealth: float
     candidate_test_wealth: float
     chosen_test_wealth: float
+    baseline_total_contribution_real_krw: float = 0.0
+    candidate_total_contribution_real_krw: float = 0.0
+    chosen_total_contribution_real_krw: float = 0.0
+    baseline_real_gain: float = 0.0
+    candidate_real_gain: float = 0.0
+    chosen_real_gain: float = 0.0
+    baseline_xirr_real: float = 0.0
+    candidate_xirr_real: float = 0.0
+    chosen_xirr_real: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +175,7 @@ def _arm_config(
     currency: CurrencyConfig | None,
     contribution_shape: ContributionShapeConfig | None = None,
     kafi_deployment: KafiDeploymentConfig | None = None,
+    adaptive_contribution: AdaptiveContributionConfig | None = None,
     cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
 ) -> AllocationConfig:
     """Identical cashflow/costs for every arm on one sliced window."""
@@ -176,6 +195,7 @@ def _arm_config(
         mapping=mapping,
         contribution_shape=contribution_shape,
         kafi_deployment=kafi_deployment,
+        adaptive_contribution=adaptive_contribution,
         cadence=cadence,
     )
 
@@ -183,6 +203,11 @@ def _arm_config(
 def _singleton_ce(wealth: float) -> Mapping[float, float]:
     """CE gammas of a one-observation wealth vector."""
     return {gamma: certainty_equivalent((wealth,), gamma=gamma) for gamma in _CE_GAMMAS}
+
+
+def _real_profit(result: AllocationResult) -> float:
+    """Real terminal wealth minus real contributed capital."""
+    return result.terminal_wealth_real_krw - result.total_contribution_real_krw
 
 
 def run_walk_forward_adoption(
@@ -206,10 +231,16 @@ def run_walk_forward_adoption(
     every fold ratio at least 0.97; the complexity-penalized CE hurdle applies
     only to ``ce``.
 
+    With ``objective == 'adaptive_growth'`` the train gate is capital-aware
+    (strict TW and real-profit gains, non-inferior real XIRR, MDD slack) via
+    ``contribution_growth_train_passes``, and the process verdict delegates to
+    ``contribution_growth_process_passes`` over per-fold TW, real-gain, and
+    real-XIR sequences; every fold records each arm's metrics.
+
     Raises:
         ValueError: When train/test months are absent, the candidate count is not
-            one, no walk-forward fold fits the window, or a growth_first objective
-            lacks a cadence module.
+            one, no walk-forward fold fits the window, a growth_first objective
+            lacks a cadence module, or an adaptive_growth objective lacks its module.
     """
     if spec.train_months is None or spec.test_months is None:
         raise ValueError("walk-forward adoption requires both train_months and test_months")
@@ -239,7 +270,11 @@ def run_walk_forward_adoption(
     candidate_currency = resolve_currency(spec)
     candidate_contribution_shape = resolve_contribution_shape(spec)
     candidate_kafi_deployment = resolve_kafi_deployment(spec)
+    candidate_adaptive_contribution = resolve_adaptive_contribution(spec)
     candidate_cadence = resolve_cadence(spec) or "monthly"
+    if spec.objective == "adaptive_growth" and candidate_adaptive_contribution is None:
+        # model_copy bypasses model validation, so the campaign must fail closed itself.
+        raise ValueError("objective 'adaptive_growth' requires exactly one adaptive_contribution module")
 
     def arm_result(
         policy: PolicyId,
@@ -251,6 +286,7 @@ def run_walk_forward_adoption(
         arm_currency: CurrencyConfig | None,
         arm_contribution_shape: ContributionShapeConfig | None = None,
         arm_kafi_deployment: KafiDeploymentConfig | None = None,
+        arm_adaptive_contribution: AdaptiveContributionConfig | None = None,
         arm_cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
     ) -> AllocationResult:
         return runner(
@@ -265,39 +301,19 @@ def run_walk_forward_adoption(
                 arm_currency,
                 arm_contribution_shape,
                 arm_kafi_deployment,
+                arm_adaptive_contribution,
                 arm_cadence,
             )
         )
-
-    def real_wealth(
-        policy: PolicyId,
-        start: date,
-        end: date,
-        arm_overlay: OverlayConfig | None,
-        arm_reserve: ReserveConfig | None,
-        arm_mapping: MappingConfig | None,
-        arm_currency: CurrencyConfig | None,
-        arm_contribution_shape: ContributionShapeConfig | None = None,
-        arm_kafi_deployment: KafiDeploymentConfig | None = None,
-        arm_cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
-    ) -> float:
-        return arm_result(
-            policy,
-            start,
-            end,
-            arm_overlay,
-            arm_reserve,
-            arm_mapping,
-            arm_currency,
-            arm_contribution_shape,
-            arm_kafi_deployment,
-            arm_cadence,
-        ).terminal_wealth_real_krw
 
     folds: list[FoldOutcome] = []
     baseline_wealths: list[float] = []
     candidate_wealths: list[float] = []
     chosen_wealths: list[float] = []
+    baseline_gains: list[float] = []
+    chosen_gains: list[float] = []
+    baseline_xirrs: list[float] = []
+    chosen_xirrs: list[float] = []
     for train_start, train_end, test_start, test_end in windows:
         baseline_train_arm = arm_result(
             spec.baseline.policy, train_start, train_end, None, None, None, None
@@ -312,9 +328,21 @@ def run_walk_forward_adoption(
             candidate_currency,
             candidate_contribution_shape,
             candidate_kafi_deployment,
+            candidate_adaptive_contribution,
             candidate_cadence,
         )
-        if spec.objective == "growth_first":
+        if spec.objective == "adaptive_growth":
+            train_adopted = contribution_growth_train_passes(
+                candidate_tw=candidate_train_arm.terminal_wealth_real_krw,
+                baseline_tw=baseline_train_arm.terminal_wealth_real_krw,
+                candidate_real_gain=_real_profit(candidate_train_arm),
+                baseline_real_gain=_real_profit(baseline_train_arm),
+                candidate_xirr_real=candidate_train_arm.xirr_real,
+                baseline_xirr_real=baseline_train_arm.xirr_real,
+                candidate_mdd=candidate_train_arm.max_drawdown,
+                baseline_mdd=baseline_train_arm.max_drawdown,
+            )
+        elif spec.objective == "growth_first":
             train_adopted = growth_first_train_passes(
                 candidate_tw=candidate_train_arm.terminal_wealth_real_krw,
                 baseline_tw=baseline_train_arm.terminal_wealth_real_krw,
@@ -336,9 +364,10 @@ def run_walk_forward_adoption(
         )
         chosen_contribution_shape = candidate_contribution_shape if train_adopted else None
         chosen_kafi_deployment = candidate_kafi_deployment if train_adopted else None
+        chosen_adaptive_contribution = candidate_adaptive_contribution if train_adopted else None
         chosen_cadence = candidate_cadence if train_adopted else "monthly"
-        baseline_test = real_wealth(spec.baseline.policy, test_start, test_end, None, None, None, None)
-        candidate_test = real_wealth(
+        baseline_test_arm = arm_result(spec.baseline.policy, test_start, test_end, None, None, None, None)
+        candidate_test_arm = arm_result(
             candidate.policy,
             test_start,
             test_end,
@@ -348,17 +377,22 @@ def run_walk_forward_adoption(
             candidate_currency,
             candidate_contribution_shape,
             candidate_kafi_deployment,
+            candidate_adaptive_contribution,
             candidate_cadence,
         )
-        chosen_test = real_wealth(
+        chosen_test_arm = arm_result(
             chosen_policy,
             test_start,
             test_end,
             *keep_extras,
             chosen_contribution_shape,
             chosen_kafi_deployment,
+            chosen_adaptive_contribution,
             chosen_cadence,
         )
+        baseline_test = baseline_test_arm.terminal_wealth_real_krw
+        candidate_test = candidate_test_arm.terminal_wealth_real_krw
+        chosen_test = chosen_test_arm.terminal_wealth_real_krw
         folds.append(
             FoldOutcome(
                 train_start=train_start,
@@ -370,16 +404,38 @@ def run_walk_forward_adoption(
                 baseline_test_wealth=baseline_test,
                 candidate_test_wealth=candidate_test,
                 chosen_test_wealth=chosen_test,
+                baseline_total_contribution_real_krw=baseline_test_arm.total_contribution_real_krw,
+                candidate_total_contribution_real_krw=candidate_test_arm.total_contribution_real_krw,
+                chosen_total_contribution_real_krw=chosen_test_arm.total_contribution_real_krw,
+                baseline_real_gain=_real_profit(baseline_test_arm),
+                candidate_real_gain=_real_profit(candidate_test_arm),
+                chosen_real_gain=_real_profit(chosen_test_arm),
+                baseline_xirr_real=baseline_test_arm.xirr_real,
+                candidate_xirr_real=candidate_test_arm.xirr_real,
+                chosen_xirr_real=chosen_test_arm.xirr_real,
             )
         )
         baseline_wealths.append(baseline_test)
         candidate_wealths.append(candidate_test)
         chosen_wealths.append(chosen_test)
+        baseline_gains.append(_real_profit(baseline_test_arm))
+        chosen_gains.append(_real_profit(chosen_test_arm))
+        baseline_xirrs.append(baseline_test_arm.xirr_real)
+        chosen_xirrs.append(chosen_test_arm.xirr_real)
 
     baseline_ce = {gamma: certainty_equivalent(baseline_wealths, gamma=gamma) for gamma in _CE_GAMMAS}
     candidate_ce = {gamma: certainty_equivalent(candidate_wealths, gamma=gamma) for gamma in _CE_GAMMAS}
     chosen_ce = {gamma: certainty_equivalent(chosen_wealths, gamma=gamma) for gamma in _CE_GAMMAS}
-    if spec.objective == "growth_first":
+    if spec.objective == "adaptive_growth":
+        process_adopted_vs_baseline = contribution_growth_process_passes(
+            chosen_test_tw=tuple(chosen_wealths),
+            baseline_test_tw=tuple(baseline_wealths),
+            chosen_test_real_gain=tuple(chosen_gains),
+            baseline_test_real_gain=tuple(baseline_gains),
+            chosen_test_xirr_real=tuple(chosen_xirrs),
+            baseline_test_xirr_real=tuple(baseline_xirrs),
+        )
+    elif spec.objective == "growth_first":
         process_adopted_vs_baseline = growth_first_process_passes(
             chosen_test=tuple(chosen_wealths),
             baseline_test=tuple(baseline_wealths),
@@ -462,6 +518,15 @@ def _fold_records(folds: tuple[FoldOutcome, ...]) -> list[dict[str, object]]:
             "baseline_test_wealth": fold.baseline_test_wealth,
             "candidate_test_wealth": fold.candidate_test_wealth,
             "chosen_test_wealth": fold.chosen_test_wealth,
+            "baseline_total_contribution_real_krw": fold.baseline_total_contribution_real_krw,
+            "candidate_total_contribution_real_krw": fold.candidate_total_contribution_real_krw,
+            "chosen_total_contribution_real_krw": fold.chosen_total_contribution_real_krw,
+            "baseline_real_gain": fold.baseline_real_gain,
+            "candidate_real_gain": fold.candidate_real_gain,
+            "chosen_real_gain": fold.chosen_real_gain,
+            "baseline_xirr_real": fold.baseline_xirr_real,
+            "candidate_xirr_real": fold.candidate_xirr_real,
+            "chosen_xirr_real": fold.chosen_xirr_real,
         }
         for fold in folds
     ]

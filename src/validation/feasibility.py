@@ -30,6 +30,7 @@ from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig, apply_reserve_schedule
 from src.policy.targets import PolicyError, PolicyId, policy_sleeves
 from src.validation.experiment import (
+    resolve_adaptive_contribution,
     resolve_contribution_shape,
     resolve_currency,
     resolve_kafi_deployment,
@@ -337,7 +338,12 @@ def assert_experiment_feasible(spec: ExperimentSpec, settings: DataSettings) -> 
     currency = resolve_currency(spec)
     contribution_shape = resolve_contribution_shape(spec)
     kafi_deployment = resolve_kafi_deployment(spec)
-    if contribution_shape is not None or kafi_deployment is not None:
+    adaptive_contribution = resolve_adaptive_contribution(spec)
+    if (
+        contribution_shape is not None
+        or kafi_deployment is not None
+        or adaptive_contribution is not None
+    ):
         # KAFI arms read the MACRO partition at runtime; the trust gate fails closed here.
         latest_artifact(settings, Dataset.MACRO)
     return require_feasibility(

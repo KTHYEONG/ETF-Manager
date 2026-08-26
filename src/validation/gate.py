@@ -17,6 +17,8 @@ __all__ = [
     "adoption_passes",
     "bootstrap_tail_passes",
     "certainty_equivalent",
+    "contribution_growth_process_passes",
+    "contribution_growth_train_passes",
     "growth_first_process_passes",
     "growth_first_train_passes",
     "select_plateau",
@@ -127,6 +129,111 @@ def growth_first_process_passes(
         for chosen_value, baseline_value in zip(chosen, baseline, strict=True)
     )
     return pooled_gain and floor_ok
+
+def contribution_growth_train_passes(
+    *,
+    candidate_tw: float,
+    baseline_tw: float,
+    candidate_real_gain: float,
+    baseline_real_gain: float,
+    candidate_xirr_real: float,
+    baseline_xirr_real: float,
+    candidate_mdd: float,
+    baseline_mdd: float,
+    mdd_slack: float = 0.02,
+) -> bool:
+    """Capital-aware train gate for variable external cashflows.
+
+    Passes iff the candidate strictly gains TW and real profit (terminal wealth minus
+    contributed capital), its real XIRR is non-inferior, and drawdowns do not deepen
+    beyond ``mdd_slack`` (default 0.02): ``candidate_mdd >= baseline_mdd - mdd_slack``.
+    The paired real-gain requirement keeps extra invested inflows from winning adoption.
+
+    Raises:
+        ValueError: When any input is non-finite or ``mdd_slack`` is negative.
+    """
+    metrics = (
+        candidate_tw,
+        baseline_tw,
+        candidate_real_gain,
+        baseline_real_gain,
+        candidate_xirr_real,
+        baseline_xirr_real,
+        candidate_mdd,
+        baseline_mdd,
+    )
+    if not all(math.isfinite(float(value)) for value in metrics):
+        raise ValueError("contribution-growth train gate requires finite TW, gain, XIRR, and MDD inputs")
+    if mdd_slack < 0 or not math.isfinite(mdd_slack):
+        raise ValueError(f"mdd_slack must be finite and non-negative, got {mdd_slack!r}")
+    return (
+        float(candidate_tw) > float(baseline_tw)
+        and float(candidate_real_gain) > float(baseline_real_gain)
+        and float(candidate_xirr_real) >= float(baseline_xirr_real)
+        and float(candidate_mdd) >= float(baseline_mdd) - mdd_slack
+    )
+
+
+def contribution_growth_process_passes(
+    *,
+    chosen_test_tw: Sequence[float],
+    baseline_test_tw: Sequence[float],
+    chosen_test_real_gain: Sequence[float],
+    baseline_test_real_gain: Sequence[float],
+    chosen_test_xirr_real: Sequence[float],
+    baseline_test_xirr_real: Sequence[float],
+    worst_fold_floor: float = 0.97,
+) -> bool:
+    """Capital-aware process gate over pooled walk-forward folds.
+
+    Passes iff pooled chosen TW and pooled chosen real gain strictly exceed their
+    baselines, every fold TW ratio ``chosen/baseline`` reaches ``worst_fold_floor``
+    (default 0.97), and every chosen fold's real XIRR is at least its baseline's;
+    one bad fold vetoes adoption.
+
+    Raises:
+        ValueError: When the fold sequences mismatch in length, are empty, contain
+            non-finite metrics or non-positive baseline TWs, or ``worst_fold_floor``
+            is non-finite.
+    """
+    lengths = {
+        len(chosen_test_tw),
+        len(baseline_test_tw),
+        len(chosen_test_real_gain),
+        len(baseline_test_real_gain),
+        len(chosen_test_xirr_real),
+        len(baseline_test_xirr_real),
+    }
+    if len(lengths) != 1:
+        raise ValueError("fold sequences must all have equal length")
+    if len(chosen_test_tw) < 1:
+        raise ValueError("contribution-growth process gate needs at least one fold")
+    if not math.isfinite(worst_fold_floor):
+        raise ValueError(f"worst_fold_floor must be finite, got {worst_fold_floor!r}")
+    chosen_tw = tuple(float(value) for value in chosen_test_tw)
+    baseline_tw = tuple(float(value) for value in baseline_test_tw)
+    chosen_gain = tuple(float(value) for value in chosen_test_real_gain)
+    baseline_gain = tuple(float(value) for value in baseline_test_real_gain)
+    chosen_xirr = tuple(float(value) for value in chosen_test_xirr_real)
+    baseline_xirr = tuple(float(value) for value in baseline_test_xirr_real)
+    if not all(
+        math.isfinite(value)
+        for value in (*chosen_tw, *baseline_tw, *chosen_gain, *baseline_gain, *chosen_xirr, *baseline_xirr)
+    ):
+        raise ValueError("contribution-growth process gate requires finite fold metrics")
+    if any(value <= 0.0 for value in baseline_tw):
+        raise ValueError(f"baseline_test_tw must be strictly positive, got {baseline_tw!r}")
+    pooled_gain = sum(chosen_tw) > sum(baseline_tw) and sum(chosen_gain) > sum(baseline_gain)
+    floor_ok = all(
+        chosen_value / baseline_value >= worst_fold_floor
+        for chosen_value, baseline_value in zip(chosen_tw, baseline_tw, strict=True)
+    )
+    xirr_ok = all(
+        chosen_value >= baseline_value
+        for chosen_value, baseline_value in zip(chosen_xirr, baseline_xirr, strict=True)
+    )
+    return pooled_gain and floor_ok and xirr_ok
+
 
 def wealth_quantile(values: Sequence[float], q: float) -> float:
     """Linearly interpolated ``q``-quantile of finite wealths.
