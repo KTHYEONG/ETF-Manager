@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import TYPE_CHECKING, Final, Literal
 
@@ -17,7 +17,11 @@ from src.data.query import load_as_of
 from src.data.schedule import build_decision_schedule, contribution_krw_for_point
 from src.data.schema import Dataset
 from src.etf.mapping import MappingConfig, apply_etf_mapping
-from src.policy.adaptive_contribution import AdaptiveContributionConfig, size_adaptive_contribution
+from src.policy.adaptive_contribution import (
+    OPERATIONAL_ADAPTIVE_CONTRIBUTION,
+    AdaptiveContributionConfig,
+    size_adaptive_contribution,
+)
 from src.policy.contribution_shape import (
     ContributionBudgetState,
     ContributionShapeConfig,
@@ -27,7 +31,7 @@ from src.policy.currency import conversion_fraction
 from src.policy.kafi_deployment import KafiDeploymentConfig, apply_kafi_deployment
 from src.policy.overlay import apply_bounded_overlay
 from src.policy.reserve import apply_reserve_schedule
-from src.policy.targets import PolicyError, PolicyId, policy_sleeves, resolve_targets
+from src.policy.targets import OPERATIONAL_POLICY_ID, PolicyError, PolicyId, policy_sleeves, resolve_targets
 from src.policy.tilt import resolve_tilted_targets
 from src.sim.contribution import allocate_contribution
 from src.sim.lots import fill_integer_buys
@@ -56,6 +60,7 @@ __all__ = [
     "AllocationDataError",
     "AllocationResult",
     "AllocationSnapshot",
+    "apply_operational_contribution_lock",
     "run_allocation",
     "run_allocation_from_store",
 ]
@@ -87,6 +92,29 @@ class AllocationConfig:
     kafi_deployment: KafiDeploymentConfig | None = None
     adaptive_contribution: AdaptiveContributionConfig | None = None
     targets_override: Mapping[str, float] | None = None
+
+
+def apply_operational_contribution_lock(config: AllocationConfig) -> AllocationConfig:
+    """Attach the locked adaptive-contribution module on the bare operational QQQ path.
+
+    Skips when the policy is not ``OPERATIONAL_POLICY_ID``, cadence is not monthly,
+    or any other contribution, overlay, reserve, mapping, or currency module is set.
+    """
+    if config.policy is not OPERATIONAL_POLICY_ID:
+        return config
+    if config.cadence != "monthly":
+        return config
+    if (
+        config.adaptive_contribution is not None
+        or config.contribution_shape is not None
+        or config.kafi_deployment is not None
+        or config.overlay is not None
+        or config.reserve is not None
+        or config.mapping is not None
+        or config.currency is not None
+    ):
+        return config
+    return replace(config, adaptive_contribution=OPERATIONAL_ADAPTIVE_CONTRIBUTION)
 
 
 @dataclass(frozen=True, slots=True)

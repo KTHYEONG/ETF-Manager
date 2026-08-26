@@ -29,12 +29,16 @@ def walk_forward_windows(
     train_months: int,
     test_months: int,
     embargo_months: int = 0,
+    require_full_test: bool = True,
 ) -> tuple[tuple[date, date, date, date], ...]:
     """Emit time-ordered (train_start, train_end, test_start, test_end) folds.
 
     Ends are inclusive dates and even ``embargo_months=0`` advances one full
     calendar month so train and test never share a contribution month. Folds roll
-    forward by ``test_months``; the last partial test window is clipped to ``end``.
+    forward by ``test_months``. With ``require_full_test=True`` (default) a fold is
+    emitted only when its full ``test_months`` span fits before ``end``, so partial
+    clips are omitted rather than padded; ``require_full_test=False`` restores the
+    legacy clip-to-end behavior for the final partial window.
 
     Raises:
         ValueError: When month counts are invalid or ``start`` is after ``end``.
@@ -55,8 +59,10 @@ def walk_forward_windows(
         test_start = add_calendar_months(train_end, gap_months)
         if test_start > end:
             break
-        test_end = min(_inclusive_end(test_start, test_months), end)
-        folds.append((train_start, train_end, test_start, test_end))
+        full_test_end = _inclusive_end(test_start, test_months)
+        if require_full_test and full_test_end > end:
+            break
+        folds.append((train_start, train_end, test_start, min(full_test_end, end)))
         offset += test_months
     return tuple(folds)
 
