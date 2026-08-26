@@ -23,6 +23,7 @@ from src.policy.contribution_shape import (
     shape_monthly_contribution,
 )
 from src.policy.currency import conversion_fraction
+from src.policy.kafi_deployment import KafiDeploymentConfig, apply_kafi_deployment
 from src.policy.overlay import apply_bounded_overlay
 from src.policy.reserve import apply_reserve_schedule
 from src.policy.targets import PolicyError, PolicyId, policy_sleeves, resolve_targets
@@ -82,6 +83,7 @@ class AllocationConfig:
     currency: CurrencyConfig | None = None
     mapping: MappingConfig | None = None
     contribution_shape: ContributionShapeConfig | None = None
+    kafi_deployment: KafiDeploymentConfig | None = None
     targets_override: Mapping[str, float] | None = None
 
 
@@ -155,15 +157,26 @@ def run_allocation(
     if config.contribution_shape is not None:
         if any(
             module is not None
-            for module in (config.overlay, config.reserve, config.currency, config.mapping)
+            for module in (config.overlay, config.reserve, config.currency, config.mapping, config.kafi_deployment)
         ):
             raise ValueError(
                 "contribution_shape is mutually exclusive with overlay, reserve, currency, "
-                "and mapping allocation modules"
+                "mapping, and kafi_deployment allocation modules"
             )
         if config.cadence != "monthly":
             # Shaping credits one I5h budget per calendar month; split months would double-count.
             raise ValueError("contribution_shape requires the monthly decision cadence")
+    if config.kafi_deployment is not None:
+        if any(
+            module is not None
+            for module in (config.overlay, config.reserve, config.currency, config.mapping, config.contribution_shape)
+        ):
+            raise ValueError(
+                "kafi_deployment is mutually exclusive with overlay, reserve, currency, "
+                "mapping, and contribution_shape allocation modules"
+            )
+        if config.cadence != "monthly":
+            raise ValueError("kafi_deployment requires the monthly decision cadence")
     if config.tilt is not None and config.targets_override is not None:
         raise ValueError("targets_override and tilt are mutually exclusive allocation modules")
     if config.targets_override is not None:
@@ -243,10 +256,25 @@ def run_allocation(
                 monthly_contribution_krw=config.monthly_contribution_krw, point=point, schedule=schedule
             )
         cash_krw += contribution
-        if config.reserve is None or reserve_ticker is None:
+        if config.kafi_deployment is not None:
+            if macro is None:
+                raise PolicyError("kafi deployment requires a MACRO frame")
+            decision = apply_kafi_deployment(
+                contribution_krw=contribution,
+                reserve_krw=reserve_krw,
+                prices=prices,
+                fx=fx,
+                macro=macro,
+                signal_at=point.signal_at,
+                config=config.kafi_deployment,
+            )
+            cash_krw += decision.investable_krw - contribution
+            reserve_krw = decision.reserve_krw
+            investable_krw = min(cash_krw, decision.investable_krw)
+        elif config.reserve is None or reserve_ticker is None:
             investable_krw = min(cash_krw, contribution)
         else:
-            decision = apply_reserve_schedule(
+            reserve_decision = apply_reserve_schedule(
                 contribution_krw=contribution,
                 reserve_krw=reserve_krw,
                 prices=prices,
@@ -256,9 +284,9 @@ def run_allocation(
                 macro=macro,
             )
             # The ledger splits the fresh credit: withheld KRW leaves cash, deployed KRW returns.
-            cash_krw += decision.investable_krw - contribution
-            reserve_krw = decision.reserve_krw
-            investable_krw = min(cash_krw, decision.investable_krw)
+            cash_krw += reserve_decision.investable_krw - contribution
+            reserve_krw = reserve_decision.reserve_krw
+            investable_krw = min(cash_krw, reserve_decision.investable_krw)
         fx_gross = usdkrw * (1.0 + config.fx_spread_bps / _BPS)
         # Marks cover held leftovers plus spend keys so remapped lots stay in NAV.
         mark_keys = sorted(set(shares_by_ticker) | set(targets))
@@ -372,6 +400,7 @@ def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) 
         (config.overlay is not None and config.overlay.vix_threshold is not None)
         or (config.reserve is not None and config.reserve.schedule == "v3")
         or config.contribution_shape is not None
+        or config.kafi_deployment is not None
     )
     need_metadata = config.mapping is not None
     datasets = (

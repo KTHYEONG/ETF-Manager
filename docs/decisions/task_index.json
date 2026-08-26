@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_WAVE_AD_QQQ_KAFI_DEPLOYMENT",
+      "date": "2026-08-26",
+      "adr_id": "ADR_20260826_WAVE_AD_QQQ_KAFI_DEPLOYMENT",
+      "domain": "quant",
+      "title": "Wave AD: QQQ KAFI causal deployment (fixed monthly KRW + reserve ledger)",
+      "why": "KAFI v1 contribution_shape conserved monthly sum but borrowed future contributions and forced terminal settlement, diverging from real 100만원/month DCA; user prioritized causal v2 (fixed external monthly + investable/reserve ledger only) over signal tuning.",
+      "resolution": "Added kafi_opportunity_components/score (greed inversion), src/policy/kafi_deployment.py apply_kafi_deployment (multiplier 0.70-1.30), AllocationConfig/ExperimentSpec kafi_deployment growth_first XOR, campaign/ablation/feasibility wiring, wf_qqq_kafi_deployment.json; clamp price-min calendar bound in feasibility _earliest_safe_start; contract tests DEPLOY/KAFI-OPP/SIM-D/EXP-M.",
+      "impact": "Empirical WF wf_qqq_kafi_deployment process_adopted=False: pooled candidate/baseline 0.9950 (-0.50% real TW), min fold 0.9922; fold2 train-adopted but OOS 0.9922. Causal ledger identity holds (no future borrow). Operational PolicyId.QQQ month-end lock unchanged; v1 contribution_shape retained for research."
+    },
+    {
       "task_id": "TASK_WAVE_AC_QQQ_KAFI_SHAPE",
       "date": "2026-08-26",
       "adr_id": "ADR_20260826_WAVE_AC_QQQ_KAFI_SHAPE",

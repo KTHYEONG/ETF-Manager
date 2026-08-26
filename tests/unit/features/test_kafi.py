@@ -10,7 +10,7 @@ import polars as pl
 import pytest
 
 from src.data.calendar import load_calendar
-from src.features.kafi import KAFI_COMPONENT_IDS, kafi_components, kafi_score
+from src.features.kafi import KAFI_COMPONENT_IDS, kafi_components, kafi_opportunity_components, kafi_opportunity_score, kafi_score
 
 _CALENDAR = load_calendar("XNYS")
 _SESSIONS: Final[tuple[date, ...]] = tuple(_CALENDAR.sessions(date(2022, 1, 3), date(2023, 12, 29)))
@@ -322,3 +322,54 @@ def test_kafi_d_pit_macro_dedup(scenario_id: str) -> None:
         credit_series_id="BAA10Y",
     )
     assert components["credit_oas"] > 98.0
+
+
+@pytest.mark.parametrize("scenario_id", ["KAFI-OPP-neutral-score"])
+def test_kafi_opp_neutral_score(scenario_id: str) -> None:
+    """KAFI-OPP-neutral-score"""
+    prices, fx, macro = _constant_panels()
+    kwargs: dict[str, object] = {
+        "equity_ticker": "QQQ",
+        "bond_ticker": "IEF",
+        "signal_at": _SIGNAL_AT,
+        "rank_window": _RANK_WINDOW,
+    }
+    components = kafi_opportunity_components(prices=prices, fx=fx, macro=macro, **kwargs)  # type: ignore[arg-type]
+    score = kafi_opportunity_score(prices=prices, fx=fx, macro=macro, **kwargs)  # type: ignore[arg-type]
+
+    for value in components.values():
+        assert value == pytest.approx(50.0)
+    assert score == pytest.approx(50.0)
+
+
+@pytest.mark.parametrize("scenario_id", ["KAFI-OPP-invert-momentum"])
+def test_kafi_opp_invert_momentum(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """KAFI-OPP-invert-momentum"""
+    import src.features.kafi as kafi_module
+
+    def fake_greed_components(**_kwargs: object) -> dict[str, float]:
+        return {
+            "momentum": 80.0,
+            "drawdown_depth": 60.0,
+            "equity_bond_rel": 70.0,
+            "credit_oas": 40.0,
+            "fx_stress": 30.0,
+            "vol_dampener": 55.0,
+        }
+
+    monkeypatch.setattr(kafi_module, "kafi_components", fake_greed_components)
+    components = kafi_opportunity_components(
+        prices=pl.DataFrame(),
+        fx=pl.DataFrame(),
+        macro=pl.DataFrame(),
+        equity_ticker="QQQ",
+        bond_ticker="IEF",
+        signal_at=_SIGNAL_AT,
+        rank_window=_RANK_WINDOW,
+    )
+
+    assert components["momentum"] == pytest.approx(20.0)
+    assert components["drawdown_depth"] == pytest.approx(60.0)
+    assert components["equity_bond_rel"] == pytest.approx(30.0)
+    assert components["fx_stress"] == pytest.approx(70.0)
+    assert components["vol_dampener"] == pytest.approx(50.0)

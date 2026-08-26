@@ -14,6 +14,7 @@ from src.validation.experiment import (
     resolve_cadence,
     resolve_contribution_shape,
     resolve_currency,
+    resolve_kafi_deployment,
     resolve_mapping,
     resolve_overlay,
     resolve_reserve,
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from src.etf.mapping import MappingConfig
     from src.policy.contribution_shape import ContributionShapeConfig
     from src.policy.currency import CurrencyConfig
+    from src.policy.kafi_deployment import KafiDeploymentConfig
     from src.policy.overlay import OverlayConfig
     from src.policy.reserve import ReserveConfig
     from src.sim.allocation import AllocationResult
@@ -70,6 +72,7 @@ def _arm_config(
     mapping: MappingConfig | None,
     currency: CurrencyConfig | None,
     contribution_shape: ContributionShapeConfig | None = None,
+    kafi_deployment: KafiDeploymentConfig | None = None,
     cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
 ) -> AllocationConfig:
     """Identical cashflow/window/costs for every arm; only policy and modules differ."""
@@ -88,6 +91,7 @@ def _arm_config(
         currency=currency,
         mapping=mapping,
         contribution_shape=contribution_shape,
+        kafi_deployment=kafi_deployment,
         cadence=cadence,
     )
 
@@ -124,6 +128,7 @@ def _gated_row(
         mapping=resolve_mapping(spec),
         currency=resolve_currency(spec),
         contribution_shape=resolve_contribution_shape(spec),
+        kafi_deployment=resolve_kafi_deployment(spec),
         cadence=resolve_cadence(spec) or "monthly",
     )
     wealths = _wealth_vector(spec, config, runner)
