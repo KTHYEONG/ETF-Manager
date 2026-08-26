@@ -103,6 +103,9 @@
     "testing": "tests/unit/policy/test_kafi_deployment.py"
   },
   "src/policy/adaptive_contribution.py": {
-    "testing": "tests/unit/policy/test_adaptive_contribution.py"
+    "testing": [
+      "tests/unit/policy/test_adaptive_contribution.py",
+      "tests/unit/sim/test_allocation_adaptive_contribution.py"
+    ]
   }
 }
