@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from src.etf.mapping import DEFAULT_CANDIDATES, MappingConfig
 from src.policy.contribution_shape import ContributionShapeConfig
+from src.policy.kafi_deployment import KafiDeploymentConfig
 from src.policy.currency import CurrencyConfig
 from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
@@ -22,6 +23,7 @@ from src.validation.experiment import (
     resolve_cadence,
     resolve_contribution_shape,
     resolve_currency,
+    resolve_kafi_deployment,
     resolve_mapping,
     resolve_overlay,
     resolve_reserve,
@@ -962,3 +964,58 @@ def test_exp_k_shape_wf_json(scenario_id: str) -> None:
     assert spec.objective == "growth_first"
     assert spec.contribution_krw == pytest.approx(1_000_000.0)
     assert spec.contribution_shape is not None
+
+
+def _deployment_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "name": "wf_qqq_kafi_deployment",
+        "start": "2015-06-01",
+        "end": "2026-06-30",
+        "contribution_krw": 1_000_000,
+        "hurdle": 0.02,
+        "objective": "growth_first",
+        "horizon_months": 0,
+        "train_months": 60,
+        "test_months": 36,
+        "baseline": {"id": "s8_us_nasdaq", "policy": "qqq", "modules": 0},
+        "candidates": [{"id": "s8_us_nasdaq_kafi_deployment", "policy": "qqq", "modules": 1}],
+        "kafi_deployment": {},
+    }
+    payload.update(overrides)  # type: ignore[arg-type]
+    return payload
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-M-deployment-wf-json"])
+def test_exp_m_deployment_wf_json(scenario_id: str) -> None:
+    """EXP-M-deployment-wf-json"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_kafi_deployment.json")
+
+    assert spec.baseline.policy is PolicyId.QQQ
+    assert spec.baseline.modules == 0
+    assert [candidate.policy for candidate in spec.candidates] == [PolicyId.QQQ]
+    assert [candidate.modules for candidate in spec.candidates] == [1]
+    assert spec.objective == "growth_first"
+    assert spec.kafi_deployment is not None
+    assert spec.contribution_shape is None
+
+    resolved = resolve_kafi_deployment(spec)
+    assert isinstance(resolved, KafiDeploymentConfig)
+    assert resolved.max_multiplier == pytest.approx(1.30)
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-M-deployment-xor"])
+def test_exp_m_deployment_xor(scenario_id: str) -> None:
+    """EXP-M-deployment-xor"""
+    ExperimentSpec.model_validate(_deployment_payload())
+
+    with pytest.raises(ValidationError):
+        ExperimentSpec.model_validate(_deployment_payload(contribution_shape={}))
+
+    for conflict in ("reserve", "cadence"):
+        payload = _deployment_payload()
+        if conflict == "reserve":
+            payload[conflict] = {"max_withhold": 0.05}
+        else:
+            payload[conflict] = {"anchor": "month_open"}
+        with pytest.raises(ValidationError):
+            ExperimentSpec.model_validate(payload)

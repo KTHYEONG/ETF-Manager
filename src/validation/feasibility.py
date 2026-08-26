@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
+from src.data.calendar import DEFAULT_CALENDAR_NAME, clamp_inclusive_session_range, load_calendar
 from src.data.catalog import latest_artifact, load_visible
 from src.data.pit import AVAILABLE_AT, TS_DTYPE
 from src.data.query import load_as_of
@@ -32,6 +32,7 @@ from src.policy.targets import PolicyError, PolicyId, policy_sleeves
 from src.validation.experiment import (
     resolve_contribution_shape,
     resolve_currency,
+    resolve_kafi_deployment,
     resolve_mapping,
     resolve_overlay,
     resolve_reserve,
@@ -335,8 +336,9 @@ def assert_experiment_feasible(spec: ExperimentSpec, settings: DataSettings) -> 
     mapping = resolve_mapping(spec)
     currency = resolve_currency(spec)
     contribution_shape = resolve_contribution_shape(spec)
-    if contribution_shape is not None:
-        # Shaping arms read the MACRO partition at runtime; the trust gate fails closed here.
+    kafi_deployment = resolve_kafi_deployment(spec)
+    if contribution_shape is not None or kafi_deployment is not None:
+        # KAFI arms read the MACRO partition at runtime; the trust gate fails closed here.
         latest_artifact(settings, Dataset.MACRO)
     return require_feasibility(
         start=spec.start,
@@ -570,6 +572,7 @@ def _earliest_safe_start(
     """Earliest month-end signal whose point passes CPI+overlay/reserve(+vix); informational."""
     raw_min = prices.get_column("date").min()
     lower_bound = raw_min if isinstance(raw_min, date) else start
+    lower_bound, _ = clamp_inclusive_session_range(calendar, lower_bound, end)
     for point in build_decision_schedule(lower_bound, end, fill_delay_sessions=fill_delay_sessions):
         if _point_passes(
             point,

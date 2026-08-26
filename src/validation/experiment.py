@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from src.etf.mapping import MappingConfig
 from src.policy.contribution_shape import ContributionShapeConfig
 from src.policy.currency import CurrencyConfig
+from src.policy.kafi_deployment import KafiDeploymentConfig
 from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
 from src.policy.targets import PolicyId
@@ -22,6 +23,7 @@ __all__ = [
     "ContributionShapeSpec",
     "CurrencySpec",
     "ExperimentSpec",
+    "KafiDeploymentSpec",
     "MappingSpec",
     "OverlaySpec",
     "ReserveSpec",
@@ -29,6 +31,7 @@ __all__ = [
     "resolve_cadence",
     "resolve_contribution_shape",
     "resolve_currency",
+    "resolve_kafi_deployment",
     "resolve_mapping",
     "resolve_overlay",
     "resolve_reserve",
@@ -166,6 +169,19 @@ class ContributionShapeSpec(BaseModel):
     rank_window: int = Field(default=252, ge=63)
 
 
+class KafiDeploymentSpec(BaseModel):
+    """Causal KAFI deployment parameters accepted in experiment JSON."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    equity_ticker: str = "QQQ"
+    bond_ticker: str = "IEF"
+    credit_series_id: str = "BAA10Y"
+    min_multiplier: float = Field(default=0.70, gt=0.0, lt=1.0)
+    max_multiplier: float = Field(default=1.30, gt=1.0, le=1.5)
+    rank_window: int = Field(default=252, ge=63)
+
+
 class ExperimentSpec(BaseModel):
     """Frozen experiment contract: shared cashflow/window plus gated arms.
 
@@ -193,6 +209,7 @@ class ExperimentSpec(BaseModel):
     currency: CurrencySpec | None = None
     cadence: CadenceSpec | None = None
     contribution_shape: ContributionShapeSpec | None = None
+    kafi_deployment: KafiDeploymentSpec | None = None
     baseline: CandidateSpec
     candidates: list[CandidateSpec] = Field(min_length=1)
 
@@ -239,10 +256,11 @@ class ExperimentSpec(BaseModel):
                 or self.mapping is not None
                 or self.currency is not None
                 or self.contribution_shape is not None
+                or self.kafi_deployment is not None
             ):
                 raise ValueError(
                     "cadence cannot be combined with overlay, reserve, mapping, currency, "
-                    "or contribution_shape experiment modules"
+                    "contribution_shape, or kafi_deployment experiment modules"
                 )
             if any(candidate.modules < 1 for candidate in self.candidates):
                 raise ValueError("cadence requires every candidate.modules >= 1")
@@ -255,22 +273,41 @@ class ExperimentSpec(BaseModel):
                     self.mapping,
                     self.currency,
                     self.cadence,
+                    self.kafi_deployment,
                 )
             ):
                 raise ValueError(
                     "contribution_shape cannot be combined with overlay, reserve, mapping, "
-                    "currency, or cadence experiment modules"
+                    "currency, cadence, or kafi_deployment experiment modules"
                 )
             if any(candidate.modules < 1 for candidate in self.candidates):
                 raise ValueError("contribution_shape requires every candidate.modules >= 1")
-        growth_first_modules = (self.cadence, self.reserve, self.contribution_shape)
+        if self.kafi_deployment is not None:
+            if any(
+                module is not None
+                for module in (
+                    self.overlay,
+                    self.reserve,
+                    self.mapping,
+                    self.currency,
+                    self.cadence,
+                    self.contribution_shape,
+                )
+            ):
+                raise ValueError(
+                    "kafi_deployment cannot be combined with overlay, reserve, mapping, "
+                    "currency, cadence, or contribution_shape experiment modules"
+                )
+            if any(candidate.modules < 1 for candidate in self.candidates):
+                raise ValueError("kafi_deployment requires every candidate.modules >= 1")
+        growth_first_modules = (self.cadence, self.reserve, self.contribution_shape, self.kafi_deployment)
         if (
             self.objective == "growth_first"
             and sum(module is not None for module in growth_first_modules) != 1
         ):
             raise ValueError(
                 "objective 'growth_first' requires exactly one of a cadence, reserve, "
-                "or contribution_shape module"
+                "contribution_shape, or kafi_deployment module"
             )
         seen: set[str] = set()
         for candidate in self.candidates:
@@ -320,6 +357,20 @@ def resolve_contribution_shape(spec: ExperimentSpec) -> ContributionShapeConfig 
         max_multiplier=spec.contribution_shape.max_multiplier,
         budget_window_months=spec.contribution_shape.budget_window_months,
         rank_window=spec.contribution_shape.rank_window,
+    )
+
+
+def resolve_kafi_deployment(spec: ExperimentSpec) -> KafiDeploymentConfig | None:
+    """Map the JSON KAFI deployment onto the runtime config, keeping window defaults."""
+    if spec.kafi_deployment is None:
+        return None
+    return KafiDeploymentConfig(
+        equity_ticker=spec.kafi_deployment.equity_ticker,
+        bond_ticker=spec.kafi_deployment.bond_ticker,
+        credit_series_id=spec.kafi_deployment.credit_series_id,
+        min_multiplier=spec.kafi_deployment.min_multiplier,
+        max_multiplier=spec.kafi_deployment.max_multiplier,
+        rank_window=spec.kafi_deployment.rank_window,
     )
 
 
