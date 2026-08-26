@@ -13,6 +13,7 @@ from src.validation.evaluate import evaluate_cohort_wealths
 from src.validation.experiment import (
     ExperimentSpec,
     resolve_adaptive_contribution,
+    resolve_baseline_adaptive_contribution,
     resolve_cadence,
     resolve_contribution_shape,
     resolve_currency,
@@ -219,7 +220,8 @@ def run_walk_forward_adoption(
     The runner is called once per arm per phase (baseline then candidate on train;
     baseline, candidate, and chosen on test — chosen re-runs even when it repeats
     another arm); ``spec`` is never mutated. Baseline arms stay un-overlayed,
-    un-reserved, unmapped, and undeferred; candidate arms carry
+    un-reserved, unmapped, and undeferred;
+    they carry only ``resolve_baseline_adaptive_contribution(spec)`` when present; candidate arms carry
     ``resolve_overlay(spec)``, ``resolve_reserve(spec)``, ``resolve_mapping(spec)``,
     and ``resolve_currency(spec)``, and the chosen test arm keeps them only when
     the fold adopted on train. Baseline arms signal month-end; candidate arms
@@ -266,6 +268,7 @@ def run_walk_forward_adoption(
     candidate_contribution_shape = resolve_contribution_shape(spec)
     candidate_kafi_deployment = resolve_kafi_deployment(spec)
     candidate_adaptive_contribution = resolve_adaptive_contribution(spec)
+    baseline_adaptive_contribution = resolve_baseline_adaptive_contribution(spec)
     candidate_cadence = resolve_cadence(spec) or "monthly"
     if spec.objective == "adaptive_growth" and candidate_adaptive_contribution is None:
         # model_copy bypasses model validation, so the campaign must fail closed itself.
@@ -311,7 +314,14 @@ def run_walk_forward_adoption(
     chosen_xirrs: list[float] = []
     for train_start, train_end, test_start, test_end in windows:
         baseline_train_arm = arm_result(
-            spec.baseline.policy, train_start, train_end, None, None, None, None
+            spec.baseline.policy,
+            train_start,
+            train_end,
+            None,
+            None,
+            None,
+            None,
+            arm_adaptive_contribution=baseline_adaptive_contribution,
         )
         candidate_train_arm = arm_result(
             candidate.policy,
@@ -361,7 +371,16 @@ def run_walk_forward_adoption(
         chosen_kafi_deployment = candidate_kafi_deployment if train_adopted else None
         chosen_adaptive_contribution = candidate_adaptive_contribution if train_adopted else None
         chosen_cadence = candidate_cadence if train_adopted else "monthly"
-        baseline_test_arm = arm_result(spec.baseline.policy, test_start, test_end, None, None, None, None)
+        baseline_test_arm = arm_result(
+            spec.baseline.policy,
+            test_start,
+            test_end,
+            None,
+            None,
+            None,
+            None,
+            arm_adaptive_contribution=baseline_adaptive_contribution,
+        )
         candidate_test_arm = arm_result(
             candidate.policy,
             test_start,

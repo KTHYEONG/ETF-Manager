@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_WAVE_AG_QQQ_ADAPTIVE_V2_V3",
+      "date": "2026-08-26",
+      "adr_id": "ADR_20260826_WAVE_AG_QQQ_ADAPTIVE_V2_V3",
+      "domain": "quant",
+      "title": "Wave AG: QQQ adaptive sizing v2/v3 (no_vol, dispersion, Fold1 XIRR fix)",
+      "why": "v2 (no_vol + upside 0.5) raised full-sample TW +7.1% vs ops adaptive but failed Fold1 train on XIRR (-0.7bp) from bull-market over-deploy; WF vs ops baseline could not adopt. Empirical decomposition showed score-only no_vol passes Fold1 while curve-only upside soften fails; fold2 test XIRR veto blocks process even after Fold1 fix.",
+      "resolution": "Ship sizing_upgrade: kafi include_vol_dampener, baseline_adaptive_contribution arm, wf_qqq_adaptive_v2.json, EXP/WF-AG tests. Ship fold1_v2_sizing_fix: kafi dispersion clip(50+d*(raw-50)), AdaptiveContributionConfig/Spec plumb, wf_qqq_adaptive_v3.json (no_vol, down3.0, up0.5), KAFI-OPP-disp/ACG-disp/EXP-AG-v3 tests.",
+      "impact": "v2 WF process_adopted=False (fold1 train XIRR -0.7bp). v3 WF process_adopted=False but both folds train_adopted=True; Fold1 train XIRR +0.4bp vs ops, full TW vs ops +7.5%, pooled chosen test TW +6.5% vs ops; fold2 test XIRR -2.5bp blocks process. OPERATIONAL_ADAPTIVE_CONTRIBUTION unchanged; dispersion knob reserved for fine-tune."
+    },
+    {
       "task_id": "TASK_WAVE_AF_QQQ_ADAPTIVE_REFINE_LOCK",
       "date": "2026-08-26",
       "adr_id": "ADR_20260826_WAVE_AF_QQQ_ADAPTIVE_REFINE_LOCK",

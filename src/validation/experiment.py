@@ -31,6 +31,7 @@ __all__ = [
     "ReserveSpec",
     "load_experiment_config",
     "resolve_adaptive_contribution",
+    "resolve_baseline_adaptive_contribution",
     "resolve_cadence",
     "resolve_contribution_shape",
     "resolve_currency",
@@ -198,6 +199,8 @@ class AdaptiveContributionSpec(BaseModel):
     downside_power: float = Field(default=2.5, gt=0.0)
     upside_power: float = Field(default=0.7, gt=0.0)
     rank_window: int = Field(default=126, ge=63)
+    include_vol_dampener: bool = True
+    dispersion: float = Field(default=1.0, gt=0.0)
 
 
 class ExperimentSpec(BaseModel):
@@ -230,6 +233,7 @@ class ExperimentSpec(BaseModel):
     contribution_shape: ContributionShapeSpec | None = None
     kafi_deployment: KafiDeploymentSpec | None = None
     adaptive_contribution: AdaptiveContributionSpec | None = None
+    baseline_adaptive_contribution: AdaptiveContributionSpec | None = None
     baseline: CandidateSpec
     candidates: list[CandidateSpec] = Field(min_length=1)
 
@@ -342,6 +346,27 @@ class ExperimentSpec(BaseModel):
                 )
             if any(candidate.modules < 1 for candidate in self.candidates):
                 raise ValueError("adaptive_contribution requires every candidate.modules >= 1")
+        if self.baseline_adaptive_contribution is not None:
+            if any(
+                module is not None
+                for module in (
+                    self.overlay,
+                    self.reserve,
+                    self.mapping,
+                    self.currency,
+                    self.cadence,
+                    self.contribution_shape,
+                    self.kafi_deployment,
+                )
+            ):
+                raise ValueError(
+                    "baseline_adaptive_contribution cannot be combined with overlay, reserve, mapping, "
+                    "currency, cadence, contribution_shape, or kafi_deployment experiment modules"
+                )
+            if any(candidate.modules < 1 for candidate in self.candidates):
+                raise ValueError(
+                    "baseline_adaptive_contribution requires every candidate.modules >= 1"
+                )
         growth_first_modules = (self.cadence, self.reserve, self.contribution_shape, self.kafi_deployment)
         if (
             self.objective == "growth_first"
@@ -353,6 +378,10 @@ class ExperimentSpec(BaseModel):
             )
         if self.objective == "adaptive_growth" and self.adaptive_contribution is None:
             raise ValueError("objective 'adaptive_growth' requires exactly one adaptive_contribution module")
+        if self.baseline_adaptive_contribution is not None and self.objective != "adaptive_growth":
+            raise ValueError(
+                f"baseline_adaptive_contribution requires objective 'adaptive_growth', got {self.objective!r}"
+            )
         seen: set[str] = set()
         for candidate in self.candidates:
             if candidate.id in seen:
@@ -418,23 +447,37 @@ def resolve_kafi_deployment(spec: ExperimentSpec) -> KafiDeploymentConfig | None
     )
 
 
-def resolve_adaptive_contribution(spec: ExperimentSpec) -> AdaptiveContributionConfig | None:
-    """Map the JSON adaptive-contribution onto the runtime config, keeping window defaults.
+def _to_adaptive_config(module: AdaptiveContributionSpec) -> AdaptiveContributionConfig:
+    """Map one JSON adaptive-contribution spec onto the runtime config, keeping window defaults.
 
-    Mapping shape: AdaptiveContributionConfig(equity_ticker=..., bond_ticker=..., credit_series_id=..., min_multiplier=..., max_multiplier=..., downside_power=..., upside_power=..., rank_window=...)
+    Mapping shape: AdaptiveContributionConfig(equity_ticker=..., bond_ticker=..., credit_series_id=..., min_multiplier=..., max_multiplier=..., downside_power=..., upside_power=..., rank_window=..., include_vol_dampener=..., dispersion=...)
     """
+    return AdaptiveContributionConfig(
+        equity_ticker=module.equity_ticker,
+        bond_ticker=module.bond_ticker,
+        credit_series_id=module.credit_series_id,
+        min_multiplier=module.min_multiplier,
+        max_multiplier=module.max_multiplier,
+        downside_power=module.downside_power,
+        upside_power=module.upside_power,
+        rank_window=module.rank_window,
+        include_vol_dampener=module.include_vol_dampener,
+        dispersion=module.dispersion,
+    )
+
+
+def resolve_adaptive_contribution(spec: ExperimentSpec) -> AdaptiveContributionConfig | None:
+    """Map the JSON adaptive-contribution onto the runtime config, keeping window defaults."""
     if spec.adaptive_contribution is None:
         return None
-    return AdaptiveContributionConfig(
-        equity_ticker=spec.adaptive_contribution.equity_ticker,
-        bond_ticker=spec.adaptive_contribution.bond_ticker,
-        credit_series_id=spec.adaptive_contribution.credit_series_id,
-        min_multiplier=spec.adaptive_contribution.min_multiplier,
-        max_multiplier=spec.adaptive_contribution.max_multiplier,
-        downside_power=spec.adaptive_contribution.downside_power,
-        upside_power=spec.adaptive_contribution.upside_power,
-        rank_window=spec.adaptive_contribution.rank_window,
-    )
+    return _to_adaptive_config(spec.adaptive_contribution)
+
+
+def resolve_baseline_adaptive_contribution(spec: ExperimentSpec) -> AdaptiveContributionConfig | None:
+    """Mirror resolve_adaptive_contribution for the optional locked-baseline arm."""
+    if spec.baseline_adaptive_contribution is None:
+        return None
+    return _to_adaptive_config(spec.baseline_adaptive_contribution)
 
 
 def resolve_currency(spec: ExperimentSpec) -> CurrencyConfig | None:

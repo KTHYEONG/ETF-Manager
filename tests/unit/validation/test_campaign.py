@@ -21,6 +21,7 @@ from src.validation.campaign import (
     write_campaign_report,
 )
 from src.validation.experiment import (
+    AdaptiveContributionSpec,
     CadenceSpec,
     CandidateSpec,
     CurrencySpec,
@@ -28,6 +29,8 @@ from src.validation.experiment import (
     MappingSpec,
     OverlaySpec,
     ReserveSpec,
+    resolve_adaptive_contribution,
+    resolve_baseline_adaptive_contribution,
 )
 
 
@@ -947,4 +950,31 @@ def test_wf_acg_rejection_and_delegation(scenario_id: str, monkeypatch: pytest.M
         run_walk_forward_adoption(
             _acg_spec().model_copy(update={"adaptive_contribution": None}), _AdaptiveWealthRunner()
         )
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-AG-baseline-arm"])
+def test_wf_ag_baseline_arm(scenario_id: str) -> None:
+    """WF-AG-baseline-arm"""
+    baseline_adaptive_spec = _acg_spec().model_copy(
+        update={"name": "wf_acg_baseline_arm", "baseline_adaptive_contribution": AdaptiveContributionSpec()}
+    )
+    runner = _AdaptiveWealthRunner()
+    report = run_walk_forward_adoption(baseline_adaptive_spec, runner)
+
+    resolved_baseline = resolve_baseline_adaptive_contribution(baseline_adaptive_spec)
+    assert isinstance(resolved_baseline, AdaptiveContributionConfig)
+    assert len(report.folds) > 0
+    for fold_index in range(len(report.folds)):
+        chunk = runner.configs[fold_index * 5 : (fold_index + 1) * 5]
+        # Baseline train/test carry the locked adaptive config; candidate keeps its own.
+        assert chunk[0].adaptive_contribution == resolved_baseline
+        assert chunk[2].adaptive_contribution == resolved_baseline
+        assert chunk[1].adaptive_contribution == resolve_adaptive_contribution(baseline_adaptive_spec)
+
+    flat_runner = _AdaptiveWealthRunner()
+    run_walk_forward_adoption(_acg_spec(), flat_runner)
+    for fold_index in range(len(flat_runner.configs) // 5):
+        flat_chunk = flat_runner.configs[fold_index * 5 : (fold_index + 1) * 5]
+        assert flat_chunk[0].adaptive_contribution is None
+        assert flat_chunk[2].adaptive_contribution is None
 
