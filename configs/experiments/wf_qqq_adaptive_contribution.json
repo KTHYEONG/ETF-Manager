@@ -20,5 +20,5 @@
       "modules": 1
     }
   ],
-  "adaptive_contribution": {}
+  "adaptive_contribution": {"rank_window": 126, "downside_power": 2.5, "upside_power": 0.7, "min_multiplier": 0.0, "max_multiplier": 2.0}
 }
