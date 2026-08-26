@@ -13,14 +13,14 @@ from src.analytics.accumulation_alpha import screen_qqq_accumulation
 from src.analytics.blends import compare_qqq_blends
 from src.analytics.cadence import compare_qqq_cadence
 from src.analytics.metrics import XirrError
-from src.analytics.regimes import compare_policy_regimes
+from src.analytics.regimes import QQQ_REGIME_WINDOWS, compare_policy_regimes
 from src.analytics.reserve_usage import compare_qqq_reserve
 from src.analytics.us_vehicles import (
     compare_vehicle_dca,
     history_price_tickers,
     profile_us_vehicles,
 )
-from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
+from src.data.calendar import DEFAULT_CALENDAR_NAME, clamp_inclusive_session_range, load_calendar
 from src.data.catalog import latest_artifact, load_visible
 from src.data.etf_metadata_bootstrap import persist_bootstrap_etf_metadata
 from src.data.fetch import (
@@ -40,6 +40,8 @@ from src.data.storage import DataStore, UntrustedDatasetError
 from src.etf.mapping import MappingConfig
 from src.execution.broker import replay_paper
 from src.execution.orders import ExecutionError, orders_from_snapshots
+from src.features.kafi import earliest_kafi_signal_session, kafi_score
+from src.policy.contribution_shape import ContributionShapeConfig
 from src.policy.currency import CurrencyConfig
 from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
@@ -94,7 +96,7 @@ _SMOKE_END: Final[date] = date(2024, 1, 5)
 _SMOKE_TICKER: Final[str] = "VT"
 _SMOKE_FX_PROVIDER: Final[str] = "fred"
 _HISTORY_FX_PROVIDER: Final[str] = "fred"
-_HISTORY_MACRO_SERIES: Final[str] = "VIXCLS"
+_HISTORY_MACRO_SERIES: Final[tuple[str, ...]] = ("VIXCLS", "BAA10Y")
 _VALIDATE_GAMMAS: Final[tuple[float, ...]] = (2.0, 5.0, 10.0)
 _VALIDATE_BASELINE_TICKER: Final[str] = "VT"
 
@@ -355,6 +357,11 @@ def _build_parser() -> _Parser:
         help="QQQ buy-cadence accumulation-screen ratios versus month-end; reporting only, never an adoption gate",
     )
     diagnose_qqq_accumulation.add_argument("--contribution-krw", required=True, type=float)
+    diagnose_qqq_kafi = run_targets.add_parser(
+        "diagnose-qqq-kafi",
+        help="KAFI path plus shaped-versus-flat DCA real TW ratios per regime window; reporting only, never an adoption gate",
+    )
+    diagnose_qqq_kafi.add_argument("--contribution-krw", required=True, type=float)
     return parser
 
 
@@ -549,6 +556,11 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             contribution_krw=float(args.contribution_krw),
             settings=DataSettings(),
         )
+    if args.target == "diagnose-qqq-kafi":
+        return run_diagnose_qqq_kafi_command(
+            contribution_krw=float(args.contribution_krw),
+            settings=DataSettings(),
+        )
     raise _UsageError(f"unsupported target {args.target!r}")
 
 
@@ -659,7 +671,7 @@ def run_ingest_history(
     secrets: ProviderSecrets,
     client: httpx.Client | None = None,
 ) -> int:
-    """Persist FX, prices, CPI, factors, VIXCLS macro, and research returns over a long window.
+    """Persist FX, prices, CPI, factors, one combined VIXCLS+HY-OAS MACRO partition, and research returns.
 
     ``tickers`` defaults to the policy sleeves plus the diagnostic vehicles (QQQ).
     Returns 0 only when every fetch persists and each of the seven latest catalog
@@ -1013,6 +1025,125 @@ def run_diagnose_qqq_accumulation_alpha_command(*, contribution_krw: float, sett
         report.operational_unlock,
         report.recommended_research_arm,
     )
+    return 0
+
+
+_KAFI_SHAPE_CONFIG: Final[ContributionShapeConfig] = ContributionShapeConfig()
+
+
+def run_diagnose_qqq_kafi_command(*, contribution_krw: float, settings: DataSettings) -> int:
+    """Log the KAFI path and shaped-versus-flat real-TW ratios per regime window.
+
+    Windows fall back to the full QQQ catalog range when regime bounds exceed
+    coverage. Reporting-only diagnostics: no ablation, walk-forward gate, or
+    adoption decision may run here, and the operational policy lock stays unchanged.
+    """
+    try:
+        if float(contribution_krw) <= 0.0:
+            raise ValueError(f"contribution_krw must be positive, got {contribution_krw!r}")
+        store = DataStore(settings)
+        prices = store.read_normalized(latest_artifact(settings, Dataset.PRICES), spec_for(Dataset.PRICES))
+        fx = store.read_normalized(latest_artifact(settings, Dataset.FX), spec_for(Dataset.FX))
+        macro = store.read_normalized(latest_artifact(settings, Dataset.MACRO), spec_for(Dataset.MACRO))
+        qqq_rows = prices.filter(prices.get_column("ticker") == _ACCUMULATION_TICKER)
+        if qqq_rows.is_empty():
+            raise ValueError(f"ticker {_ACCUMULATION_TICKER!r} missing from catalog prices")
+        start_raw = qqq_rows.get_column("date").min()
+        end_raw = qqq_rows.get_column("date").max()
+        if start_raw is None or end_raw is None:
+            raise ValueError(f"ticker {_ACCUMULATION_TICKER!r} has no price dates")
+        catalog_start = cast(date, start_raw)
+        catalog_end = cast(date, end_raw)
+        calendar = load_calendar(DEFAULT_CALENDAR_NAME)
+        catalog_start, catalog_end = clamp_inclusive_session_range(calendar, catalog_start, catalog_end)
+        config = _KAFI_SHAPE_CONFIG
+        feasible_start = earliest_kafi_signal_session(
+            prices=prices,
+            fx=fx,
+            macro=macro,
+            equity_ticker=config.equity_ticker,
+            bond_ticker=config.bond_ticker,
+            start=catalog_start,
+            end=catalog_end,
+            rank_window=config.rank_window,
+            credit_series_id=config.credit_series_id,
+        )
+        if feasible_start is None:
+            raise ValueError(
+                f"catalog lacks enough PIT history for KAFI credit series {config.credit_series_id!r}"
+            )
+        windows = tuple(
+            (name, window_start, window_end)
+            for name, window_start, window_end in QQQ_REGIME_WINDOWS
+            if window_start >= catalog_start and window_end <= catalog_end
+        ) or (("catalog", catalog_start, catalog_end),)
+        logged = False
+        for name, window_start, window_end in windows:
+            effective_start = max(window_start, feasible_start)
+            if effective_start > window_end:
+                continue
+            flat_result = run_allocation_from_store(
+                AllocationConfig(
+                    policy=PolicyId.QQQ,
+                    start=effective_start,
+                    end=window_end,
+                    monthly_contribution_krw=float(contribution_krw),
+                ),
+                settings,
+            )
+            shaped_result = run_allocation_from_store(
+                AllocationConfig(
+                    policy=PolicyId.QQQ,
+                    start=effective_start,
+                    end=window_end,
+                    monthly_contribution_krw=float(contribution_krw),
+                    contribution_shape=config,
+                ),
+                settings,
+            )
+            logged = True
+            logger.info(
+                "[DATA] event=qqq_kafi_ratio name=%s start=%s end=%s"
+                " flat_real_terminal_krw=%.2f shaped_real_terminal_krw=%.2f"
+                " ratio_shaped_vs_flat=%.6f flat_mdd=%.4f shaped_mdd=%.4f steps=%d",
+                name,
+                effective_start.isoformat(),
+                window_end.isoformat(),
+                flat_result.terminal_wealth_real_krw,
+                shaped_result.terminal_wealth_real_krw,
+                (
+                    shaped_result.terminal_wealth_real_krw / flat_result.terminal_wealth_real_krw
+                    if flat_result.terminal_wealth_real_krw != 0.0
+                    else float("nan")
+                ),
+                flat_result.max_drawdown,
+                shaped_result.max_drawdown,
+                len(shaped_result.snapshots),
+            )
+            band = config.max_multiplier - config.min_multiplier
+            for point in build_decision_schedule(effective_start, window_end):
+                score = kafi_score(
+                    prices=prices,
+                    fx=fx,
+                    macro=macro,
+                    equity_ticker=config.equity_ticker,
+                    bond_ticker=config.bond_ticker,
+                    signal_at=point.signal_at,
+                    rank_window=config.rank_window,
+                    credit_series_id=config.credit_series_id,
+                )
+                multiplier = config.min_multiplier + band * (100.0 - score) / 100.0
+                logger.info(
+                    "[DATA] event=kafi_path signal_session=%s score=%.2f multiplier=%.4f",
+                    point.signal_session.isoformat(),
+                    score,
+                    multiplier,
+                )
+        if not logged:
+            raise ValueError("no QQQ regime window remains after KAFI warmup clamping")
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        logger.error("[DATA] event=diagnose_qqq_kafi_failed reason_type=%s", type(exc).__name__)
+        return 1
     return 0
 
 

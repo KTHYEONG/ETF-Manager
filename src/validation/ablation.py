@@ -12,6 +12,7 @@ from src.validation.experiment import (
     CandidateSpec,
     ExperimentSpec,
     resolve_cadence,
+    resolve_contribution_shape,
     resolve_currency,
     resolve_mapping,
     resolve_overlay,
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from src.etf.mapping import MappingConfig
+    from src.policy.contribution_shape import ContributionShapeConfig
     from src.policy.currency import CurrencyConfig
     from src.policy.overlay import OverlayConfig
     from src.policy.reserve import ReserveConfig
@@ -67,6 +69,7 @@ def _arm_config(
     reserve: ReserveConfig | None,
     mapping: MappingConfig | None,
     currency: CurrencyConfig | None,
+    contribution_shape: ContributionShapeConfig | None = None,
     cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
 ) -> AllocationConfig:
     """Identical cashflow/window/costs for every arm; only policy and modules differ."""
@@ -84,6 +87,7 @@ def _arm_config(
         reserve=reserve,
         currency=currency,
         mapping=mapping,
+        contribution_shape=contribution_shape,
         cadence=cadence,
     )
 
@@ -119,6 +123,7 @@ def _gated_row(
         reserve=resolve_reserve(spec),
         mapping=resolve_mapping(spec),
         currency=resolve_currency(spec),
+        contribution_shape=resolve_contribution_shape(spec),
         cadence=resolve_cadence(spec) or "monthly",
     )
     wealths = _wealth_vector(spec, config, runner)

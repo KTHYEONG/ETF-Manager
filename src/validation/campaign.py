@@ -13,6 +13,7 @@ from src.validation.evaluate import evaluate_cohort_wealths
 from src.validation.experiment import (
     ExperimentSpec,
     resolve_cadence,
+    resolve_contribution_shape,
     resolve_currency,
     resolve_mapping,
     resolve_overlay,
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
 
     from src.data.settings import DataSettings
     from src.etf.mapping import MappingConfig
+    from src.policy.contribution_shape import ContributionShapeConfig
     from src.policy.currency import CurrencyConfig
     from src.policy.overlay import OverlayConfig
     from src.policy.reserve import ReserveConfig
@@ -151,6 +153,7 @@ def _arm_config(
     reserve: ReserveConfig | None,
     mapping: MappingConfig | None,
     currency: CurrencyConfig | None,
+    contribution_shape: ContributionShapeConfig | None = None,
     cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
 ) -> AllocationConfig:
     """Identical cashflow/costs for every arm on one sliced window."""
@@ -168,6 +171,7 @@ def _arm_config(
         reserve=reserve,
         currency=currency,
         mapping=mapping,
+        contribution_shape=contribution_shape,
         cadence=cadence,
     )
 
@@ -207,8 +211,15 @@ def run_walk_forward_adoption(
         raise ValueError("walk-forward adoption requires both train_months and test_months")
     if len(spec.candidates) != 1:
         raise ValueError(f"expected exactly one candidate, got {len(spec.candidates)}")
-    if spec.objective == "growth_first" and (spec.cadence is None) == (spec.reserve is None):
-        raise ValueError("objective 'growth_first' requires exactly one of a cadence or reserve module")
+    growth_first_modules = (spec.cadence, spec.reserve, spec.contribution_shape)
+    if (
+        spec.objective == "growth_first"
+        and sum(module is not None for module in growth_first_modules) != 1
+    ):
+        raise ValueError(
+            "objective 'growth_first' requires exactly one of a cadence, reserve, "
+            "or contribution_shape module"
+        )
     candidate = spec.candidates[0]
     windows = walk_forward_windows(
         spec.start,
@@ -222,6 +233,7 @@ def run_walk_forward_adoption(
     candidate_reserve = resolve_reserve(spec)
     candidate_mapping = resolve_mapping(spec)
     candidate_currency = resolve_currency(spec)
+    candidate_contribution_shape = resolve_contribution_shape(spec)
     candidate_cadence = resolve_cadence(spec) or "monthly"
 
     def arm_result(
@@ -232,11 +244,21 @@ def run_walk_forward_adoption(
         arm_reserve: ReserveConfig | None,
         arm_mapping: MappingConfig | None,
         arm_currency: CurrencyConfig | None,
+        arm_contribution_shape: ContributionShapeConfig | None = None,
         arm_cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
     ) -> AllocationResult:
         return runner(
             _arm_config(
-                spec, policy, start, end, arm_overlay, arm_reserve, arm_mapping, arm_currency, arm_cadence
+                spec,
+                policy,
+                start,
+                end,
+                arm_overlay,
+                arm_reserve,
+                arm_mapping,
+                arm_currency,
+                arm_contribution_shape,
+                arm_cadence,
             )
         )
 
@@ -248,10 +270,19 @@ def run_walk_forward_adoption(
         arm_reserve: ReserveConfig | None,
         arm_mapping: MappingConfig | None,
         arm_currency: CurrencyConfig | None,
+        arm_contribution_shape: ContributionShapeConfig | None = None,
         arm_cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
     ) -> float:
         return arm_result(
-            policy, start, end, arm_overlay, arm_reserve, arm_mapping, arm_currency, arm_cadence
+            policy,
+            start,
+            end,
+            arm_overlay,
+            arm_reserve,
+            arm_mapping,
+            arm_currency,
+            arm_contribution_shape,
+            arm_cadence,
         ).terminal_wealth_real_krw
 
     folds: list[FoldOutcome] = []
@@ -270,6 +301,7 @@ def run_walk_forward_adoption(
             candidate_reserve,
             candidate_mapping,
             candidate_currency,
+            candidate_contribution_shape,
             candidate_cadence,
         )
         if spec.objective == "growth_first":
@@ -292,6 +324,7 @@ def run_walk_forward_adoption(
             if train_adopted
             else (None, None, None, None)
         )
+        chosen_contribution_shape = candidate_contribution_shape if train_adopted else None
         chosen_cadence = candidate_cadence if train_adopted else "monthly"
         baseline_test = real_wealth(spec.baseline.policy, test_start, test_end, None, None, None, None)
         candidate_test = real_wealth(
@@ -302,9 +335,17 @@ def run_walk_forward_adoption(
             candidate_reserve,
             candidate_mapping,
             candidate_currency,
+            candidate_contribution_shape,
             candidate_cadence,
         )
-        chosen_test = real_wealth(chosen_policy, test_start, test_end, *keep_extras, chosen_cadence)
+        chosen_test = real_wealth(
+            chosen_policy,
+            test_start,
+            test_end,
+            *keep_extras,
+            chosen_contribution_shape,
+            chosen_cadence,
+        )
         folds.append(
             FoldOutcome(
                 train_start=train_start,
@@ -527,7 +568,15 @@ def run_cadence_robustness(
     cost_grid = run_walk_forward_cost_grid(spec, runner)
     baseline_template = _arm_config(spec, spec.baseline.policy, spec.start, spec.end, None, None, None, None)
     candidate_template = _arm_config(
-        spec, spec.candidates[0].policy, spec.start, spec.end, None, None, None, None, candidate_cadence
+        spec,
+        spec.candidates[0].policy,
+        spec.start,
+        spec.end,
+        None,
+        None,
+        None,
+        None,
+        cadence=candidate_cadence,
     )
     baseline_wealths = evaluate_cohort_wealths(baseline_template, cohorts, runner)
     candidate_wealths = evaluate_cohort_wealths(candidate_template, cohorts, runner)
