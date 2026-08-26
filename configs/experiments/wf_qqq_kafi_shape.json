@@ -1,0 +1,24 @@
+{
+  "name": "wf_qqq_kafi_shape",
+  "start": "2015-06-01",
+  "end": "2026-06-30",
+  "contribution_krw": 1000000,
+  "hurdle": 0.02,
+  "objective": "growth_first",
+  "horizon_months": 0,
+  "train_months": 60,
+  "test_months": 36,
+  "baseline": {
+    "id": "s8_us_nasdaq",
+    "policy": "qqq",
+    "modules": 0
+  },
+  "candidates": [
+    {
+      "id": "s8_us_nasdaq_kafi_shape",
+      "policy": "qqq",
+      "modules": 1
+    }
+  ],
+  "contribution_shape": {}
+}

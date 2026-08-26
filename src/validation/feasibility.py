@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 
 from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
-from src.data.catalog import load_visible
+from src.data.catalog import latest_artifact, load_visible
 from src.data.pit import AVAILABLE_AT, TS_DTYPE
 from src.data.query import load_as_of
 from src.data.schedule import DecisionPoint, build_decision_schedule
@@ -30,6 +30,7 @@ from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig, apply_reserve_schedule
 from src.policy.targets import PolicyError, PolicyId, policy_sleeves
 from src.validation.experiment import (
+    resolve_contribution_shape,
     resolve_currency,
     resolve_mapping,
     resolve_overlay,
@@ -333,6 +334,10 @@ def assert_experiment_feasible(spec: ExperimentSpec, settings: DataSettings) -> 
     reserve = resolve_reserve(spec)
     mapping = resolve_mapping(spec)
     currency = resolve_currency(spec)
+    contribution_shape = resolve_contribution_shape(spec)
+    if contribution_shape is not None:
+        # Shaping arms read the MACRO partition at runtime; the trust gate fails closed here.
+        latest_artifact(settings, Dataset.MACRO)
     return require_feasibility(
         start=spec.start,
         end=spec.end,

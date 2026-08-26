@@ -17,10 +17,15 @@ from src.data.query import load_as_of
 from src.data.schedule import build_decision_schedule, contribution_krw_for_point
 from src.data.schema import Dataset
 from src.etf.mapping import MappingConfig, apply_etf_mapping
+from src.policy.contribution_shape import (
+    ContributionBudgetState,
+    ContributionShapeConfig,
+    shape_monthly_contribution,
+)
 from src.policy.currency import conversion_fraction
 from src.policy.overlay import apply_bounded_overlay
 from src.policy.reserve import apply_reserve_schedule
-from src.policy.targets import PolicyId, policy_sleeves, resolve_targets
+from src.policy.targets import PolicyError, PolicyId, policy_sleeves, resolve_targets
 from src.policy.tilt import resolve_tilted_targets
 from src.sim.contribution import allocate_contribution
 from src.sim.lots import fill_integer_buys
@@ -76,6 +81,7 @@ class AllocationConfig:
     reserve: ReserveConfig | None = None
     currency: CurrencyConfig | None = None
     mapping: MappingConfig | None = None
+    contribution_shape: ContributionShapeConfig | None = None
     targets_override: Mapping[str, float] | None = None
 
 
@@ -124,15 +130,18 @@ def run_allocation(
     of a switched-away ticker stay in NAV. When ``config.reserve`` is set,
     an explicit KRW reserve ledger withholds or redeploys part of each credited
     contribution on PIT signals; ``reserve_krw`` is booked KRW wealth inside
-    ``mark_krw``, never a second external cashflow. New money follows the mapped targets
+    ``mark_krw``, never a second external cashflow. When ``config.contribution_shape``
+    is set, each month's external credit itself is shaped from the KAFI score and
+    projected to conserve Σ credits over the schedule while every credited KRW is
+    fully invested (no reserve book). New money follows the mapped targets
     and no position is ever sold; integer-lot rounding dust recycles into the
     next conversion instead of idling. Nominal marks drive the equity path; CPI levels only deflate
     terminal wealth and the money-weighted rate into first-snapshot purchasing power.
 
     Raises:
         ValueError: When ``monthly_contribution_krw`` is not positive, the policy is a
-            research_proxy identity, or mapping lacks its metadata frame.
-        PolicyError: When weight resolution or ETF mapping fails closed at a signal instant.
+            research_proxy identity, allocation modules conflict, or mapping lacks its metadata frame.
+        PolicyError: When weight resolution, ETF mapping, or contribution shaping fails closed at a signal instant.
         AllocationDataError: When the schedule is empty or a required price, FX,
             or CPI observation is missing, non-positive, or null at an execution close.
         XirrError: When the money-weighted rate cannot be identified.
@@ -143,6 +152,18 @@ def run_allocation(
         raise ValueError("monthly_contribution_krw must be positive")
     if config.overlay is not None and config.reserve is not None:
         raise ValueError("overlay and reserve are mutually exclusive allocation modules")
+    if config.contribution_shape is not None:
+        if any(
+            module is not None
+            for module in (config.overlay, config.reserve, config.currency, config.mapping)
+        ):
+            raise ValueError(
+                "contribution_shape is mutually exclusive with overlay, reserve, currency, "
+                "and mapping allocation modules"
+            )
+        if config.cadence != "monthly":
+            # Shaping credits one I5h budget per calendar month; split months would double-count.
+            raise ValueError("contribution_shape requires the monthly decision cadence")
     if config.tilt is not None and config.targets_override is not None:
         raise ValueError("targets_override and tilt are mutually exclusive allocation modules")
     if config.targets_override is not None:
@@ -160,6 +181,28 @@ def run_allocation(
         raise AllocationDataError(f"empty decision schedule over [{config.start.isoformat()}, {config.end.isoformat()}]")
     calendar = load_calendar(DEFAULT_CALENDAR_NAME)
 
+    shaped_credits: tuple[float, ...] | None = None
+    if config.contribution_shape is not None:
+        if macro is None:
+            raise PolicyError("contribution shaping requires a MACRO frame")
+        state = ContributionBudgetState(horizon_months=len(schedule))
+        credits: list[float] = []
+        for point in schedule:
+            try:
+                credit, state = shape_monthly_contribution(
+                    base_contribution_krw=config.monthly_contribution_krw,
+                    signal_at=point.signal_at,
+                    prices=prices,
+                    fx=fx,
+                    macro=macro,
+                    config=config.contribution_shape,
+                    budget_state=state,
+                )
+            except ValueError as exc:
+                raise PolicyError(f"contribution shaping failed closed: {exc}") from exc
+            credits.append(credit)
+        shaped_credits = tuple(credits)
+
     cash_krw = 0.0
     cash_usd = 0.0
     reserve_krw = 0.0
@@ -167,7 +210,7 @@ def run_allocation(
     incumbents_by_sleeve: dict[str, str] = {}
     snapshots: list[AllocationSnapshot] = []
     cpi_levels: list[float] = []
-    for point in schedule:
+    for month_index, point in enumerate(schedule):
         close_ts = calendar.close_ts(point.execution_session)
         usdkrw = _visible_fx(fx, point.execution_session, close_ts)
         cpi_level = _visible_cpi(cpi, point.execution_session, close_ts)
@@ -192,9 +235,13 @@ def run_allocation(
         fraction = 1.0 if config.currency is None else conversion_fraction(fx, point.signal_at, config.currency)
 
         # Σ external KRW per calendar month stays invariant: twice_monthly splits 50/50.
-        contribution = contribution_krw_for_point(
-            monthly_contribution_krw=config.monthly_contribution_krw, point=point, schedule=schedule
-        )
+        if shaped_credits is not None:
+            # Shaped credits already conserve Σ = N * base over the schedule (I5h).
+            contribution = shaped_credits[month_index]
+        else:
+            contribution = contribution_krw_for_point(
+                monthly_contribution_krw=config.monthly_contribution_krw, point=point, schedule=schedule
+            )
         cash_krw += contribution
         if config.reserve is None or reserve_ticker is None:
             investable_krw = min(cash_krw, contribution)
@@ -321,8 +368,10 @@ def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) 
     """
     if config.policy is PolicyId.FF_PROXY:
         raise ValueError(_RESEARCH_PROXY_REJECT)
-    need_macro = (config.overlay is not None and config.overlay.vix_threshold is not None) or (
-        config.reserve is not None and config.reserve.schedule == "v3"
+    need_macro = (
+        (config.overlay is not None and config.overlay.vix_threshold is not None)
+        or (config.reserve is not None and config.reserve.schedule == "v3")
+        or config.contribution_shape is not None
     )
     need_metadata = config.mapping is not None
     datasets = (

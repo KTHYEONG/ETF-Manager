@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
+import polars as pl
 import pytest
 
 from src.analytics.us_vehicles import history_price_tickers
@@ -321,7 +323,7 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
         calls["factors"] += 1
         return _FakeArtifact(8)
 
-    def fake_macro(series_id: str, start: date, end: date, **kwargs: object) -> _FakeArtifact:
+    def fake_macro(series_id: object, start: date, end: date, **kwargs: object) -> _FakeArtifact:
         calls["macro"] += 1
         seen_series_ids.append(series_id)
         return _FakeArtifact(8)
@@ -353,7 +355,7 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
     assert seen_tickers == history_price_tickers()
     assert "QQQ" in seen_tickers
     assert set(seen_tickers) - set(all_policy_tickers()) == {"IEMG", "ITOT", "SCHF"}
-    assert seen_series_ids == ["VIXCLS"]
+    assert seen_series_ids == [("VIXCLS", "BAA10Y")]
     expected_datasets = {
         Dataset.PRICES,
         Dataset.FX,
@@ -1489,3 +1491,128 @@ def test_cli_r_cadence_robustness(
     assert len(reports) == 1
     written = json.loads(reports[0].read_text(encoding="utf-8"))
     assert written["robust_adopted"] is True
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-K-diagnose-kafi"])
+def test_cli_k_diagnose_kafi(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-K-diagnose-kafi"""
+    assert main(["run", "diagnose-qqq-kafi"]) == 2
+
+    captured: dict[str, object] = {}
+
+    def fake_diagnose(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    def forbidden_ablation(*args: object, **kwargs: object) -> int:
+        raise AssertionError("diagnostics must never invoke the adoption ablation")
+
+    def forbidden_adoption(*args: object, **kwargs: object) -> bool:
+        raise AssertionError("diagnose-qqq-kafi must never call adoption_passes")
+
+    monkeypatch.setattr(cli, "run_diagnose_qqq_kafi_command", fake_diagnose)
+    monkeypatch.setattr(cli, "run_ablation", forbidden_ablation)
+    monkeypatch.setattr(cli, "adoption_passes", forbidden_adoption)
+
+    assert main(["run", "diagnose-qqq-kafi", "--contribution-krw", "1000000"]) == 0
+    assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
+    assert main(["run", "diagnose-s8-kafi"]) == 2
+
+
+@pytest.mark.parametrize("scenario_id", ["DATA-K-history-hy-oas"])
+def test_data_k_history_hy_oas(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """DATA-K-history-hy-oas"""
+    seen_series_ids: list[object] = []
+
+    def fake_macro(series_id: object, start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        seen_series_ids.append(series_id)
+        return _FakeArtifact(8)
+
+    def fake_fx(**kwargs: object) -> _FakeArtifact:
+        return _FakeArtifact(8)
+
+    def fake_prices(tickers: tuple[str, ...], start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        return _FakeArtifact(8)
+
+    def fake_cpi(start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        return _FakeArtifact(8)
+
+    def fake_factors(start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        return _FakeArtifact(8)
+
+    def fake_research(start: date, end: date, **kwargs: object) -> _FakeArtifact:
+        return _FakeArtifact(8)
+
+    def fake_metadata(settings: object, **kwargs: object) -> _FakeArtifact:
+        return _FakeArtifact(8)
+
+    def fake_latest(settings: object, dataset: Dataset) -> _FakeArtifact:
+        return _FakeArtifact(8)
+
+    monkeypatch.setattr(cli, "fetch_and_persist_fx", fake_fx)
+    monkeypatch.setattr(cli, "fetch_and_persist_prices", fake_prices)
+    monkeypatch.setattr(cli, "fetch_and_persist_cpi", fake_cpi)
+    monkeypatch.setattr(cli, "fetch_and_persist_factors", fake_factors)
+    monkeypatch.setattr(cli, "fetch_and_persist_macro", fake_macro)
+    monkeypatch.setattr(cli, "fetch_and_persist_research_returns", fake_research)
+    monkeypatch.setattr(cli, "persist_bootstrap_etf_metadata", fake_metadata)
+    monkeypatch.setattr(cli, "latest_artifact", fake_latest)
+
+    assert main(["ingest", "history", "--start", "2020-01-01", "--end", "2020-12-31"]) == 0
+    assert len(seen_series_ids) == 1
+    requested = seen_series_ids[0]
+    assert set(requested) == {"VIXCLS", "BAA10Y"}  # type: ignore[arg-type]
+
+    # The merged ALFRED frames persist as ONE MACRO partition carrying both series ids.
+    from src.data.fetch import fetch_and_persist_macro
+    from src.data.providers.fred import FredClient
+
+    macro_spec_frame = pl.DataFrame(
+        {
+            "series_id": ["VIXCLS", "BAA10Y"],
+            "observation_date": [date(2020, 1, 2), date(2020, 1, 2)],
+            "release_date": [datetime(2020, 1, 3, tzinfo=UTC)] * 2,
+            "value": [12.4, 3.1],
+        }
+    )
+    vix_frame = macro_spec_frame.filter(pl.col("series_id") == "VIXCLS")
+    credit_frame = macro_spec_frame.filter(pl.col("series_id") == "BAA10Y")
+
+    def fake_vintages(self: FredClient, series_id: str, start: date, end: date) -> tuple[object, pl.DataFrame]:
+        payload = SimpleNamespace(
+            provider="fred",
+            endpoint=f"series/observations/{series_id}",
+            request_params={"series_id": series_id},
+            retrieved_at=datetime(2020, 1, 3, tzinfo=UTC),
+            extension="json",
+            content=b'{"observations": []}',
+        )
+        frame = vix_frame if series_id == "VIXCLS" else credit_frame
+        return payload, frame
+
+    captured: dict[str, object] = {}
+
+    class _PersistedArtifact:
+        manifest = type("Manifest", (), {"row_count": 2})()
+
+    def fake_persist(frame: pl.DataFrame, dataset: Dataset, payload: object, settings: object) -> _PersistedArtifact:
+        captured["frame"] = frame
+        captured["dataset"] = dataset
+        return _PersistedArtifact()
+
+    monkeypatch.setattr(FredClient, "fetch_macro_vintages", fake_vintages)
+    monkeypatch.setattr("src.data.fetch.persist_ingest", fake_persist)
+
+    artifact = fetch_and_persist_macro(
+        ("VIXCLS", "BAA10Y"),
+        date(2020, 1, 1),
+        date(2020, 12, 31),
+        secrets=SimpleNamespace(fred_api="unit-test", ecos_api="unit-test", tiingo_api="unit-test"),
+        settings=DataSettings(),
+    )
+
+    persisted = captured["frame"]
+    assert isinstance(persisted, pl.DataFrame)
+    assert set(persisted.get_column("series_id").to_list()) == {"VIXCLS", "BAA10Y"}
+    assert captured["dataset"] is Dataset.MACRO
+    assert artifact.manifest.row_count == 2
