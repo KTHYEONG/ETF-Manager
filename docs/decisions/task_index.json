@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_WAVE_AC_QQQ_KAFI_SHAPE",
+      "date": "2026-08-26",
+      "adr_id": "ADR_20260826_WAVE_AC_QQQ_KAFI_SHAPE",
+      "domain": "quant",
+      "title": "Wave AC: QQQ KAFI horizon-conserved contribution shaping (I5h)",
+      "why": "Reserve/overlay v1-v4 failed because withhold created idle portfolio cash under I5 identical monthly KRW; user asked for a proprietary fear/greed signal to size accumulation without changing QQQ 100% or external cashflow sum.",
+      "resolution": "Added src/features/kafi.py (six PIT rank components, credit_series_id wiring, ALFRED vintage dedup), src/policy/contribution_shape.py (I5h shape_monthly_contribution), AllocationConfig.contribution_shape, ExperimentSpec.contribution_shape + growth_first XOR, CLI diagnose-qqq-kafi, ingest history VIXCLS+BAA10Y (ALFRED credit proxy), wf_qqq_kafi_shape.json; contract tests KAFI/SHAPE/EXP-K/CLI-K/DATA-K.",
+      "impact": "Empirical diagnose (warm start 2015-02): shipped_old ratio 1.034 (+3.4% real TW) vs plain QQQ, bear_2022 0.998; MDD ~flat. WF growth_first process_adopted=True on catalog window. Operational PolicyId.QQQ month-end lock unchanged; BAMLH0A0HYM2 rejected (FRED-only, not ALFRED PIT)."
+    },
+    {
       "task_id": "TASK_WAVE_AB_QQQ_SIZING_V4",
       "date": "2026-08-26",
       "adr_id": "ADR_20260826_WAVE_AB_QQQ_SIZING_V4",

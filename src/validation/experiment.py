@@ -10,6 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.etf.mapping import MappingConfig
+from src.policy.contribution_shape import ContributionShapeConfig
 from src.policy.currency import CurrencyConfig
 from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
@@ -18,6 +19,7 @@ from src.policy.targets import PolicyId
 __all__ = [
     "CadenceSpec",
     "CandidateSpec",
+    "ContributionShapeSpec",
     "CurrencySpec",
     "ExperimentSpec",
     "MappingSpec",
@@ -25,6 +27,7 @@ __all__ = [
     "ReserveSpec",
     "load_experiment_config",
     "resolve_cadence",
+    "resolve_contribution_shape",
     "resolve_currency",
     "resolve_mapping",
     "resolve_overlay",
@@ -149,6 +152,20 @@ class CadenceSpec(BaseModel):
     anchor: Literal["month_open", "twice_monthly"]
 
 
+class ContributionShapeSpec(BaseModel):
+    """KAFI contribution-shaping parameters accepted in experiment JSON."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    equity_ticker: str = "QQQ"
+    bond_ticker: str = "IEF"
+    credit_series_id: str = "BAA10Y"
+    min_multiplier: float = Field(default=0.70, gt=0.0, lt=1.0)
+    max_multiplier: float = Field(default=1.50, gt=1.0, le=2.0)
+    budget_window_months: int = Field(default=12, ge=3, le=24)
+    rank_window: int = Field(default=252, ge=63)
+
+
 class ExperimentSpec(BaseModel):
     """Frozen experiment contract: shared cashflow/window plus gated arms.
 
@@ -175,6 +192,7 @@ class ExperimentSpec(BaseModel):
     mapping: MappingSpec | None = None
     currency: CurrencySpec | None = None
     cadence: CadenceSpec | None = None
+    contribution_shape: ContributionShapeSpec | None = None
     baseline: CandidateSpec
     candidates: list[CandidateSpec] = Field(min_length=1)
 
@@ -220,14 +238,40 @@ class ExperimentSpec(BaseModel):
                 or self.reserve is not None
                 or self.mapping is not None
                 or self.currency is not None
+                or self.contribution_shape is not None
             ):
                 raise ValueError(
-                    "cadence cannot be combined with overlay, reserve, mapping, or currency experiment modules"
+                    "cadence cannot be combined with overlay, reserve, mapping, currency, "
+                    "or contribution_shape experiment modules"
                 )
             if any(candidate.modules < 1 for candidate in self.candidates):
                 raise ValueError("cadence requires every candidate.modules >= 1")
-        if self.objective == "growth_first" and (self.cadence is None) == (self.reserve is None):
-            raise ValueError("objective 'growth_first' requires exactly one of a cadence or reserve module")
+        if self.contribution_shape is not None:
+            if any(
+                module is not None
+                for module in (
+                    self.overlay,
+                    self.reserve,
+                    self.mapping,
+                    self.currency,
+                    self.cadence,
+                )
+            ):
+                raise ValueError(
+                    "contribution_shape cannot be combined with overlay, reserve, mapping, "
+                    "currency, or cadence experiment modules"
+                )
+            if any(candidate.modules < 1 for candidate in self.candidates):
+                raise ValueError("contribution_shape requires every candidate.modules >= 1")
+        growth_first_modules = (self.cadence, self.reserve, self.contribution_shape)
+        if (
+            self.objective == "growth_first"
+            and sum(module is not None for module in growth_first_modules) != 1
+        ):
+            raise ValueError(
+                "objective 'growth_first' requires exactly one of a cadence, reserve, "
+                "or contribution_shape module"
+            )
         seen: set[str] = set()
         for candidate in self.candidates:
             if candidate.id in seen:
@@ -262,6 +306,21 @@ def resolve_cadence(spec: ExperimentSpec) -> Literal["month_open", "twice_monthl
     if spec.cadence is None:
         return None
     return spec.cadence.anchor
+
+
+def resolve_contribution_shape(spec: ExperimentSpec) -> ContributionShapeConfig | None:
+    """Map the JSON contribution shape onto the runtime config, keeping window defaults."""
+    if spec.contribution_shape is None:
+        return None
+    return ContributionShapeConfig(
+        equity_ticker=spec.contribution_shape.equity_ticker,
+        bond_ticker=spec.contribution_shape.bond_ticker,
+        credit_series_id=spec.contribution_shape.credit_series_id,
+        min_multiplier=spec.contribution_shape.min_multiplier,
+        max_multiplier=spec.contribution_shape.max_multiplier,
+        budget_window_months=spec.contribution_shape.budget_window_months,
+        rank_window=spec.contribution_shape.rank_window,
+    )
 
 
 def resolve_currency(spec: ExperimentSpec) -> CurrencyConfig | None:

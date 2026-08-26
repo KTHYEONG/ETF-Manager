@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.etf.mapping import DEFAULT_CANDIDATES, MappingConfig
+from src.policy.contribution_shape import ContributionShapeConfig
 from src.policy.currency import CurrencyConfig
 from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
@@ -19,6 +20,7 @@ from src.validation.experiment import (
     ExperimentSpec,
     load_experiment_config,
     resolve_cadence,
+    resolve_contribution_shape,
     resolve_currency,
     resolve_mapping,
     resolve_overlay,
@@ -890,3 +892,73 @@ def test_exp_l_qqq_reserve_v4_json(scenario_id: str) -> None:
     assert resolved is not None
     assert resolved.schedule == "v4"
     assert resolved.vix_threshold == pytest.approx(20.0)
+
+
+def _shape_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "name": "wf_qqq_kafi_shape",
+        "start": "2007-08-31",
+        "end": "2026-06-30",
+        "contribution_krw": 1_000_000,
+        "hurdle": 0.02,
+        "objective": "growth_first",
+        "horizon_months": 0,
+        "train_months": 60,
+        "test_months": 36,
+        "baseline": {"id": "s8_us_nasdaq", "policy": "qqq", "modules": 0},
+        "candidates": [{"id": "s8_us_nasdaq_kafi_shape", "policy": "qqq", "modules": 1}],
+        "contribution_shape": {},
+    }
+    payload.update(overrides)  # type: ignore[arg-type]
+    return payload
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-K-shape-xor"])
+def test_exp_k_shape_xor(scenario_id: str, tmp_path: Path) -> None:
+    """EXP-K-shape-xor"""
+    spec = ExperimentSpec.model_validate(_shape_payload())
+    assert spec.contribution_shape is not None
+    assert spec.reserve is None
+    assert spec.overlay is None
+    assert spec.cadence is None
+
+    resolved = resolve_contribution_shape(spec)
+    assert isinstance(resolved, ContributionShapeConfig)
+    assert resolved.min_multiplier == pytest.approx(0.70)
+    assert resolved.max_multiplier == pytest.approx(1.50)
+
+    for conflict in ("reserve", "overlay", "cadence", "currency", "mapping"):
+        payload = _shape_payload()
+        payload[conflict] = {"anchor": "month_open"} if conflict == "cadence" else {"max_shift": 0.05}
+        if conflict == "reserve":
+            payload[conflict] = {"max_withhold": 0.05}
+        if conflict == "mapping":
+            payload[conflict] = {"min_improvement": 0.02}
+        if conflict == "currency":
+            payload[conflict] = {"max_defer": 0.5}
+        with pytest.raises(ValidationError):
+            ExperimentSpec.model_validate(payload)
+
+    weak_modules = _shape_payload()
+    weak_modules["candidates"] = [{"id": "c", "policy": "qqq", "modules": 0}]
+    with pytest.raises(ValidationError):
+        ExperimentSpec.model_validate(weak_modules)
+
+    ce_objective = _shape_payload(objective="ce")
+    ce_objective["objective"] = "ce"
+    spec_ce = ExperimentSpec.model_validate(ce_objective)
+    assert resolve_contribution_shape(spec_ce) is not None
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-K-shape-wf-json"])
+def test_exp_k_shape_wf_json(scenario_id: str) -> None:
+    """EXP-K-shape-wf-json"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_kafi_shape.json")
+
+    assert spec.baseline.policy is PolicyId.QQQ
+    assert spec.baseline.modules == 0
+    assert [candidate.policy for candidate in spec.candidates] == [PolicyId.QQQ]
+    assert [candidate.modules for candidate in spec.candidates] == [1]
+    assert spec.objective == "growth_first"
+    assert spec.contribution_krw == pytest.approx(1_000_000.0)
+    assert spec.contribution_shape is not None

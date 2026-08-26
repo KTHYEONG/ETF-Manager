@@ -95,5 +95,8 @@
   },
   "src/policy/sizing.py": {
     "testing": "tests/unit/policy/test_sizing.py"
+  },
+  "src/features/kafi.py": {
+    "testing": "tests/unit/features/test_kafi.py"
   }
 }
