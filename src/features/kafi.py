@@ -138,8 +138,12 @@ def kafi_opportunity_score(
     signal_at: datetime,
     rank_window: int = 252,
     credit_series_id: str = DEFAULT_CREDIT_SERIES_ID,
+    include_vol_dampener: bool = True,
+    dispersion: float = 1.0,
 ) -> float:
-    """Equal-weight mean of the six opportunity component scores in [0, 100]."""
+    """Equal-weight opportunity mean in [0, 100]; ``False`` drops the constant vol_dampener."""
+    if not math.isfinite(dispersion) or dispersion <= 0.0:
+        raise ValueError(f"dispersion must be finite and positive, got {dispersion!r}")
     components = kafi_opportunity_components(
         prices=prices,
         fx=fx,
@@ -150,10 +154,14 @@ def kafi_opportunity_score(
         rank_window=rank_window,
         credit_series_id=credit_series_id,
     )
-    score = sum(components.values()) / len(components)
-    if not math.isfinite(score):
-        raise ValueError(f"kafi opportunity score collapsed to a non-finite value {score!r}")
-    return score
+    active = [name for name in components if include_vol_dampener or name != "vol_dampener"]
+    if not active:
+        raise ValueError("kafi opportunity score has no active components")
+    raw = sum(components[name] for name in active) / len(active)
+    if not math.isfinite(raw):
+        raise ValueError(f"kafi opportunity score collapsed to a non-finite value {raw!r}")
+    score = 50.0 + dispersion * (raw - 50.0)
+    return min(max(score, 0.0), 100.0)
 
 
 def kafi_score(

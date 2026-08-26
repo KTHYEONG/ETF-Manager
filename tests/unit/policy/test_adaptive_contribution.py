@@ -10,7 +10,11 @@ import polars as pl
 import pytest
 
 import src.policy.adaptive_contribution as adaptive_module
-from src.policy.adaptive_contribution import AdaptiveContributionConfig, size_adaptive_contribution
+from src.policy.adaptive_contribution import (
+    OPERATIONAL_ADAPTIVE_CONTRIBUTION,
+    AdaptiveContributionConfig,
+    size_adaptive_contribution,
+)
 from src.policy.targets import PolicyError
 
 _BASE: Final[float] = 1_000_000.0
@@ -135,3 +139,49 @@ def test_acg_c_fail_closed_on_kafi_error(scenario_id: str, monkeypatch: pytest.M
     monkeypatch.setattr(adaptive_module, "kafi_opportunity_score", boom)
     with pytest.raises(PolicyError, match="adaptive contribution failed closed"):
         _size(AdaptiveContributionConfig())
+
+
+@pytest.mark.parametrize("scenario_id", ["ACG-v2-passes-flag"])
+def test_acg_v2_passes_flag(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """ACG-v2-passes-flag"""
+    captured: list[dict[str, object]] = []
+
+    def fake_opportunity_score(**kwargs: object) -> float:
+        captured.append(dict(kwargs))
+        return 75.0
+
+    monkeypatch.setattr(adaptive_module, "kafi_opportunity_score", fake_opportunity_score)
+
+    challenger_credit = _size(AdaptiveContributionConfig(include_vol_dampener=False))
+    operational_credit = _size(AdaptiveContributionConfig())
+
+    assert captured[0]["include_vol_dampener"] is False
+    assert captured[1]["include_vol_dampener"] is True
+    assert challenger_credit == pytest.approx(operational_credit)
+    # Operational lock stays on the six-component curve in this wave.
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.include_vol_dampener is True
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.rank_window == 126
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.downside_power == pytest.approx(2.5)
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.upside_power == pytest.approx(0.7)
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.min_multiplier == pytest.approx(0.0)
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.max_multiplier == pytest.approx(2.0)
+
+
+@pytest.mark.parametrize("scenario_id", ["ACG-disp-passes-flag"])
+def test_acg_disp_passes_flag(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """ACG-disp-passes-flag"""
+    captured: list[dict[str, object]] = []
+
+    def fake_opportunity_score(**kwargs: object) -> float:
+        captured.append(dict(kwargs))
+        return 75.0
+
+    monkeypatch.setattr(adaptive_module, "kafi_opportunity_score", fake_opportunity_score)
+
+    _size(AdaptiveContributionConfig(dispersion=0.9))
+    _size(AdaptiveContributionConfig())
+
+    assert captured[0]["dispersion"] == pytest.approx(0.9)
+    assert captured[1]["dispersion"] == pytest.approx(1.0)
+    with pytest.raises(ValueError, match="dispersion"):
+        AdaptiveContributionConfig(dispersion=0.0)
