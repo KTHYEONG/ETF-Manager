@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_WAVE_AB_QQQ_SIZING_V4",
+      "date": "2026-08-26",
+      "adr_id": "ADR_20260826_WAVE_AB_QQQ_SIZING_V4",
+      "domain": "quant",
+      "title": "Wave AB: QQQ ERP-preserving reserve v4 (depth-trend sizing)",
+      "why": "Reserve v3 taxed modal Nasdaq (depth<10%, VIX<25) at min_invest 0.70, trailing plain DCA by ~1.6% real TW; user hypothesis was signal simplicity but root defect was bull-market withhold polarity under I5 identical monthly KRW.",
+      "resolution": "Added src/policy/sizing.py erp_preserving_multiplier (trend>0 and depth<20% => m=1; bear moderate withhold; deep deploy). ReserveConfig schedule v4 wired in reserve.py, experiment.py, cli.py; wf_qqq_reserve_v4.json growth_first WF; contract tests SIZ-V4/RSV-V4/EXP-L/CLI-O.",
+      "impact": "Empirical: v4 shipped_old ratio 0.9926 vs plain (v3 0.9837); cash_drag 1.1% vs 4.4%. WF wf_qqq_reserve_v4 process_adopted=False, pooled candidate/base 0.9926, min fold 0.9759. Operational PolicyId.QQQ month-end lock unchanged; cadence remains higher-EV compounding path."
+    },
+    {
       "task_id": "WAVE_AA_QQQ_RESERVE_V3_REGIME",
       "date": "2026-08-25",
       "adr_id": "ADR_20260825_WAVE_AA_QQQ_RESERVE_V3_REGIME",

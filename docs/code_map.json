@@ -92,5 +92,8 @@
   "src/validation/gate.py": {
     "architecture": "docs/architecture/02_policy_and_validation.md",
     "testing": "tests/unit/validation/test_gate.py"
+  },
+  "src/policy/sizing.py": {
+    "testing": "tests/unit/policy/test_sizing.py"
   }
 }
