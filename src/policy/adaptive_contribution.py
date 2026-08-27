@@ -43,12 +43,12 @@ class AdaptiveContributionConfig:
     credit_series_id: str = DEFAULT_CREDIT_SERIES_ID
     min_multiplier: float = 0.0
     max_multiplier: float = 2.0
-    downside_power: float = 3.5
-    upside_power: float = 0.35
+    downside_power: float = 4.0
+    upside_power: float = 0.25
     rank_window: int = 126
     include_vol_dampener: bool = False
-    dispersion: float = 1.15
-    neutral_deadband: float = 4.0
+    dispersion: float = 1.35
+    neutral_deadband: float = 5.0
 
     def __post_init__(self) -> None:
         if not self.equity_ticker or not self.bond_ticker or not self.credit_series_id:
@@ -135,14 +135,14 @@ def size_adaptive_contribution(
     return credit
 
 
-# WF-adopted QQQ sizing (rank 126, no_vol, deadband 4); locked on the operational path.
+# WF-adopted QQQ sizing (rank 126, no_vol, deadband 5); locked on the operational path.
 OPERATIONAL_ADAPTIVE_CONTRIBUTION: Final[AdaptiveContributionConfig] = AdaptiveContributionConfig(
     rank_window=126,
-    downside_power=3.5,
-    upside_power=0.35,
+    downside_power=4.0,
+    upside_power=0.25,
     include_vol_dampener=False,
-    dispersion=1.15,
-    neutral_deadband=4.0,
+    dispersion=1.35,
+    neutral_deadband=5.0,
     min_multiplier=0.0,
     max_multiplier=2.0,
 )

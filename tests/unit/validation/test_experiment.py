@@ -1134,7 +1134,7 @@ def test_acr_exp_schema_defaults(scenario_id: str) -> None:
     spec_defaults = AdaptiveContributionSpec()
     config_defaults = AdaptiveContributionConfig()
     assert spec_defaults.neutral_deadband == pytest.approx(0.0)
-    assert config_defaults.neutral_deadband == pytest.approx(4.0)
+    assert config_defaults.neutral_deadband == pytest.approx(5.0)
     for field_name in (
         "equity_ticker",
         "bond_ticker",
@@ -1271,3 +1271,40 @@ def test_exp_ag_v4_json(scenario_id: str) -> None:
     resolved_candidate = resolve_adaptive_contribution(spec)
     assert resolved_candidate.neutral_deadband == pytest.approx(4.0)
     assert resolved_baseline.neutral_deadband == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-AG-v5-resolve"])
+def test_exp_ag_v5_resolve(scenario_id: str) -> None:
+    """EXP-AG-v5-resolve"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_v5.json")
+
+    assert spec.objective == "adaptive_growth"
+    baseline_spec = spec.baseline_adaptive_contribution
+    candidate_spec = spec.adaptive_contribution
+    assert baseline_spec is not None
+    assert candidate_spec is not None
+    assert candidate_spec.dispersion == pytest.approx(1.35)
+    assert candidate_spec.upside_power == pytest.approx(0.25)
+    assert candidate_spec.downside_power == pytest.approx(4.0)
+    assert candidate_spec.neutral_deadband == pytest.approx(5.0)
+    assert candidate_spec.include_vol_dampener is False
+    assert candidate_spec.rank_window == 126
+    assert baseline_spec.dispersion == pytest.approx(1.15)
+    assert baseline_spec.upside_power == pytest.approx(0.35)
+    assert baseline_spec.downside_power == pytest.approx(3.5)
+    assert baseline_spec.neutral_deadband == pytest.approx(4.0)
+    assert baseline_spec.include_vol_dampener is False
+    assert baseline_spec.rank_window == 126
+
+    resolved_candidate = resolve_adaptive_contribution(spec)
+    resolved_baseline = resolve_baseline_adaptive_contribution(spec)
+    assert resolved_candidate is not None
+    assert resolved_baseline is not None
+    assert resolved_candidate.dispersion == pytest.approx(1.35)
+    assert resolved_candidate.upside_power == pytest.approx(0.25)
+    assert resolved_candidate.downside_power == pytest.approx(4.0)
+    assert resolved_candidate.neutral_deadband == pytest.approx(5.0)
+    assert resolved_baseline.dispersion == pytest.approx(1.15)
+    assert resolved_baseline.upside_power == pytest.approx(0.35)
+    assert resolved_baseline.downside_power == pytest.approx(3.5)
+    assert resolved_baseline.neutral_deadband == pytest.approx(4.0)
