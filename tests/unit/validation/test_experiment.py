@@ -1133,16 +1133,15 @@ def test_acr_exp_schema_defaults(scenario_id: str) -> None:
 
     spec_defaults = AdaptiveContributionSpec()
     config_defaults = AdaptiveContributionConfig()
+    assert spec_defaults.neutral_deadband == pytest.approx(0.0)
+    assert config_defaults.neutral_deadband == pytest.approx(4.0)
     for field_name in (
         "equity_ticker",
         "bond_ticker",
         "credit_series_id",
         "min_multiplier",
         "max_multiplier",
-        "downside_power",
-        "upside_power",
         "rank_window",
-        "dispersion",
     ):
         assert getattr(spec_defaults, field_name) == getattr(config_defaults, field_name)
 
@@ -1247,3 +1246,28 @@ def test_exp_ag_v3_config(scenario_id: str) -> None:
     ):
         assert getattr(resolved_baseline, field_name) == getattr(baseline_spec, field_name)
         assert getattr(resolved_candidate, field_name) == getattr(candidate_spec, field_name)
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-AG-v4-json"])
+def test_exp_ag_v4_json(scenario_id: str) -> None:
+    """EXP-AG-v4-json"""
+    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_v4.json")
+
+    assert spec.objective == "adaptive_growth"
+    baseline_spec = spec.baseline_adaptive_contribution
+    candidate_spec = spec.adaptive_contribution
+    assert baseline_spec is not None
+    assert candidate_spec is not None
+    assert candidate_spec.downside_power == pytest.approx(3.5)
+    assert candidate_spec.upside_power == pytest.approx(0.35)
+    assert candidate_spec.include_vol_dampener is False
+    assert candidate_spec.dispersion == pytest.approx(1.15)
+    assert candidate_spec.neutral_deadband == pytest.approx(4.0)
+    assert baseline_spec.include_vol_dampener is True
+    assert baseline_spec.upside_power == pytest.approx(0.7)
+    assert baseline_spec.neutral_deadband == pytest.approx(0.0)
+
+    resolved_baseline = resolve_baseline_adaptive_contribution(spec)
+    resolved_candidate = resolve_adaptive_contribution(spec)
+    assert resolved_candidate.neutral_deadband == pytest.approx(4.0)
+    assert resolved_baseline.neutral_deadband == pytest.approx(0.0)

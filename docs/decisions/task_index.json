@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_WAVE_AH_QQQ_ADAPTIVE_V4_DEADBAND",
+      "date": "2026-08-27",
+      "adr_id": "ADR_20260827_WAVE_AH_QQQ_ADAPTIVE_V4_DEADBAND",
+      "domain": "quant",
+      "title": "Wave AH: QQQ adaptive v4 neutral deadband + operational lock",
+      "why": "v3 raised TW vs ops adaptive but fold2 test XIRR -2.5bp vetoed contribution_growth_process_passes; param-only grids could not pass both fold train XIRR gates.",
+      "resolution": "Added AdaptiveContributionConfig.neutral_deadband (score snap to 50 within band), plumbed through experiment JSON, wf_qqq_adaptive_v4.json; OPERATIONAL_ADAPTIVE_CONTRIBUTION locked to no_vol rank126 down3.5 up0.35 disp1.15 deadband4.0; contract tests ACG-DB/EXP-AG-v4/WF-AG-v4.",
+      "impact": "WF wf_qqq_adaptive_v4 process_adopted=True (2 folds, pooled test TW ratio ~1.1015, fold2 XIRR +15.8bp vs ops); full sample 2015-06..2026-06 TW vs pre-v4 ops +12.3%, XIRR +1.6bp; bare QQQ policy/paper auto v4 sizing."
+    },
+    {
       "task_id": "TASK_WAVE_AG_QQQ_ADAPTIVE_V2_V3",
       "date": "2026-08-26",
       "adr_id": "ADR_20260826_WAVE_AG_QQQ_ADAPTIVE_V2_V3",

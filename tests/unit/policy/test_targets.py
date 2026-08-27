@@ -84,8 +84,10 @@ def test_pol_o_operational_qqq(scenario_id: str) -> None:
 def test_pol_af_operational_adaptive(scenario_id: str) -> None:
     """POL-AF-operational-adaptive"""
     assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.rank_window == 126
-    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.downside_power == pytest.approx(2.5)
-    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.upside_power == pytest.approx(0.7)
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.downside_power == pytest.approx(3.5)
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.upside_power == pytest.approx(0.35)
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.neutral_deadband == pytest.approx(4.0)
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.include_vol_dampener is False
     assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.min_multiplier == pytest.approx(0.0)
     assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.max_multiplier == pytest.approx(2.0)
 

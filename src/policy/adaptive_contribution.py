@@ -43,11 +43,12 @@ class AdaptiveContributionConfig:
     credit_series_id: str = DEFAULT_CREDIT_SERIES_ID
     min_multiplier: float = 0.0
     max_multiplier: float = 2.0
-    downside_power: float = 2.5
-    upside_power: float = 0.7
+    downside_power: float = 3.5
+    upside_power: float = 0.35
     rank_window: int = 126
-    include_vol_dampener: bool = True
-    dispersion: float = 1.0
+    include_vol_dampener: bool = False
+    dispersion: float = 1.15
+    neutral_deadband: float = 4.0
 
     def __post_init__(self) -> None:
         if not self.equity_ticker or not self.bond_ticker or not self.credit_series_id:
@@ -76,6 +77,8 @@ class AdaptiveContributionConfig:
             raise ValueError(f"rank_window must be at least {_MIN_RANK_WINDOW}, got {self.rank_window!r}")
         if not math.isfinite(self.dispersion) or self.dispersion <= 0.0:
             raise ValueError(f"dispersion must be finite and positive, got {self.dispersion!r}")
+        if not math.isfinite(self.neutral_deadband) or self.neutral_deadband < 0.0:
+            raise ValueError(f"neutral_deadband must be finite and non-negative, got {self.neutral_deadband!r}")
 
 
 def size_adaptive_contribution(
@@ -117,6 +120,9 @@ def size_adaptive_contribution(
     except ValueError as exc:
         raise PolicyError(f"adaptive contribution failed closed: {exc}") from exc
 
+    if abs(score - _NEUTRAL_SCORE) <= config.neutral_deadband:
+        score = _NEUTRAL_SCORE
+
     if score < _NEUTRAL_SCORE:
         t = min(max((_NEUTRAL_SCORE - score) / _NEUTRAL_SCORE, 0.0), 1.0)
         multiplier = 1.0 - (1.0 - config.min_multiplier) * math.pow(t, config.downside_power)
@@ -129,5 +135,14 @@ def size_adaptive_contribution(
     return credit
 
 
-# WF-adopted QQQ sizing (rank 126, asymmetric 2.5/0.7); locked on the operational path.
-OPERATIONAL_ADAPTIVE_CONTRIBUTION: Final[AdaptiveContributionConfig] = AdaptiveContributionConfig()
+# WF-adopted QQQ sizing (rank 126, no_vol, deadband 4); locked on the operational path.
+OPERATIONAL_ADAPTIVE_CONTRIBUTION: Final[AdaptiveContributionConfig] = AdaptiveContributionConfig(
+    rank_window=126,
+    downside_power=3.5,
+    upside_power=0.35,
+    include_vol_dampener=False,
+    dispersion=1.15,
+    neutral_deadband=4.0,
+    min_multiplier=0.0,
+    max_multiplier=2.0,
+)
