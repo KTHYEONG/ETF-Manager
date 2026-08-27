@@ -201,6 +201,7 @@ class AdaptiveContributionSpec(BaseModel):
     rank_window: int = Field(default=126, ge=63)
     include_vol_dampener: bool = True
     dispersion: float = Field(default=1.0, gt=0.0)
+    neutral_deadband: float = Field(default=0.0, ge=0.0)
 
 
 class ExperimentSpec(BaseModel):
@@ -450,7 +451,7 @@ def resolve_kafi_deployment(spec: ExperimentSpec) -> KafiDeploymentConfig | None
 def _to_adaptive_config(module: AdaptiveContributionSpec) -> AdaptiveContributionConfig:
     """Map one JSON adaptive-contribution spec onto the runtime config, keeping window defaults.
 
-    Mapping shape: AdaptiveContributionConfig(equity_ticker=..., bond_ticker=..., credit_series_id=..., min_multiplier=..., max_multiplier=..., downside_power=..., upside_power=..., rank_window=..., include_vol_dampener=..., dispersion=...)
+    Mapping shape: AdaptiveContributionConfig(equity_ticker=..., bond_ticker=..., credit_series_id=..., min_multiplier=..., max_multiplier=..., downside_power=..., upside_power=..., rank_window=..., include_vol_dampener=..., dispersion=..., neutral_deadband=...)
     """
     return AdaptiveContributionConfig(
         equity_ticker=module.equity_ticker,
@@ -463,6 +464,7 @@ def _to_adaptive_config(module: AdaptiveContributionSpec) -> AdaptiveContributio
         rank_window=module.rank_window,
         include_vol_dampener=module.include_vol_dampener,
         dispersion=module.dispersion,
+        neutral_deadband=module.neutral_deadband,
     )
 
 

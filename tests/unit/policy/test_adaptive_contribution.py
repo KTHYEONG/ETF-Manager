@@ -53,7 +53,14 @@ def test_acg_a_curve_anchors(scenario_id: str, forced_scores: list[float]) -> No
     outputs = [_size(AdaptiveContributionConfig()) for _ in range(5)]
 
     assert outputs == pytest.approx(
-        [0.0, _BASE * (1 - 0.5**2.5), _BASE, _BASE * (1 + 0.5**0.7), 2 * _BASE], abs=1e-6
+        [
+            0.0,
+            _BASE * (1 - 0.5**3.5),
+            _BASE,
+            _BASE * (1 + 0.5**0.35),
+            2 * _BASE,
+        ],
+        abs=1e-6,
     )
     assert outputs == sorted(outputs)
     assert all(0.0 <= output <= 2 * _BASE for output in outputs)
@@ -64,8 +71,11 @@ def test_acr_acg_default_curve(scenario_id: str, forced_scores: list[float]) -> 
     """ACR-ACG-default-curve"""
     config = AdaptiveContributionConfig()
     assert config.rank_window == 126
-    assert config.downside_power == pytest.approx(2.5)
-    assert config.upside_power == pytest.approx(0.7)
+    assert config.downside_power == pytest.approx(3.5)
+    assert config.upside_power == pytest.approx(0.35)
+    assert config.neutral_deadband == pytest.approx(4.0)
+    assert config.include_vol_dampener is False
+    assert config.dispersion == pytest.approx(1.15)
     assert config.min_multiplier == pytest.approx(0.0)
     assert config.max_multiplier == pytest.approx(2.0)
 
@@ -76,7 +86,7 @@ def test_acr_acg_default_curve(scenario_id: str, forced_scores: list[float]) -> 
     forced_scores.extend([25.0, 75.0])
     midpoints = [_size(config) for _ in range(2)]
     assert midpoints == pytest.approx(
-        [_BASE * (1 - 0.5**2.5), _BASE * (1 + 0.5**0.7)], abs=1e-6
+        [_BASE * (1 - 0.5**3.5), _BASE * (1 + 0.5**0.35)], abs=1e-6
     )
 
 
@@ -156,13 +166,13 @@ def test_acg_v2_passes_flag(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -
     operational_credit = _size(AdaptiveContributionConfig())
 
     assert captured[0]["include_vol_dampener"] is False
-    assert captured[1]["include_vol_dampener"] is True
+    assert captured[1]["include_vol_dampener"] is False
     assert challenger_credit == pytest.approx(operational_credit)
-    # Operational lock stays on the six-component curve in this wave.
-    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.include_vol_dampener is True
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.include_vol_dampener is False
     assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.rank_window == 126
-    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.downside_power == pytest.approx(2.5)
-    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.upside_power == pytest.approx(0.7)
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.downside_power == pytest.approx(3.5)
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.upside_power == pytest.approx(0.35)
+    assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.neutral_deadband == pytest.approx(4.0)
     assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.min_multiplier == pytest.approx(0.0)
     assert OPERATIONAL_ADAPTIVE_CONTRIBUTION.max_multiplier == pytest.approx(2.0)
 
@@ -182,6 +192,54 @@ def test_acg_disp_passes_flag(scenario_id: str, monkeypatch: pytest.MonkeyPatch)
     _size(AdaptiveContributionConfig())
 
     assert captured[0]["dispersion"] == pytest.approx(0.9)
-    assert captured[1]["dispersion"] == pytest.approx(1.0)
+    assert captured[1]["dispersion"] == pytest.approx(1.15)
     with pytest.raises(ValueError, match="dispersion"):
         AdaptiveContributionConfig(dispersion=0.0)
+
+
+_V4_CONFIG = AdaptiveContributionConfig(
+    neutral_deadband=4.0,
+    downside_power=3.5,
+    upside_power=0.35,
+    include_vol_dampener=False,
+    dispersion=1.15,
+)
+
+
+@pytest.mark.parametrize("scenario_id", ["ACG-DB-neutral-band"])
+def test_acg_db_neutral_band(scenario_id: str, forced_scores: list[float]) -> None:
+    """ACG-DB-neutral-band"""
+    forced_scores.extend([46.0, 50.0, 54.0])
+    neutral_outputs = [_size(_V4_CONFIG) for _ in range(3)]
+    assert neutral_outputs == pytest.approx([_BASE, _BASE, _BASE], abs=1e-6)
+
+    forced_scores.append(45.0)
+    below = _size(_V4_CONFIG)
+    assert below < _BASE
+
+    forced_scores.append(55.0)
+    above = _size(_V4_CONFIG)
+    assert above > _BASE
+
+
+@pytest.mark.parametrize("scenario_id", ["ACG-DB-reject-negative"])
+def test_acg_db_reject_negative(scenario_id: str) -> None:
+    """ACG-DB-reject-negative"""
+    with pytest.raises(ValueError, match="neutral_deadband"):
+        AdaptiveContributionConfig(neutral_deadband=-0.1)
+    with pytest.raises(ValueError, match="neutral_deadband"):
+        AdaptiveContributionConfig(neutral_deadband=float("nan"))
+
+
+@pytest.mark.parametrize("scenario_id", ["POL-AF-operational-v4"])
+def test_pol_af_operational_v4(scenario_id: str) -> None:
+    """POL-AF-operational-v4"""
+    lock = OPERATIONAL_ADAPTIVE_CONTRIBUTION
+    assert lock.neutral_deadband == pytest.approx(4.0)
+    assert lock.include_vol_dampener is False
+    assert lock.dispersion == pytest.approx(1.15)
+    assert lock.downside_power == pytest.approx(3.5)
+    assert lock.upside_power == pytest.approx(0.35)
+    assert lock.rank_window == 126
+    assert lock.max_multiplier == pytest.approx(2.0)
+    assert AdaptiveContributionConfig() == lock
