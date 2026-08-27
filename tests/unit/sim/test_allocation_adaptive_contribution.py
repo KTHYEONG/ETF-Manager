@@ -199,8 +199,10 @@ def test_sim_acg_operational_lock(scenario_id: str) -> None:
     locked = apply_operational_contribution_lock(bare_qqq)
     assert locked.adaptive_contribution is OPERATIONAL_ADAPTIVE_CONTRIBUTION
     assert locked.adaptive_contribution.rank_window == 126
-    assert locked.adaptive_contribution.downside_power == pytest.approx(2.5)
-    assert locked.adaptive_contribution.upside_power == pytest.approx(0.7)
+    assert locked.adaptive_contribution.downside_power == pytest.approx(3.5)
+    assert locked.adaptive_contribution.upside_power == pytest.approx(0.35)
+    assert locked.adaptive_contribution.neutral_deadband == pytest.approx(4.0)
+    assert locked.adaptive_contribution.include_vol_dampener is False
 
     vti = apply_operational_contribution_lock(
         AllocationConfig(
