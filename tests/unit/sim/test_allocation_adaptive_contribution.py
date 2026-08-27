@@ -189,7 +189,7 @@ def test_sim_acg_boundaries(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -
 
 @pytest.mark.parametrize("scenario_id", ["SIM-ACG-operational-lock"])
 def test_sim_acg_operational_lock(scenario_id: str) -> None:
-    """SIM-ACG-operational-lock"""
+    """SIM-ACG-operational-lock legacy alias still locked to v5"""
     bare_qqq = AllocationConfig(
         policy=OPERATIONAL_POLICY_ID,
         start=_CONFIG_START,
@@ -199,9 +199,10 @@ def test_sim_acg_operational_lock(scenario_id: str) -> None:
     locked = apply_operational_contribution_lock(bare_qqq)
     assert locked.adaptive_contribution is OPERATIONAL_ADAPTIVE_CONTRIBUTION
     assert locked.adaptive_contribution.rank_window == 126
-    assert locked.adaptive_contribution.downside_power == pytest.approx(3.5)
-    assert locked.adaptive_contribution.upside_power == pytest.approx(0.35)
-    assert locked.adaptive_contribution.neutral_deadband == pytest.approx(4.0)
+    assert locked.adaptive_contribution.downside_power == pytest.approx(4.0)
+    assert locked.adaptive_contribution.upside_power == pytest.approx(0.25)
+    assert locked.adaptive_contribution.neutral_deadband == pytest.approx(5.0)
+    assert locked.adaptive_contribution.dispersion == pytest.approx(1.35)
     assert locked.adaptive_contribution.include_vol_dampener is False
 
     vti = apply_operational_contribution_lock(
@@ -224,3 +225,20 @@ def test_sim_acg_operational_lock(scenario_id: str) -> None:
         )
     )
     assert with_overlay.adaptive_contribution is None
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-ACG-operational-lock-v5"])
+def test_sim_acg_operational_lock_v5(scenario_id: str) -> None:
+    """SIM-ACG-operational-lock-v5"""
+    bare_qqq = AllocationConfig(
+        policy=OPERATIONAL_POLICY_ID,
+        start=_CONFIG_START,
+        end=_CONFIG_END,
+        monthly_contribution_krw=_CONTRIBUTION_KRW,
+    )
+    locked = apply_operational_contribution_lock(bare_qqq)
+    assert locked.adaptive_contribution is OPERATIONAL_ADAPTIVE_CONTRIBUTION
+    assert locked.adaptive_contribution.neutral_deadband == pytest.approx(5.0)
+    assert locked.adaptive_contribution.dispersion == pytest.approx(1.35)
+    assert locked.adaptive_contribution.rank_window == 126
+    assert locked.adaptive_contribution.include_vol_dampener is False

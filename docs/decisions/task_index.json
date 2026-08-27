@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_WAVE_AI_QQQ_ADAPTIVE_V5_RETUNE",
+      "date": "2026-08-27",
+      "adr_id": "ADR_20260827_WAVE_AI_QQQ_ADAPTIVE_V5_RETUNE",
+      "domain": "quant",
+      "title": "Wave AI: QQQ adaptive v5 dispersion/deadband retune + operational lock",
+      "why": "v4 deadband sizing passes WF but empirical screen of 34+204 arms sought further TW; structural modules (shape/deploy/blends), KAFI reweights, and FE overlays failed contribution_growth gates vs v4.",
+      "resolution": "Retuned OPERATIONAL_ADAPTIVE_CONTRIBUTION defaults to no_vol rank126 down4.0 up0.25 disp1.35 deadband5.0; added wf_qqq_adaptive_v5.json (candidate v5, baseline v4 params); contract tests POL-AF-operational-v5, ACG-DB-neutral-band-v5, EXP-AG-v5-resolve, SIM-ACG-operational-lock-v5.",
+      "impact": "WF wf_qqq_adaptive_v5 vs v4 baseline process_adopted=True; pooled test TW ratio ~1.0198, fold1/fold2 XIRR +2.7/+11.5bp; full sample 2015-06..2026-06 TW vs v4 +3.1%, XIRR +2.9bp; bare QQQ policy/paper auto v5 sizing."
+    },
+    {
       "task_id": "TASK_WAVE_AH_QQQ_ADAPTIVE_V4_DEADBAND",
       "date": "2026-08-27",
       "adr_id": "ADR_20260827_WAVE_AH_QQQ_ADAPTIVE_V4_DEADBAND",
