@@ -29,6 +29,7 @@ from src.validation.experiment import (
     MappingSpec,
     OverlaySpec,
     ReserveSpec,
+    load_experiment_config,
     resolve_adaptive_contribution,
     resolve_baseline_adaptive_contribution,
 )
@@ -977,4 +978,42 @@ def test_wf_ag_baseline_arm(scenario_id: str) -> None:
         flat_chunk = flat_runner.configs[fold_index * 5 : (fold_index + 1) * 5]
         assert flat_chunk[0].adaptive_contribution is None
         assert flat_chunk[2].adaptive_contribution is None
+
+
+@pytest.mark.parametrize("scenario_id", ["WF-AG-v4-process"])
+def test_wf_ag_v4_process(scenario_id: str) -> None:
+    """WF-AG-v4-process"""
+
+    class _V4AdaptiveRunner:
+        def __call__(self, config: AllocationConfig) -> AllocationResult:
+            if config.adaptive_contribution is None:
+                wealth, contribution, xirr_real, mdd = 100.0, 90.0, 0.10, -0.25
+            elif config.adaptive_contribution.neutral_deadband >= 4.0:
+                wealth, contribution, xirr_real, mdd = 130.0, 100.0, 0.22, -0.24
+            else:
+                wealth, contribution, xirr_real, mdd = 110.0, 95.0, 0.15, -0.25
+            return AllocationResult(
+                config=config,
+                snapshots=(),
+                terminal_wealth_krw=wealth,
+                xirr=0.0,
+                max_drawdown=mdd,
+                terminal_wealth_real_krw=wealth,
+                xirr_real=xirr_real,
+                total_contribution_real_krw=contribution,
+            )
+
+    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_v4.json")
+    report = run_walk_forward_adoption(spec, _V4AdaptiveRunner())
+
+    assert len(report.folds) >= 2
+    assert all(fold.train_adopted is True for fold in report.folds)
+    assert report.process_adopted_vs_baseline is True
+
+    baseline_tw = sum(fold.baseline_test_wealth for fold in report.folds)
+    chosen_tw = sum(fold.chosen_test_wealth for fold in report.folds)
+    assert chosen_tw / baseline_tw >= 1.08
+
+    for fold in report.folds:
+        assert fold.chosen_xirr_real >= fold.baseline_xirr_real
 

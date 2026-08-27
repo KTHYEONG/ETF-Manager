@@ -1,0 +1,43 @@
+{
+  "name": "wf_qqq_adaptive_v4",
+  "start": "2015-06-01",
+  "end": "2026-06-30",
+  "contribution_krw": 1000000,
+  "hurdle": 0.02,
+  "objective": "adaptive_growth",
+  "horizon_months": 0,
+  "train_months": 60,
+  "test_months": 36,
+  "baseline": {
+    "id": "s8_us_nasdaq_adaptive_ops",
+    "policy": "qqq",
+    "modules": 1
+  },
+  "candidates": [
+    {
+      "id": "s8_us_nasdaq_adaptive_v4",
+      "policy": "qqq",
+      "modules": 1
+    }
+  ],
+  "adaptive_contribution": {
+    "rank_window": 126,
+    "downside_power": 3.5,
+    "upside_power": 0.35,
+    "min_multiplier": 0.0,
+    "max_multiplier": 2.0,
+    "include_vol_dampener": false,
+    "dispersion": 1.15,
+    "neutral_deadband": 4.0
+  },
+  "baseline_adaptive_contribution": {
+    "rank_window": 126,
+    "downside_power": 2.5,
+    "upside_power": 0.7,
+    "min_multiplier": 0.0,
+    "max_multiplier": 2.0,
+    "include_vol_dampener": true,
+    "dispersion": 1.0,
+    "neutral_deadband": 0.0
+  }
+}
