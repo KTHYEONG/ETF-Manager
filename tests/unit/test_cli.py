@@ -1762,6 +1762,33 @@ def test_cli_ingest_static_dca(scenario_id: str, monkeypatch: pytest.MonkeyPatch
     assert captured["fx_provider"] == "ecos"
 
 
+@pytest.mark.parametrize("scenario_id", ["CLI-THESIS-01-dispatch-no-gate"])
+def test_cli_thesis_01_dispatch_no_gate(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-THESIS-01-dispatch-no-gate"""
+    captured: dict[str, object] = {}
+
+    def fake_thesis(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    def forbidden_adoption(*args: object, **kwargs: object) -> bool:
+        raise AssertionError("thesis inspect must never call adoption_passes")
+
+    monkeypatch.setattr(cli, "run_thesis_command", fake_thesis)
+    monkeypatch.setattr(cli, "adoption_passes", forbidden_adoption)
+
+    assert main(["run", "thesis"]) == 0
+    assert captured["config_dir"] == "configs/theses"
+    assert captured["thesis_id"] is None
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-THESIS-02-unknown-id"])
+def test_cli_thesis_02_unknown_id(scenario_id: str) -> None:
+    """CLI-THESIS-02-unknown-id"""
+    assert main(["run", "thesis", "--id", "not_a_thesis"]) == 2
+    assert main(["run", "thesis", "--config-dir", "/no/such/theses"]) == 2
+
+
 @pytest.mark.parametrize("scenario_id", ["CLI-audit-feasibility"])
 def test_cli_audit_feasibility(scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """CLI-audit-feasibility"""
