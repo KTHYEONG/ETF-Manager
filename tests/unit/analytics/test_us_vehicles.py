@@ -15,6 +15,7 @@ from src.analytics.us_vehicles import (
     diagnostic_price_tickers,
     history_price_tickers,
     profile_us_vehicles,
+    research_satellite_tickers,
 )
 from src.data.calendar import load_calendar
 from src.data.pipeline import ingest
@@ -50,20 +51,38 @@ def test_veh_e_history_union(scenario_id: str) -> None:
     assert diagnostic_price_tickers() == ("QQQ",)
     assert history_price_tickers() == (
         "BND",
+        "BOTZ",
+        "GRID",
+        "IBB",
         "IEF",
         "IEMG",
+        "ITA",
         "ITOT",
         "IVV",
+        "IWF",
         "QQQ",
         "SCHF",
+        "SOXX",
         "TLT",
         "VEA",
         "VT",
         "VTI",
         "VTV",
         "VWO",
+        "XLI",
     )
-    assert set(history_price_tickers()) - set(all_policy_tickers()) == {"IEMG", "ITOT", "SCHF"}
+    assert set(history_price_tickers()) - set(all_policy_tickers()) == {
+        "BOTZ",
+        "GRID",
+        "IBB",
+        "IEMG",
+        "ITA",
+        "ITOT",
+        "IWF",
+        "SCHF",
+        "SOXX",
+        "XLI",
+    }
 
 
 @pytest.mark.parametrize("scenario_id", ["VEH-J-history-includes-itot"])
@@ -78,6 +97,16 @@ def test_veh_j_history_includes_itot(scenario_id: str) -> None:
     assert "ITOT" in history
     assert "VTI" in history
     assert set(implementations) <= set(history)
+
+
+@pytest.mark.parametrize("scenario_id", ["VEH-MIX-satellite-ingest"])
+def test_veh_mix_satellite_ingest(scenario_id: str) -> None:
+    """VEH-MIX-satellite-ingest"""
+    satellites = research_satellite_tickers()
+    assert satellites == ("BOTZ", "GRID", "IBB", "ITA", "IWF", "SOXX", "XLI")
+    history = history_price_tickers()
+    assert set(satellites) <= set(history)
+    assert set(satellites).isdisjoint(set(all_policy_tickers()))
 
 
 def _smb_factor_frame(months: list[date]) -> pl.DataFrame:

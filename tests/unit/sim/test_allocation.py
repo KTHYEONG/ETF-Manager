@@ -20,9 +20,16 @@ from src.data.schema import Dataset, spec_for
 from src.policy.currency import CurrencyConfig
 from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
+from src.policy.adaptive_contribution import OPERATIONAL_ADAPTIVE_CONTRIBUTION
 from src.policy.targets import PolicyError, PolicyId
 from src.policy.tilt import FactorTilt
-from src.sim.allocation import AllocationConfig, AllocationDataError, AllocationResult, run_allocation
+from src.sim.allocation import (
+    AllocationConfig,
+    AllocationDataError,
+    AllocationResult,
+    apply_operational_contribution_lock,
+    run_allocation,
+)
 from src.sim.baseline import BaselineConfig, BaselineId, run_baseline
 from src.validation.evaluate import evaluate_cohort_wealths
 
@@ -906,6 +913,24 @@ def test_sim_o_targets_override(scenario_id: str) -> None:
     )
     with pytest.raises(ValueError, match="nonnegative"):
         run_allocation(negative, prices, fx, cpi)
+
+
+@pytest.mark.parametrize("scenario_id", ["SIM-MIX-lock-skips-override"])
+def test_sim_mix_lock_skips_override(scenario_id: str) -> None:
+    """SIM-MIX-lock-skips-override"""
+    bare_qqq = AllocationConfig(
+        policy=PolicyId.QQQ,
+        start=date(2020, 1, 2),
+        end=date(2020, 6, 30),
+        monthly_contribution_krw=1_000_000.0,
+    )
+    locked = apply_operational_contribution_lock(bare_qqq)
+    assert locked.adaptive_contribution is OPERATIONAL_ADAPTIVE_CONTRIBUTION
+
+    mixed = replace(bare_qqq, targets_override={"QQQ": 0.9, "VTI": 0.1})
+    skipped = apply_operational_contribution_lock(mixed)
+    assert skipped is mixed
+    assert skipped.adaptive_contribution is None
 
 
 def _rising_qqq_panel(days: tuple[date, ...]) -> pl.DataFrame:
