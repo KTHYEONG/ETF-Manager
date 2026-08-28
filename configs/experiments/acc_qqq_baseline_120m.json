@@ -1,0 +1,28 @@
+{
+  // QQQ baseline vs QQQ95+GRID5 candidate for 120M accumulation cohort
+  // start placeholder: 2000-01-01 ; operator trims end to catalog max after ingest
+  // end placeholder: 2025-06-30 ; operator trims end to catalog max after ingest
+  "name": "acc_qqq_baseline_120m",
+  "start": "2000-01-01",
+  "end": "2025-06-30",
+  "contribution_krw": 1000000,
+  "hurdle": 0.02,
+  "objective": "ce",
+  "horizon_months": 120,
+  "baseline": {
+    "id": "qqq_baseline",
+    "policy": "qqq",
+    "modules": 0
+  },
+  "candidates": [
+    {
+      "id": "qqq_grid_05",
+      "policy": "qqq",
+      "modules": 1,
+      "targets": {
+        "QQQ": 0.95,
+        "GRID": 0.05
+      }
+    }
+  ]
+}

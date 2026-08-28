@@ -110,5 +110,11 @@
   },
   "src/analytics/adaptive_hp_screen.py": {
     "testing": "tests/unit/analytics/test_adaptive_hp_screen.py"
+  },
+  "src/validation/accumulation_cohort.py": {
+    "testing": "tests/unit/validation/test_accumulation_cohort.py"
+  },
+  "src/validation/feasibility_audit.py": {
+    "testing": "tests/unit/validation/test_feasibility_audit.py"
   }
 }
