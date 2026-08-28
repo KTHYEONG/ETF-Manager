@@ -55,6 +55,7 @@ from src.policy.targets import (
     PolicyId,
     policy_sleeves,
 )
+from src.policy.thesis import load_thesis_registry
 from src.policy.tilt import TILT_FACTORS, FactorTilt
 from src.sim.allocation import (
     AllocationConfig,
@@ -409,6 +410,12 @@ def _build_parser() -> _Parser:
     )
     audit_feasibility.add_argument("--config", required=True, help="Path to the experiment JSON")
     audit_feasibility.add_argument("--write-report", action="store_true", help="Persist audit JSON under audits/")
+    thesis = run_targets.add_parser(
+        "thesis",
+        help="Inspect thesis registry (reporting only, never an adoption gate)",
+    )
+    thesis.add_argument("--id", dest="thesis_id", default=None, help="Thesis id to inspect (omit to list)")
+    thesis.add_argument("--config-dir", default="configs/theses", help="Thesis registry directory")
     return parser
 
 
@@ -640,6 +647,11 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             config_path=str(args.config),
             settings=DataSettings(),
             write_report=bool(getattr(args, "write_report", False)),
+        )
+    if args.target == "thesis":
+        return run_thesis_command(
+            thesis_id=args.thesis_id if isinstance(args.thesis_id, str) else None,
+            config_dir=str(args.config_dir),
         )
     raise _UsageError(f"unsupported target {args.target!r}")
 
@@ -885,6 +897,49 @@ def run_audit_feasibility_command(
     except (ValueError, UntrustedDatasetError, OSError) as exc:
         logger.error("[DATA] event=audit_feasibility_failed reason=%s", exc)
         return 1
+
+
+def run_thesis_command(*, thesis_id: str | None, config_dir: str) -> int:
+    """Inspect thesis registry (listing or single id); never calls adoption_passes."""
+    from pathlib import Path
+
+    from pydantic import ValidationError
+
+    from src.policy.thesis import ThesisError, ThesisId, get_thesis
+
+    try:
+        registry = load_thesis_registry(Path(config_dir))
+    except (ThesisError, ValidationError, ValueError, OSError) as exc:
+        logger.error("[DATA] event=thesis_inspect_failed reason=%s", exc)
+        return 2
+    if thesis_id is not None:
+        try:
+            try:
+                tid = ThesisId(thesis_id)
+            except ValueError as exc:
+                raise ThesisError(f"unknown thesis id {thesis_id!r}") from exc
+            spec = get_thesis(registry, tid)
+        except (ThesisError, ValueError) as exc:
+            logger.error("[DATA] event=thesis_inspect_failed reason=%s", exc)
+            return 2
+        logger.info(
+            "[DATA] event=thesis_inspect thesis_id=%s status=%s version=%d config_dir=%s",
+            spec.id.value,
+            spec.status.value,
+            spec.version,
+            config_dir,
+        )
+        return 0
+    for tid, spec in sorted(registry.items(), key=lambda kv: kv[0].value):
+        logger.info(
+            "[DATA] event=thesis_inspect thesis_id=%s status=%s version=%d config_dir=%s",
+            tid.value,
+            spec.status.value,
+            spec.version,
+            config_dir,
+        )
+    logger.info("[DATA] event=thesis_inspect count=%d config_dir=%s", len(registry), config_dir)
+    return 0
 
 
 def run_baseline_command(
