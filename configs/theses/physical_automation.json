@@ -1,0 +1,35 @@
+{
+  "id": "physical_automation",
+  "version": 1,
+  "title": "Physical automation and robotics",
+  "status": "research",
+  "horizon": {
+    "min_years": 5,
+    "target_years": 10
+  },
+  "causal_chain": [
+    "robotics_technology_progress",
+    "industrial_adoption",
+    "automation_capex",
+    "supplier_revenue",
+    "shareholder_cashflow"
+  ],
+  "falsifiers": [
+    "commercialization_lag",
+    "pricing_power_collapse"
+  ],
+  "candidate_sleeves": [
+    "physical_automation"
+  ],
+  "historical_proxies": [
+    "BOTZ"
+  ],
+  "evidence": {
+    "source": "declared",
+    "structural": "unknown",
+    "historical": "unknown",
+    "valuation": "unknown",
+    "expectations": "unknown",
+    "crowding": "unknown"
+  }
+}
