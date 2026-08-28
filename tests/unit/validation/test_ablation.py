@@ -322,3 +322,55 @@ def test_abl_acg_identical_cashflow_reject(scenario_id: str) -> None:
 
     # The rejection happens before the runner is ever invoked.
     assert runner.configs == []
+
+
+class _MixWealthRunner:
+    """Wealth keyed by whether an arm carries a static mix override."""
+
+    def __init__(self) -> None:
+        self.configs: list[AllocationConfig] = []
+
+    def __call__(self, config: AllocationConfig) -> AllocationResult:
+        self.configs.append(config)
+        wealth = 110.0 if config.targets_override == {"QQQ": 0.9, "VTI": 0.1} else 100.0
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+
+@pytest.mark.parametrize("scenario_id", ["ABL-MIX-override-wired"])
+def test_abl_mix_override_wired(scenario_id: str) -> None:
+    """ABL-MIX-override-wired"""
+    spec = ExperimentSpec(
+        name="abl_mix",
+        start=_WINDOW[0],
+        end=_WINDOW[1],
+        contribution_krw=1_000_000.0,
+        hurdle=0.02,
+        horizon_months=0,
+        baseline=CandidateSpec(id="qqq_baseline", policy=PolicyId.QQQ, modules=0),
+        candidates=[
+            CandidateSpec(
+                id="qqq_vti_mix",
+                policy=PolicyId.QQQ,
+                modules=1,
+                targets={"QQQ": 0.9, "VTI": 0.1},
+            )
+        ],
+    )
+    runner = _MixWealthRunner()
+    report = run_ablation(spec, runner)
+
+    assert len(runner.configs) == 2
+    assert runner.configs[0].targets_override is None
+    assert runner.configs[1].targets_override == {"QQQ": 0.9, "VTI": 0.1}
+    for config in runner.configs:
+        assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
+        assert config.adaptive_contribution is None
+    assert report.rows[0].adopted is True
