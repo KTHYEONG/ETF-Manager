@@ -146,7 +146,7 @@ BOTZ window too short for 120M; ablation n=2 is **not statistically meaningful**
 
 ## 6. Research freeze updates
 
-Per `docs/feedback.md` single-satellite gate:
+Per architecture satellite research discipline (`02_policy_and_validation.md`):
 
 ```text
 Single satellite → gate pass → combination candidate

@@ -116,5 +116,13 @@
   },
   "src/validation/feasibility_audit.py": {
     "testing": "tests/unit/validation/test_feasibility_audit.py"
+  },
+  "src/etf/sleeves.py": {
+    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "testing": "tests/unit/etf/test_sleeves.py"
+  },
+  "src/policy/thesis.py": {
+    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "testing": "tests/unit/policy/test_thesis.py"
   }
 }
