@@ -1138,6 +1138,50 @@ def test_cli_w1_ablation_dispatch(
     assert main(["run", "ablation"]) == 2
 
 
+@pytest.mark.parametrize("scenario_id", ["CLI-ABL-arm-registry"])
+def test_cli_abl_arm_registry(
+    scenario_id: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI-ABL-arm-registry"""
+
+    def fake_run(config: AllocationConfig, settings: object) -> AllocationResult:
+        wealth = 110.0 if config.targets_override == {"SOXX": 1.0} else 100.0
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+    monkeypatch.setattr(cli, "assert_experiment_feasible", lambda spec, settings: None)
+    monkeypatch.setattr(cli, "run_allocation_from_store", fake_run)
+    monkeypatch.setattr(cli, "latest_artifact", lambda settings, dataset: _FakeArtifact(8))
+    monkeypatch.setattr(cli, "_resolve_git_commit", lambda: "deadbeef")
+
+    data_root = tmp_path / "data"
+    monkeypatch.setattr(cli, "DataSettings", lambda: DataSettings(data_root=data_root))
+
+    exit_code = main(
+        [
+            "run",
+            "ablation",
+            "--config",
+            "configs/experiments/m_thesis_ai_compute_soxx.json",
+        ]
+    )
+
+    assert exit_code == 0
+    reports = list((data_root / "experiments").glob("*_ablation_*.json"))
+    assert len(reports) >= 1
+    written = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert len(written["arms"]) >= 1
+
+
 @pytest.mark.parametrize("scenario_id", ["CLI-WF-dispatch"])
 def test_cli_wf_dispatch(
     scenario_id: str,
