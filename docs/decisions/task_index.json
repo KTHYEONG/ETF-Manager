@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_FUTURE_INDUSTRY_STATIC_MIX",
+      "date": "2026-08-28",
+      "adr_id": "ADR_20260828_FUTURE_INDUSTRY_STATIC_MIX",
+      "domain": "quant",
+      "title": "Future-industry static mix experiments (PolicyId-free satellite targets)",
+      "why": "QQQ 100% baseline must stay operational while testing GRID/XLI/IWF satellite mixes; L5 lacked targets_override plumbing and history ingest omitted research satellites.",
+      "resolution": "Plumbed CandidateSpec.targets through experiment resolve, ablation/campaign _arm_config, feasibility extra_mark_tickers, registry config_hash, allocation operational-lock skip; added research_satellite_tickers ingest set, gate contiguous_adopted_plateau/cohort_win_rate, seed JSONs m_qqq_iwf/grid and wf_qqq_future_core, contract tests MIX/EXP/ABL/CAM/FEAS/GATE; refreshed catalog to 2025-06-30 and re-ran ablation/WF on safe window 2012-06-01..2025-03-31.",
+      "impact": "IWF/GRID/XLI satellite arms fail CE adoption (best GRID 5% ratio ~0.998, IWF ~0.955, WF future_core process_adopted=False); OPERATIONAL_POLICY QQQ 100% unchanged; mix experiments runnable without new PolicyId."
+    },
+    {
       "task_id": "TASK_WAVE_AJ_QQQ_ADAPTIVE_HP_V6",
       "date": "2026-08-28",
       "adr_id": "ADR_20260828_WAVE_AJ_QQQ_ADAPTIVE_HP_V6",
