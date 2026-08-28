@@ -49,6 +49,10 @@ def make_experiment(
         raise ValueError("manifest_hash must not be empty")
     if not git_commit:
         raise ValueError("git_commit must not be empty")
+    if config.targets_override is None:
+        targets_override_payload = None
+    else:
+        targets_override_payload = {k: float(v) for k, v in sorted(config.targets_override.items())}
     identity_payload = {
         "commission_bps": float(config.commission_bps),
         "end": config.end.isoformat(),
@@ -61,6 +65,7 @@ def make_experiment(
         "monthly_contribution_krw": float(config.monthly_contribution_krw),
         "policy": str(config.policy),
         "start": config.start.isoformat(),
+        "targets_override": targets_override_payload,
     }
     canonical = json.dumps(identity_payload, sort_keys=True, separators=(",", ":"))
     config_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()

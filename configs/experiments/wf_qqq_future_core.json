@@ -1,0 +1,28 @@
+{
+  "name": "wf_qqq_future_core",
+  "start": "2007-08-31",
+  "end": "2026-06-30",
+  "contribution_krw": 1000000,
+  "hurdle": 0.02,
+  "objective": "ce",
+  "horizon_months": 0,
+  "train_months": 60,
+  "test_months": 36,
+  "baseline": {
+    "id": "qqq_baseline",
+    "policy": "qqq",
+    "modules": 0
+  },
+  "candidates": [
+    {
+      "id": "qqq_future_core",
+      "policy": "qqq",
+      "modules": 1,
+      "targets": {
+        "QQQ": 0.8,
+        "GRID": 0.1,
+        "XLI": 0.1
+      }
+    }
+  ]
+}

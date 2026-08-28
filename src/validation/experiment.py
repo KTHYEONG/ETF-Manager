@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import date
 from pathlib import Path
 from typing import Literal
@@ -29,8 +30,10 @@ __all__ = [
     "MappingSpec",
     "OverlaySpec",
     "ReserveSpec",
+    "experiment_target_tickers",
     "load_experiment_config",
     "resolve_adaptive_contribution",
+    "resolve_arm_targets",
     "resolve_baseline_adaptive_contribution",
     "resolve_cadence",
     "resolve_contribution_shape",
@@ -61,6 +64,7 @@ class CandidateSpec(BaseModel):
     id: str = Field(min_length=1)
     policy: PolicyId
     modules: int = Field(ge=0)
+    targets: dict[str, float] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -74,6 +78,34 @@ class CandidateSpec(BaseModel):
             return PolicyId.parse(value)
         except ValueError as exc:
             raise ValueError(f"unknown policy {value!r}") from exc
+
+    @field_validator("targets", mode="before")
+    @classmethod
+    def _validate_targets(cls, value: object) -> object:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise ValueError(f"targets must be a mapping, got {type(value).__name__!r}")
+        if len(value) == 0:
+            raise ValueError("targets must be nonempty when set")
+        normalized: dict[str, float] = {}
+        for raw_key, raw_weight in value.items():
+            key = str(raw_key).strip().upper()
+            if not key:
+                raise ValueError("targets ticker must be non-blank")
+            if key in normalized:
+                raise ValueError(f"duplicate targets ticker after normalize: {key!r}")
+            try:
+                weight = float(raw_weight)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"targets[{key!r}] weight must be finite, got {raw_weight!r}") from exc
+            if not math.isfinite(weight) or weight < 0.0:
+                raise ValueError(f"targets[{key!r}] must be finite nonnegative, got {raw_weight!r}")
+            normalized[key] = weight
+        total = sum(normalized.values())
+        if not math.isfinite(total) or abs(total - 1.0) > 1e-6:
+            raise ValueError(f"targets weights must sum to 1.0 within 1e-6, got {total!r}")
+        return normalized
 
 
 class OverlaySpec(BaseModel):
@@ -490,6 +522,23 @@ def resolve_currency(spec: ExperimentSpec) -> CurrencyConfig | None:
         max_defer=spec.currency.max_defer,
         expensive_percentile=spec.currency.expensive_percentile,
     )
+
+
+def resolve_arm_targets(arm: CandidateSpec) -> dict[str, float] | None:
+    """Return a shallow copy of validated targets, or None when absent."""
+    if arm.targets is None:
+        return None
+    return dict(arm.targets)
+
+
+def experiment_target_tickers(spec: ExperimentSpec) -> tuple[str, ...]:
+    """First-seen ordered union of ticker keys from all target maps in the spec."""
+    ordered: dict[str, None] = {}
+    for arm in (spec.baseline, *spec.candidates):
+        if arm.targets is not None:
+            for ticker in arm.targets:
+                ordered.setdefault(ticker)
+    return tuple(ordered)
 
 
 def load_experiment_config(path: str | Path) -> ExperimentSpec:

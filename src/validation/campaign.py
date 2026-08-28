@@ -14,6 +14,7 @@ from src.validation.evaluate import evaluate_cohort_wealths
 from src.validation.experiment import (
     ExperimentSpec,
     resolve_adaptive_contribution,
+    resolve_arm_targets,
     resolve_baseline_adaptive_contribution,
     resolve_cadence,
     resolve_contribution_shape,
@@ -180,6 +181,7 @@ def _arm_config(
     kafi_deployment: KafiDeploymentConfig | None = None,
     adaptive_contribution: AdaptiveContributionConfig | None = None,
     cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
+    targets_override: Mapping[str, float] | None = None,
 ) -> AllocationConfig:
     """Identical cashflow/costs for every arm on one sliced window."""
     return AllocationConfig(
@@ -200,6 +202,7 @@ def _arm_config(
         kafi_deployment=kafi_deployment,
         adaptive_contribution=adaptive_contribution,
         cadence=cadence,
+        targets_override=targets_override,
     )
 
 
@@ -243,6 +246,7 @@ def warm_baseline_arm_cache(
                     None,
                     None,
                     adaptive_contribution=baseline_adaptive,
+                    targets_override=resolve_arm_targets(spec.baseline),
                 )
             )
     return cache
@@ -312,6 +316,8 @@ def run_walk_forward_adoption(
     if spec.objective == "adaptive_growth" and candidate_adaptive_contribution is None:
         # model_copy bypasses model validation, so the campaign must fail closed itself.
         raise ValueError("objective 'adaptive_growth' requires exactly one adaptive_contribution module")
+    baseline_targets_override = resolve_arm_targets(spec.baseline)
+    candidate_targets_override = resolve_arm_targets(candidate)
 
     def arm_result(
         policy: PolicyId,
@@ -325,6 +331,7 @@ def run_walk_forward_adoption(
         arm_kafi_deployment: KafiDeploymentConfig | None = None,
         arm_adaptive_contribution: AdaptiveContributionConfig | None = None,
         arm_cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
+        targets_override: Mapping[str, float] | None = None,
     ) -> AllocationResult:
         return runner(
             _arm_config(
@@ -340,6 +347,7 @@ def run_walk_forward_adoption(
                 arm_kafi_deployment,
                 arm_adaptive_contribution,
                 arm_cadence,
+                targets_override=targets_override,
             )
         )
 
@@ -365,6 +373,7 @@ def run_walk_forward_adoption(
             None,
             None,
             arm_adaptive_contribution=baseline_adaptive_contribution,
+            targets_override=baseline_targets_override,
         )
 
     for train_start, train_end, test_start, test_end in windows:
@@ -381,6 +390,7 @@ def run_walk_forward_adoption(
             candidate_kafi_deployment,
             candidate_adaptive_contribution,
             candidate_cadence,
+            targets_override=candidate_targets_override,
         )
         if spec.objective == "adaptive_growth":
             train_adopted = contribution_growth_train_passes(
@@ -430,7 +440,9 @@ def run_walk_forward_adoption(
             candidate_kafi_deployment,
             candidate_adaptive_contribution,
             candidate_cadence,
+            targets_override=candidate_targets_override,
         )
+        chosen_targets_override = candidate_targets_override if train_adopted else baseline_targets_override
         chosen_test_arm = arm_result(
             chosen_policy,
             test_start,
@@ -440,6 +452,7 @@ def run_walk_forward_adoption(
             chosen_kafi_deployment,
             chosen_adaptive_contribution,
             chosen_cadence,
+            targets_override=chosen_targets_override,
         )
         baseline_test = baseline_test_arm.terminal_wealth_real_krw
         candidate_test = candidate_test_arm.terminal_wealth_real_krw
@@ -695,7 +708,17 @@ def run_cadence_robustness(
             f"with horizon_months={horizon_months}, step_months={step_months}"
         )
     cost_grid = run_walk_forward_cost_grid(spec, runner)
-    baseline_template = _arm_config(spec, spec.baseline.policy, spec.start, spec.end, None, None, None, None)
+    baseline_template = _arm_config(
+        spec,
+        spec.baseline.policy,
+        spec.start,
+        spec.end,
+        None,
+        None,
+        None,
+        None,
+        targets_override=resolve_arm_targets(spec.baseline),
+    )
     candidate_template = _arm_config(
         spec,
         spec.candidates[0].policy,
@@ -706,6 +729,7 @@ def run_cadence_robustness(
         None,
         None,
         cadence=candidate_cadence,
+        targets_override=resolve_arm_targets(spec.candidates[0]),
     )
     baseline_wealths = evaluate_cohort_wealths(baseline_template, cohorts, runner)
     candidate_wealths = evaluate_cohort_wealths(candidate_template, cohorts, runner)

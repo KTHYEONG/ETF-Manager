@@ -1,0 +1,43 @@
+{
+  "name": "m_qqq_grid",
+  "start": "2007-08-31",
+  "end": "2026-06-30",
+  "contribution_krw": 1000000,
+  "hurdle": 0.02,
+  "objective": "ce",
+  "horizon_months": 36,
+  "baseline": {
+    "id": "qqq_baseline",
+    "policy": "qqq",
+    "modules": 0
+  },
+  "candidates": [
+    {
+      "id": "qqq_grid_05",
+      "policy": "qqq",
+      "modules": 1,
+      "targets": {
+        "QQQ": 0.95,
+        "GRID": 0.05
+      }
+    },
+    {
+      "id": "qqq_grid_10",
+      "policy": "qqq",
+      "modules": 1,
+      "targets": {
+        "QQQ": 0.9,
+        "GRID": 0.1
+      }
+    },
+    {
+      "id": "qqq_grid_15",
+      "policy": "qqq",
+      "modules": 1,
+      "targets": {
+        "QQQ": 0.85,
+        "GRID": 0.15
+      }
+    }
+  ]
+}

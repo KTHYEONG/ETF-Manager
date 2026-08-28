@@ -410,6 +410,7 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == owner:
                                 target_node = node
                                 arg_names = [a.arg for a in node.args.args]
+                                arg_names.extend(a.arg for a in node.args.kwonlyargs)
                                 found_impl = leaf in arg_names
                                 break
                     elif kind == "registry_entry":
