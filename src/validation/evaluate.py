@@ -8,7 +8,20 @@ from datetime import date
 
 from src.sim.allocation import AllocationConfig, AllocationResult
 
-__all__ = ["evaluate_cohort_wealths"]
+__all__ = ["evaluate_cohort_results", "evaluate_cohort_wealths"]
+
+
+def evaluate_cohort_results(
+    template: AllocationConfig,
+    cohorts: Sequence[tuple[date, date]],
+    runner: Callable[[AllocationConfig], AllocationResult],
+) -> tuple[AllocationResult, ...]:
+    """Allocation results per cohort; ``template`` is never mutated."""
+    if len(cohorts) < 1:
+        raise ValueError("cohorts must contain at least one (start, end) pair")
+    return tuple(
+        runner(replace(template, start=c_start, end=c_end)) for c_start, c_end in cohorts
+    )
 
 
 def evaluate_cohort_wealths(
