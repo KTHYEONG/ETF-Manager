@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_RESEARCH_IDENTITY_WAVE0",
+      "date": "2026-08-28",
+      "adr_id": "ADR_20260828_V2_RESEARCH_IDENTITY_WAVE0",
+      "domain": "quant",
+      "title": "Wave 0: Thesis / Sleeve / Vehicle identity kernel",
+      "why": "Wave 3 satellite matrix (0/17 CE pass) and docs/next.md: research unit must be economic thesis not ticker overlay; QQQ operational lock and 36M CE gate must stay unchanged.",
+      "resolution": "Added src/etf/sleeves.py (SleeveId, VehicleId, resolve_vehicle), src/policy/thesis.py (ThesisSpec registry, lifecycle), configs/theses/*.json (3 seeds), run thesis CLI, wired UNIVERSE_VEHICLE and research_satellite_tickers; contract tests SLEEVE/THESIS/LIFE/CLI-THESIS; architecture docs updated.",
+      "impact": "QQQ 100% operational unchanged; 36M CE>1.02 gate unchanged; 120M cohort remains reporting-only; enables v2 Wave 1 (thesis_id on ExperimentSpec). Specs purged on sync."
+    },
+    {
       "task_id": "TASK_WAVE2_HISTORICAL_COVERAGE",
       "date": "2026-08-28",
       "adr_id": "ADR_20260828_WAVE2_HISTORICAL_COVERAGE",
