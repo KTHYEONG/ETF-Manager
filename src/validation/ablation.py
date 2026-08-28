@@ -11,6 +11,7 @@ from src.validation.evaluate import evaluate_cohort_wealths
 from src.validation.experiment import (
     CandidateSpec,
     ExperimentSpec,
+    resolve_arm_targets,
     resolve_cadence,
     resolve_contribution_shape,
     resolve_currency,
@@ -74,6 +75,7 @@ def _arm_config(
     contribution_shape: ContributionShapeConfig | None = None,
     kafi_deployment: KafiDeploymentConfig | None = None,
     cadence: Literal["monthly", "month_open", "twice_monthly"] = "monthly",
+    targets_override: Mapping[str, float] | None = None,
 ) -> AllocationConfig:
     """Identical cashflow/window/costs for every arm; only policy and modules differ."""
     return AllocationConfig(
@@ -93,6 +95,7 @@ def _arm_config(
         contribution_shape=contribution_shape,
         kafi_deployment=kafi_deployment,
         cadence=cadence,
+        targets_override=targets_override,
     )
 
 
@@ -130,6 +133,7 @@ def _gated_row(
         contribution_shape=resolve_contribution_shape(spec),
         kafi_deployment=resolve_kafi_deployment(spec),
         cadence=resolve_cadence(spec) or "monthly",
+        targets_override=resolve_arm_targets(candidate),
     )
     wealths = _wealth_vector(spec, config, runner)
     ce = {gamma: certainty_equivalent(wealths, gamma=gamma) for gamma in _CE_GAMMAS}
@@ -166,7 +170,13 @@ def run_ablation(
             "varies external contributions and cannot share the CE hurdle"
         )
     baseline_config = _arm_config(
-        spec, spec.baseline.policy, overlay=None, reserve=None, mapping=None, currency=None
+        spec,
+        spec.baseline.policy,
+        overlay=None,
+        reserve=None,
+        mapping=None,
+        currency=None,
+        targets_override=resolve_arm_targets(spec.baseline),
     )
     baseline_wealths = _wealth_vector(spec, baseline_config, runner)
     baseline_ce = {

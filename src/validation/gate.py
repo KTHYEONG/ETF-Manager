@@ -17,6 +17,8 @@ __all__ = [
     "adoption_passes",
     "bootstrap_tail_passes",
     "certainty_equivalent",
+    "cohort_win_rate",
+    "contiguous_adopted_plateau",
     "contribution_growth_process_passes",
     "contribution_growth_train_passes",
     "growth_first_process_passes",
@@ -327,6 +329,46 @@ def bootstrap_tail_passes(
     )
     path_means = [sum(path) / len(path) for path in paths]
     return wealth_quantile(path_means, quantile) >= floor
+
+
+def contiguous_adopted_plateau(
+    grid: Sequence[float], adopted: Sequence[bool], *, min_width: int = 2
+) -> bool:
+    """True iff some contiguous adopted run has length >= min_width."""
+    if not isinstance(min_width, int) or isinstance(min_width, bool) or min_width < 2:
+        raise ValueError(f"min_width must be an integer >= 2, got {min_width!r}")
+    if len(grid) == 0 or len(adopted) == 0:
+        raise ValueError("grid and adopted must be nonempty")
+    if len(grid) != len(adopted):
+        raise ValueError(f"grid length {len(grid)} must equal adopted length {len(adopted)}")
+    if not all(previous < current for previous, current in pairwise(grid)):
+        raise ValueError("grid must be strictly increasing")
+    max_run = 0
+    current_run = 0
+    for flag in adopted:
+        if flag:
+            current_run += 1
+            max_run = max(max_run, current_run)
+        else:
+            current_run = 0
+    return max_run >= min_width
+
+
+def cohort_win_rate(
+    candidate_wealths: Sequence[float], baseline_wealths: Sequence[float]
+) -> float:
+    """Paired win rate: count(candidate > baseline) / n."""
+    if len(candidate_wealths) != len(baseline_wealths):
+        raise ValueError("candidate_wealths and baseline_wealths must have equal length")
+    if len(candidate_wealths) < 1:
+        raise ValueError("cohort win rate needs at least one pair")
+    candidate = tuple(float(v) for v in candidate_wealths)
+    baseline = tuple(float(v) for v in baseline_wealths)
+    for value in (*candidate, *baseline):
+        if not math.isfinite(value) or value <= 0.0:
+            raise ValueError(f"wealths must be finite and strictly positive, got {value!r}")
+    wins = sum(1 for c, b in zip(candidate, baseline, strict=True) if c > b)
+    return wins / len(candidate)
 
 
 def select_plateau(grid: Sequence[float], scores: Sequence[float], *, rel_tol: float = 0.05) -> float:
