@@ -10,6 +10,8 @@ from src.validation.gate import (
     adoption_passes,
     bootstrap_tail_passes,
     certainty_equivalent,
+    cohort_win_rate,
+    contiguous_adopted_plateau,
     contribution_growth_process_passes,
     contribution_growth_train_passes,
     growth_first_process_passes,
@@ -177,3 +179,27 @@ def test_gate_acg_capital_aware(scenario_id: str) -> None:
         contribution_growth_process_passes(**{**passing, "chosen_test_tw": (102.0,)})
     with pytest.raises(ValueError, match="finite"):
         contribution_growth_process_passes(**{**passing, "chosen_test_tw": (float("inf"), 101.0)})
+
+
+@pytest.mark.parametrize("scenario_id", ["GAT-MIX-plateau-contiguous"])
+def test_gat_mix_plateau_contiguous(scenario_id: str) -> None:
+    """GAT-MIX-plateau-contiguous"""
+    assert contiguous_adopted_plateau((0.05, 0.10, 0.15), (False, True, True)) is True
+    assert contiguous_adopted_plateau((0.05, 0.10, 0.15), (True, False, True)) is False
+    assert contiguous_adopted_plateau((0.05, 0.10, 0.15), (False, True, False)) is False
+    with pytest.raises(ValueError, match="nonempty"):
+        contiguous_adopted_plateau((), ())
+    with pytest.raises(ValueError, match="length"):
+        contiguous_adopted_plateau((0.05, 0.10), (True,))
+    with pytest.raises(ValueError, match="strictly increasing"):
+        contiguous_adopted_plateau((0.10, 0.05), (True, True))
+
+
+@pytest.mark.parametrize("scenario_id", ["GAT-MIX-cohort-win-rate"])
+def test_gat_mix_cohort_win_rate(scenario_id: str) -> None:
+    """GAT-MIX-cohort-win-rate"""
+    assert cohort_win_rate((2.0, 1.0, 3.0), (1.0, 1.0, 2.0)) == pytest.approx(2 / 3)
+    with pytest.raises(ValueError, match="length"):
+        cohort_win_rate((2.0,), (1.0, 1.0))
+    with pytest.raises(ValueError, match="strictly positive"):
+        cohort_win_rate((0.0, 1.0), (1.0, 1.0))

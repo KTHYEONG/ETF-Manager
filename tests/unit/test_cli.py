@@ -379,7 +379,18 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
     assert calls == {"fx": 1, "prices": 1, "cpi": 1, "factors": 1, "macro": 1, "research": 1}
     assert seen_tickers == history_price_tickers()
     assert "QQQ" in seen_tickers
-    assert set(seen_tickers) - set(all_policy_tickers()) == {"IEMG", "ITOT", "SCHF"}
+    assert set(seen_tickers) - set(all_policy_tickers()) == {
+        "BOTZ",
+        "GRID",
+        "IBB",
+        "IEMG",
+        "ITA",
+        "ITOT",
+        "IWF",
+        "SCHF",
+        "SOXX",
+        "XLI",
+    }
     assert seen_series_ids == [("VIXCLS", "BAA10Y")]
     expected_datasets = {
         Dataset.PRICES,
