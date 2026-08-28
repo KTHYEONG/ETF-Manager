@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_WAVE1_EXPERIMENTS_THESIS_PREREG",
+      "date": "2026-08-28",
+      "adr_id": "ADR_20260828_V2_WAVE1_EXPERIMENTS_THESIS_PREREG",
+      "domain": "quant",
+      "title": "Wave 1 (v2): thesis_id + preregistration + failed-run arm registry",
+      "why": "docs/plans/v2_thesis_evolution.md Wave 1: after Wave 0 identity kernel, L5 experiments must link to thesis registry, enforce preregistration (weights/universe/baseline frozen), and persist all ablation arms including rejects.",
+      "resolution": "Added PreregistrationSpec and optional thesis_id on ExperimentSpec, assert_experiment_preregistration (fail-closed universe lock), ArmOutcome/ExperimentRunRecord/freeze_baseline_config_hash/build_ablation_arm_outcomes/write_ablation_run_record in validation/registry.py, run ablation CLI wiring (load_thesis_registry + arm JSON under data/experiments/), seed configs/experiments/m_thesis_ai_compute_soxx.json, lowered m_qqq_iwf end to 2025-04-30 for catalog feasibility, contract tests EXP-THESIS/EXP-PREREG/REG-ARM/ABL-THESIS/CLI-ABL-arm-registry; architecture doc updated.",
+      "impact": "QQQ 100% operational and 36M CE>1.02 gate unchanged; legacy experiment JSON without thesis_id loads unchanged; ablation persists reject arms (SOXX CE_ratio_2=0.996, IWF=0.974 on 2007-08-31..2025-04-30); enables v2 Wave 2 holdings when N-PORT ingest exists. Specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_RESEARCH_IDENTITY_WAVE0",
       "date": "2026-08-28",
       "adr_id": "ADR_20260828_V2_RESEARCH_IDENTITY_WAVE0",

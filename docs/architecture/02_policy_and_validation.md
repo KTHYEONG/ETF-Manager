@@ -166,8 +166,18 @@ Default `delta0 = 0.02`. A one-module challenger needs **> 2%** CE improvement a
 | **2** | Historical coverage + static-DCA feasibility audit | **Done** (`feasibility_audit`, `ingest static-dca`) |
 | **3** | Independent satellite matrix (XLI/SOXX/IBB/ITA/GRID/BOTZ) | **Done** — 0/17 CE pass; QQQ unchanged |
 | **0 (v2)** | Thesis / sleeve / vehicle identity kernel | **Done** (`policy/thesis.py`, `etf/sleeves.py`) |
-| **1 (v2)** | `thesis_id` on `ExperimentSpec` + preregistration | Planned (`docs/plans/v2_thesis_evolution.md`) |
+| **1 (v2)** | `thesis_id` on `ExperimentSpec` + preregistration | **Done** (`validation/experiment.py`, `validation/registry.py`) |
 | **F–I (legacy)** | S1 cost grid, overlay, reserve, live broker | See rows F–I in prior waves; overlay wiring pending |
+
+### v2 Wave 1 experiment preregistration
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `thesis_id` | `ThesisId \| null` | `null` | must exist in `configs/theses` when set |
+| `preregistration.weights_locked` | `bool` | `false` | declared weights frozen |
+| `preregistration.universe_locked` | `bool` | `false` | tickers limited to QQQ + thesis proxies |
+| `preregistration.baseline_frozen` | `bool` | `true` | baseline hash via `freeze_baseline_config_hash` |
+| `baseline` / `candidates[].targets` | `map[ticker,float]` | `null` | validated against allowed universe when locked |
 
 Strategic sleeve or satellite changes require a **registered thesis** (or explicit `PolicyId`
 hypothesis) and a fresh ablation; closed waves (M1/M2/D, static mix v1, Wave 3 matrix) do not
