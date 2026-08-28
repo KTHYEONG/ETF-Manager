@@ -182,6 +182,31 @@ def fetch_and_persist_research_returns(
     return artifact
 
 
+def fetch_and_persist_static_dca_datasets(
+    *,
+    start: date,
+    end: date,
+    tickers: Sequence[str],
+    fx_provider: str,
+    secrets: ProviderSecrets,
+    settings: DataSettings,
+    client: httpx.Client | None = None,
+) -> dict[str, int]:
+    """Fetch only PRICES, FX, CPI; never macro/factors/research."""
+    if fx_provider not in _FX_PROVIDERS:
+        raise ValueError(f"unknown fx provider {fx_provider!r}; expected one of {sorted(_FX_PROVIDERS)}")
+    if not tickers:
+        raise ValueError("tickers must be nonempty")
+    prices_art = fetch_and_persist_prices(tuple(tickers), start, end, secrets=secrets, settings=settings, client=client)
+    fx_art = fetch_and_persist_fx(provider=fx_provider, start=start, end=end, secrets=secrets, settings=settings, client=client)
+    cpi_art = fetch_and_persist_cpi(start, end, secrets=secrets, settings=settings, client=client)
+    return {
+        "prices": int(prices_art.manifest.row_count),
+        "fx": int(fx_art.manifest.row_count),
+        "cpi": int(cpi_art.manifest.row_count),
+    }
+
+
 @contextlib.contextmanager
 def _http(injected: httpx.Client | None) -> Iterator[httpx.Client]:
     """Pass an injected client through unchanged or open a short-lived default."""

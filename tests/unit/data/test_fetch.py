@@ -14,6 +14,7 @@ from src.data.fetch import (
     fetch_and_persist_fx,
     fetch_and_persist_macro,
     fetch_and_persist_prices,
+    fetch_and_persist_static_dca_datasets,
 )
 from src.data.pit import AVAILABLE_AT
 from src.data.schema import Dataset, MissingPolicy, spec_for
@@ -134,3 +135,59 @@ def test_cpi_monthly_persists_with_fixed_lag(
     stored = DataStore(settings).read_normalized(artifact, spec_for(Dataset.CPI))
     assert stored.get_column("period_end").to_list() == [date(2023, 12, 31)]
     assert stored.get_column(AVAILABLE_AT).to_list()[0] == datetime(2024, 2, 14, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("scenario_id", ["WAV2-ING-static-dca"])
+def test_WAV2_ING_static_dca(scenario_id: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:  # noqa: N802
+    """WAV2-ING-static-dca"""
+    settings = _fresh_settings(monkeypatch, tmp_path)
+    tiingo_body = (FIXTURES / "tiingo_spy_one_bar.json").read_bytes()
+    fred_body = (FIXTURES / "fred_dexkous_gap.json").read_bytes()
+    cpi_body = (FIXTURES / "ecos_cpi_monthly.json").read_bytes()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "tiingo" in url:
+            return httpx.Response(200, content=tiingo_body)
+        if "fred" in url:
+            return httpx.Response(200, content=fred_body)
+        if "ecos" in url:
+            return httpx.Response(200, content=cpi_body)
+        return httpx.Response(404, content=b"{}")
+
+    # Ensure macro/factors/research are not called
+    import src.data.fetch as fetch_module
+
+    orig_macro = fetch_module.fetch_and_persist_macro
+    orig_factors = fetch_module.fetch_and_persist_factors
+    orig_research = fetch_module.fetch_and_persist_research_returns
+
+    def fail_macro(*args, **kwargs):
+        raise AssertionError("fetch_and_persist_macro must not be called")
+
+    def fail_factors(*args, **kwargs):
+        raise AssertionError("fetch_and_persist_factors must not be called")
+
+    def fail_research(*args, **kwargs):
+        raise AssertionError("fetch_and_persist_research_returns must not be called")
+
+    monkeypatch.setattr(fetch_module, "fetch_and_persist_macro", fail_macro)
+    monkeypatch.setattr(fetch_module, "fetch_and_persist_factors", fail_factors)
+    monkeypatch.setattr(fetch_module, "fetch_and_persist_research_returns", fail_research)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        counts = fetch_and_persist_static_dca_datasets(
+            start=date(2024, 1, 15),
+            end=date(2024, 1, 19),
+            tickers=("SPY",),
+            fx_provider="fred",
+            secrets=_SECRETS,
+            settings=settings,
+            client=http,
+        )
+    assert counts["prices"] >= 1
+    assert counts["fx"] >= 1
+    assert counts["cpi"] >= 1
+    # No new MACRO partition
+    macro_manifests = list((tmp_path / "data" / "manifests" / "macro").glob("*.json")) if (tmp_path / "data" / "manifests" / "macro").exists() else []
+    assert len(macro_manifests) == 0

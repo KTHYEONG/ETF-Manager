@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from collections.abc import Sequence
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Sequence as _Seq  # noqa: F401
 
 _XIRR_TOLERANCE: Final[float] = 1e-6
 _XIRR_MAX_ITERATIONS: Final[int] = 50
@@ -80,6 +81,52 @@ def real_krw(nominal_krw: float, *, cpi_index: float, cpi_base: float) -> float:
     if cpi_index <= 0.0 or cpi_base <= 0.0:
         raise ValueError("cpi_index and cpi_base must be positive")
     return nominal_krw * cpi_base / cpi_index
+
+
+def recovery_months(sessions: Sequence[date], marks: Sequence[float]) -> int | None:
+    """Calendar months from MDD trough to first recovery at or above prior peak.
+
+    Identifies the deepest drawdown's peak and trough, then scans forward for
+    the first mark >= peak. Returns 0 when no drawdown exists and None when
+    the cohort never recovers.
+
+    Raises:
+        ValueError: When lengths mismatch, either sequence is empty, or marks
+            contain non-finite values.
+    """
+    if len(sessions) != len(marks):
+        raise ValueError("sessions and marks must have equal length")
+    if len(sessions) < 1:
+        raise ValueError("sessions and marks must be non-empty")
+    for value in marks:
+        if not math.isfinite(float(value)):
+            raise ValueError(f"marks must be finite, got {value!r}")
+
+    peak_val = float(marks[0])
+    max_dd = 0.0
+    trough_idx = 0
+    peak_for_trough_val = peak_val
+
+    for idx, raw in enumerate(marks):
+        val = float(raw)
+        if val > peak_val:
+            peak_val = val
+        elif peak_val > 0.0:
+            dd = val / peak_val - 1.0
+            if dd < max_dd:
+                max_dd = dd
+                trough_idx = idx
+                peak_for_trough_val = peak_val
+
+    if max_dd == 0.0:
+        return 0
+
+    trough_date = sessions[trough_idx]
+    for idx in range(trough_idx + 1, len(marks)):
+        if float(marks[idx]) >= peak_for_trough_val:
+            rec_date = sessions[idx]
+            return (rec_date.year - trough_date.year) * 12 + (rec_date.month - trough_date.month)
+    return None
 
 
 def _net_present_value(amounts: tuple[float, ...], times: tuple[float, ...], rate: float) -> float:

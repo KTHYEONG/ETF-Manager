@@ -134,6 +134,7 @@ def test_cli_a_diagnose_qqq_adaptive_hp(scenario_id: str, monkeypatch: pytest.Mo
         raise AssertionError("diagnostics must never invoke the adoption ablation")
 
     monkeypatch.setattr(cli, "screen_adaptive_contribution_hp", fake_screen)
+    monkeypatch.setattr(cli, "make_hp_wf_runner", lambda *args, **kwargs: lambda spec: None)
     monkeypatch.setattr(cli, "run_ablation", forbidden_ablation)
 
     assert main(["run", "diagnose-qqq-adaptive-hp", "--contribution-krw", "1000000"]) == 0
@@ -1221,6 +1222,52 @@ def test_cli_horizon_default_36(scenario_id: str, monkeypatch: pytest.MonkeyPatc
     assert captured[-1] == 12
 
 
+@pytest.mark.parametrize("scenario_id", ["CLI-accumulation-cohort"])
+def test_cli_accumulation_cohort(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-accumulation-cohort"""
+    captured: list[dict[str, object]] = []
+
+    def fake_accumulation_cohort(**kwargs: object) -> int:
+        captured.append(dict(kwargs))
+        return 0
+
+    monkeypatch.setattr(cli, "run_accumulation_cohort_command", fake_accumulation_cohort)
+
+    argv = [
+        "run",
+        "accumulation-cohort",
+        "--config",
+        "configs/experiments/m0_m1.json",
+        "--seed",
+        "7",
+    ]
+    assert main(argv) == 0
+    assert captured[-1]["horizon_months"] == 120
+    assert captured[-1]["cohort_step_months"] == 12
+    assert captured[-1]["bootstrap_paths"] == 4000
+    assert captured[-1]["seed"] == 7
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-accumulation-cohort"])
+def test_cli_accumulation_cohort_rejects_invalid_step(scenario_id: str) -> None:
+    """CLI-accumulation-cohort"""
+    assert (
+        main(
+            [
+                "run",
+                "accumulation-cohort",
+                "--config",
+                "configs/experiments/m0_m1.json",
+                "--seed",
+                "7",
+                "--cohort-step-months",
+                "6",
+            ]
+        )
+        == 2
+    )
+
+
 @pytest.mark.parametrize("scenario_id", ["CLI-walk-forward-costs"])
 def test_cli_walk_forward_costs(
     scenario_id: str,
@@ -1690,3 +1737,57 @@ def test_data_k_history_hy_oas(scenario_id: str, monkeypatch: pytest.MonkeyPatch
     assert set(persisted.get_column("series_id").to_list()) == {"VIXCLS", "BAA10Y"}
     assert captured["dataset"] is Dataset.MACRO
     assert artifact.manifest.row_count == 2
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-ingest-static-dca"])
+def test_cli_ingest_static_dca(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-ingest-static-dca"""
+    captured: dict[str, object] = {}
+
+    def fake_ingest(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(cli, "run_ingest_static_dca", fake_ingest)
+    argv = ["ingest", "static-dca", "--start", "2020-01-01", "--end", "2020-12-31"]
+    assert main(argv) == 0
+    assert captured["start"] == date(2020, 1, 1)
+    assert captured["end"] == date(2020, 12, 31)
+    assert captured["fx_provider"] == "fred"
+    # missing --start exits 2
+    assert main(["ingest", "static-dca", "--end", "2020-12-31"]) == 2
+    assert main(["ingest", "static-dca", "--start", "2020-01-01"]) == 2
+    # with fx provider
+    assert main(["ingest", "static-dca", "--start", "2020-01-01", "--end", "2020-12-31", "--provider", "ecos"]) == 0
+    assert captured["fx_provider"] == "ecos"
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-audit-feasibility"])
+def test_cli_audit_feasibility(scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-audit-feasibility"""
+    captured: dict[str, object] = {}
+
+    def fake_audit(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(cli, "run_audit_feasibility_command", fake_audit)
+    payload = {
+        "name": "m_qqq_grid",
+        "start": "2007-08-31",
+        "end": "2026-06-30",
+        "contribution_krw": 1_000_000,
+        "hurdle": 0.02,
+        "objective": "ce",
+        "horizon_months": 36,
+        "baseline": {"id": "qqq_baseline", "policy": "qqq", "modules": 0},
+        "candidates": [{"id": "qqq_grid_05", "policy": "qqq", "modules": 1, "targets": {"QQQ": 0.95, "GRID": 0.05}}],
+    }
+    p = tmp_path / "m_qqq_grid.json"
+    p.write_text(json.dumps(payload), encoding="utf-8")
+    argv = ["run", "audit-feasibility", "--config", str(p)]
+    assert main(argv) == 0
+    assert captured["config_path"] == str(p)
+    assert captured["write_report"] is False
+    assert main(["run", "audit-feasibility", "--config", str(p), "--write-report"]) == 0
+    assert captured["write_report"] is True

@@ -548,5 +548,10 @@ def load_experiment_config(path: str | Path) -> ExperimentSpec:
         OSError: When the file cannot be read.
         ValueError: When the payload is not valid JSON or violates the schema.
     """
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    text = Path(path).read_text(encoding="utf-8")
+    # Strip // line and trailing comments to allow placeholder comments in JSON.
+    import re
+
+    text = re.sub(r"//.*", "", text)
+    payload = json.loads(text)
     return ExperimentSpec.model_validate(payload)
