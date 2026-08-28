@@ -15,6 +15,7 @@ All execution, lint, and tests use the `uv run` prefix per project policy.
 | Command | Purpose |
 | --- | --- |
 | `ingest history --start DATE --end DATE` | Full panel: prices (`history_price_tickers()`), FX, CPI, factors, VIX, research returns |
+| `ingest static-dca --start DATE --end DATE` | CPI + prices + FX for long-horizon static-DCA panels |
 | `ingest prices --tickers T ... --start --end` | Single-dataset price pull |
 | `ingest fx / cpi / factors / macro` | Individual datasets |
 
@@ -40,12 +41,15 @@ Optional policy flags: `--tilt-factor`, `--overlay-max-shift`, `--vix-threshold`
 | `run walk-forward --config configs/experiments/wf_s1_s7.json` | Train/test adoption |
 | `run walk-forward-costs --config configs/experiments/wf_s0_s1.json` | Cost scenario grid |
 | `run walk-forward-proxy --config configs/experiments/wf_s0_r1.json` | I9 proxy campaign |
+| `run accumulation-cohort --config ... --horizon-months 120` | 120M wealth-ratio distribution (reporting only) |
+| `run audit-feasibility --config ...` | Static DCA window / cohort-count audit |
 
-### Run — diagnostics
+### Run — diagnostics & thesis
 
 | Command | Purpose |
 | --- | --- |
 | `run diagnose-us-vehicles --start --end --contribution-krw` | VTI/IVV/QQQ factor profile + identical DCA (no gate) |
+| `run thesis [--id THESIS] [--config-dir configs/theses]` | List or inspect thesis registry (no gate) |
 
 ## 3. Experiment JSON (`configs/experiments/`)
 
@@ -74,6 +78,9 @@ Optional policy flags: `--tilt-factor`, `--overlay-max-shift`, `--vix-threshold`
 | `delta0` | Per-module CE margin (default 0.02) |
 
 Walk-forward specs require exactly one candidate.
+
+Thesis JSON lives under `configs/theses/` (`ThesisSpec`: falsifiers, sleeves, historical proxies,
+five evidence slots with `source=declared` in Wave 0).
 
 ## 4. Data Root Layout
 

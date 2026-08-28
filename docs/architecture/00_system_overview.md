@@ -2,12 +2,17 @@
 
 ## 1. System Boundary
 
-The system answers one question: **which long-horizon KRW accumulation policy maximizes real KRW
-terminal wealth under point-in-time (PIT) data, realistic cost/FX/tax, and identical external
-cashflows across candidates.**
+The system answers two coupled questions:
 
-In scope: research datasets, feature computation, allocation policy, cashflow-driven simulation,
-statistical validation, ETF implementation mapping, reporting diagnostics.
+1. **Policy (v1 operational):** which long-horizon KRW accumulation `PolicyId` maximizes real KRW
+   terminal wealth under PIT data, realistic cost/FX/tax, and identical external cashflows.
+2. **Thesis (v2 research):** which **economic thesis** is structurally plausible, investable via
+   listed vehicles, and robust enough to challenge the QQQ incumbent — without collapsing evidence
+   into a single score.
+
+In scope: research datasets, thesis registry, sleeve/vehicle identity, feature computation,
+allocation policy, cashflow-driven simulation, statistical validation, ETF implementation mapping,
+reporting diagnostics.
 Out of scope (deferred): live broker connectivity, sell-based rebalancing in production,
 variable external cashflow without an explicit reserve ledger.
 
@@ -105,9 +110,11 @@ realized inside `L4`, not added as objective penalties.
 | **Ablation** | `run ablation --config` | CE on cohort wealths | Disabled (`overlay=None` in `_arm_config`) |
 | **Walk-forward** | `run walk-forward --config` | Train select → test CE | Disabled (pending Wave G) |
 | **Diagnostics** | `run diagnose-us-vehicles` | Never | Never |
+| **Thesis inspect** | `run thesis [--id]` | Never | Never |
+| **120M cohort report** | `run accumulation-cohort --config` | Never | Never |
 
-`run diagnose-us-vehicles` profiles VTI/IVV/QQQ factor loadings and identical-cashflow DCA paths;
-it must not call `adoption_passes` or create a `PolicyId`.
+`run diagnose-us-vehicles`, `run thesis`, and `run accumulation-cohort` are reporting-only;
+they must not call `adoption_passes` or change `OPERATIONAL_POLICY_ID`.
 
 ## 5. Non-Negotiable Invariants
 
@@ -133,6 +140,7 @@ it must not call `adoption_passes` or create a `PolicyId`.
 | `data/*` | Providers, PIT catalog, quality, manifests |
 | `features/*` | PIT-safe returns, vol, drawdown, factor OLS |
 | `policy/targets.py` | `PolicyId`, `resolve_targets`, sleeve universe |
+| `policy/thesis.py` | `ThesisId`, `ThesisSpec`, registry, lifecycle |
 | `policy/tilt.py` | Fixed factor tilt (research) |
 | `policy/overlay.py` | Bounded trend/vol/drawdown/VIX overlay |
 | `policy/currency.py` | Bounded FX defer |
@@ -145,6 +153,7 @@ it must not call `adoption_passes` or create a `PolicyId`.
 | `validation/experiment.py` | `ExperimentSpec` JSON |
 | `analytics/us_vehicles.py` | VTI/IVV/QQQ diagnostics (no adoption) |
 | `etf/mapping.py` | Implementation mapping + hysteresis |
+| `etf/sleeves.py` | `SleeveId`, `VehicleId`, `resolve_vehicle`, `RESEARCH_SATELLITE_VEHICLES` |
 | `execution/*` | Buy-only orders, PaperBroker |
 
 ## 7. Engine Modes

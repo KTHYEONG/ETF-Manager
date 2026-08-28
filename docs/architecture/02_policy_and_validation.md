@@ -3,11 +3,13 @@
 ## 1. Design Principle
 
 ```
-Economic exposure → PolicyId → ETF sleeves → optional layers → simulation → CE gate
+Thesis → Sleeve → Vehicle → PolicyId (operational alias) → optional layers → simulation → CE gate
 ```
 
-ETF tickers are implementation vehicles, not the strategy. `PolicyId` names an economic hypothesis;
-`resolve_targets` maps it to sleeve weights at `signal_at` using only PIT data.
+Thesis is the research unit. `SleeveId` names economic exposure, `VehicleId` names the listed
+implementation via `resolve_vehicle`, and `PolicyId` remains the operational alias whose
+`resolve_targets` maps it to sleeve weights at `signal_at` using only PIT data. ETF tickers
+are implementation vehicles, not the strategy.
 
 ## 2. PolicyId Catalog
 
@@ -34,6 +36,37 @@ ETF tickers are implementation vehicles, not the strategy. `PolicyId` names an e
 
 `all_policy_tickers()` returns the sorted union of every `PolicyId` sleeve. `history_price_tickers()`
 also includes diagnostic-only tickers for operator ingest where not already a policy sleeve.
+
+### Thesis registry (Wave 0)
+
+| Field | Rule |
+| --- | --- |
+| Identity | `ThesisId` → `SleeveId` → `VehicleId` via `resolve_vehicle` |
+| Config | `configs/theses/*.json` — falsifiers required, `extra=forbid` |
+| File status | `discovered`, `research`, `rejected`, `dormant` only |
+| Lifecycle | Runtime transitions via `transition_thesis`; no `ADOPTED` member |
+| Inspect | `run thesis` lists/loads registry; **never** an adoption gate |
+
+Seed theses: `ai_compute` (SOXX proxy), `ai_power_bottleneck` (GRID), `physical_automation`
+(BOTZ). Full v2 evolution roadmap: `docs/plans/v2_thesis_evolution.md`.
+
+### Operational incumbent (frozen)
+
+`PolicyId.QQQ` remains operational until a candidate passes the **36M CE** adoption gate
+(`CE_ratio > 1 + 0.02 × modules` at every γ). Post-hoc hurdle lowering is prohibited.
+120M cohort median ratios are **reporting only** and do not override the CE gate.
+
+### Satellite research discipline
+
+Single-satellite arms use `targets_override` on `PolicyId.QQQ`. Rule:
+
+```text
+single satellite → CE gate pass → eligible for combination wave
+single satellite → CE gate fail → exclude from combination (no weight retuning)
+```
+
+`FUTURE_INDUSTRY_STATIC_MIX_V1` is closed: GRID/IWF mixes failed CE; Wave 3 matrix 0/17 pass
+(details: `docs/results/20260828_wave3_satellite_matrix.md`).
 
 ## 3. Optional Layers (research only in JSON experiments)
 
@@ -90,6 +123,17 @@ flowchart LR
 - `compare_vehicle_dca`: identical-cashflow single-sleeve DCA via `run_baseline`
 - **No adoption gate** — reporting only
 
+### 4.6 Accumulation cohort (`run accumulation-cohort --config`)
+
+- Default horizon **120** months; `cohort_step_months` ∈ {1, 12, 36}
+- Overlapping cohorts are **dependent** — report median/worst/p10 and optional block bootstrap
+- **Reporting only** — does not replace the 36M CE adoption gate
+
+### 4.7 Static DCA feasibility (`run audit-feasibility --config`)
+
+- Audits max feasible window, dependency profile, and 120M cohort count for an experiment JSON
+- `ingest static-dca` extends CPI/prices/FX for long-horizon satellite panels
+
 ## 5. Completed Experiment Matrix
 
 | Config | Baseline | Candidate | Gate | Result (2026-08-23) |
@@ -116,18 +160,15 @@ Default `delta0 = 0.02`. A one-module challenger needs **> 2%** CE improvement a
 
 ## 7. Research Roadmap (code changes)
 
-| Wave | Hypothesis | Implementation status |
+| Wave | Focus | Status |
 | --- | --- | --- |
-| **F** | S1 survives cost-grid walk-forward | CLI ready (`wf_s0_s1` + `walk-forward-costs`) |
-| **G** | S1 + bounded overlay beats S1 on OOS CE | Needs `ExperimentSpec.overlay` + `_arm_config` wiring |
-| **H** | Variable contribution from explicit reserve | Not started; new ledger + I5-safe gate |
-| **I** | Live broker | Paper path exists; routing deferred |
+| **1** | 120M rolling accumulation cohort + bootstrap | **Done** (`validation/accumulation_cohort.py`) |
+| **2** | Historical coverage + static-DCA feasibility audit | **Done** (`feasibility_audit`, `ingest static-dca`) |
+| **3** | Independent satellite matrix (XLI/SOXX/IBB/ITA/GRID/BOTZ) | **Done** — 0/17 CE pass; QQQ unchanged |
+| **0 (v2)** | Thesis / sleeve / vehicle identity kernel | **Done** (`policy/thesis.py`, `etf/sleeves.py`) |
+| **1 (v2)** | `thesis_id` on `ExperimentSpec` + preregistration | Planned (`docs/plans/v2_thesis_evolution.md`) |
+| **F–I (legacy)** | S1 cost grid, overlay, reserve, live broker | See rows F–I in prior waves; overlay wiring pending |
 
-Improvement priority for compounding under this codebase:
-
-1. Confirm S1 under costs (F)
-2. Risk buffering without sells (G)
-3. Contribution schedule only with conserved cashflow (H)
-
-Strategic sleeve changes (new `PolicyId`, multi-ETF splits) require a **new economic hypothesis**
-and a fresh ablation; M1/M2/D results do not justify reopening that axis without new evidence.
+Strategic sleeve or satellite changes require a **registered thesis** (or explicit `PolicyId`
+hypothesis) and a fresh ablation; closed waves (M1/M2/D, static mix v1, Wave 3 matrix) do not
+justify weight retuning without new structural evidence.
