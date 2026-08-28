@@ -1,0 +1,35 @@
+{
+  "id": "ai_compute",
+  "version": 1,
+  "title": "AI compute semiconductor capex",
+  "status": "research",
+  "horizon": {
+    "min_years": 5,
+    "target_years": 10
+  },
+  "causal_chain": [
+    "ai_compute_demand",
+    "hyperscaler_capex",
+    "semiconductor_orders",
+    "supplier_revenue",
+    "shareholder_cashflow"
+  ],
+  "falsifiers": [
+    "capex_structural_slowdown",
+    "semiconductor_pricing_collapse"
+  ],
+  "candidate_sleeves": [
+    "ai_semiconductor"
+  ],
+  "historical_proxies": [
+    "SOXX"
+  ],
+  "evidence": {
+    "source": "declared",
+    "structural": "unknown",
+    "historical": "unknown",
+    "valuation": "unknown",
+    "expectations": "unknown",
+    "crowding": "unknown"
+  }
+}

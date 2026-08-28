@@ -1,0 +1,39 @@
+{
+  "id": "ai_power_bottleneck",
+  "version": 1,
+  "title": "AI data-center power bottleneck",
+  "status": "research",
+  "horizon": {
+    "min_years": 5,
+    "target_years": 10
+  },
+  "causal_chain": [
+    "ai_compute_demand",
+    "hyperscaler_capex",
+    "data_center_capacity",
+    "electricity_demand",
+    "grid_connection_pressure",
+    "electrical_equipment_orders",
+    "supplier_revenue",
+    "shareholder_cashflow"
+  ],
+  "falsifiers": [
+    "capex_structural_slowdown",
+    "data_center_load_saturation",
+    "backlog_normalization"
+  ],
+  "candidate_sleeves": [
+    "ai_power_equipment"
+  ],
+  "historical_proxies": [
+    "GRID"
+  ],
+  "evidence": {
+    "source": "declared",
+    "structural": "unknown",
+    "historical": "unknown",
+    "valuation": "unknown",
+    "expectations": "unknown",
+    "crowding": "unknown"
+  }
+}
