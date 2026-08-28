@@ -60,7 +60,8 @@
     "testing": "tests/unit/analytics/test_us_vehicles.py"
   },
   "src/validation/experiment.py": {
-    "testing": "tests/unit/validation/test_experiment.py"
+    "testing": "tests/unit/validation/test_experiment.py",
+    "architecture": "docs/architecture/02_policy_and_validation.md"
   },
   "src/validation/feasibility.py": {
     "testing": "tests/unit/validation/test_feasibility.py"
