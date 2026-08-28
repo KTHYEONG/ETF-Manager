@@ -81,7 +81,7 @@ from src.validation.campaign import (
     write_cost_grid_report,
 )
 from src.validation.evaluate import evaluate_cohort_wealths
-from src.validation.experiment import load_experiment_config
+from src.validation.experiment import load_experiment_config, resolve_arm_targets
 from src.validation.feasibility import assert_experiment_feasible, require_feasibility
 from src.validation.gate import adoption_passes, certainty_equivalent
 from src.validation.registry import make_experiment
@@ -1416,6 +1416,7 @@ def run_ablation_command(*, config_path: str, settings: DataSettings) -> int:
                 monthly_contribution_krw=spec.contribution_krw,
                 fill_delay_sessions=1,
                 commission_bps=0.0,
+                targets_override=resolve_arm_targets(spec.candidates[0]) if spec.candidates else None,
             ),
             manifest_hash=latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
             git_commit=_resolve_git_commit(),
@@ -1469,6 +1470,7 @@ def run_walk_forward_command(*, config_path: str, settings: DataSettings) -> int
                 monthly_contribution_krw=spec.contribution_krw,
                 fill_delay_sessions=1,
                 commission_bps=0.0,
+                targets_override=resolve_arm_targets(spec.candidates[0]),
             ),
             manifest_hash=latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
             git_commit=_resolve_git_commit(),

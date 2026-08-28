@@ -100,6 +100,8 @@ def apply_operational_contribution_lock(config: AllocationConfig) -> AllocationC
     Skips when the policy is not ``OPERATIONAL_POLICY_ID``, cadence is not monthly,
     or any other contribution, overlay, reserve, mapping, or currency module is set.
     """
+    if config.targets_override is not None:
+        return config
     if config.policy is not OPERATIONAL_POLICY_ID:
         return config
     if config.cadence != "monthly":
