@@ -115,6 +115,30 @@ def test_cli_a_diagnose_qqq(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -
     assert captured["contribution_krw"] == pytest.approx(1_000_000.0)
 
 
+@pytest.mark.parametrize("scenario_id", ["CLI-A-diagnose-qqq-adaptive-hp"])
+def test_cli_a_diagnose_qqq_adaptive_hp(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-A-diagnose-qqq-adaptive-hp"""
+    from src.analytics.adaptive_hp_screen import AdaptiveHpScreenReport
+
+    assert main(["run", "diagnose-qqq-adaptive-hp"]) == 2
+
+    def fake_screen(**_kwargs: object) -> AdaptiveHpScreenReport:
+        return AdaptiveHpScreenReport(
+            operational_unlock=False,
+            champion=None,
+            rows=(),
+            evaluations=0,
+        )
+
+    def forbidden_ablation(*args: object, **kwargs: object) -> int:
+        raise AssertionError("diagnostics must never invoke the adoption ablation")
+
+    monkeypatch.setattr(cli, "screen_adaptive_contribution_hp", fake_screen)
+    monkeypatch.setattr(cli, "run_ablation", forbidden_ablation)
+
+    assert main(["run", "diagnose-qqq-adaptive-hp", "--contribution-krw", "1000000"]) == 0
+
+
 @pytest.mark.parametrize("scenario_id", ["CLI-A-diagnose-qqq-accumulation"])
 def test_cli_a_diagnose_qqq_accumulation(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """CLI-A-diagnose-qqq-accumulation"""
