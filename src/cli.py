@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import shutil
 import subprocess
 from datetime import date
 from typing import TYPE_CHECKING, Final, NoReturn, cast
 
 from src.analytics.accumulation_alpha import screen_qqq_accumulation
+from src.analytics.adaptive_hp_screen import make_hp_wf_runner, screen_adaptive_contribution_hp
 from src.analytics.blends import compare_qqq_blends
 from src.analytics.cadence import compare_qqq_cadence
 from src.analytics.metrics import XirrError
@@ -363,6 +365,11 @@ def _build_parser() -> _Parser:
         help="KAFI path plus shaped-versus-flat DCA real TW ratios per regime window; reporting only, never an adoption gate",
     )
     diagnose_qqq_kafi.add_argument("--contribution-krw", required=True, type=float)
+    diagnose_qqq_adaptive_hp = run_targets.add_parser(
+        "diagnose-qqq-adaptive-hp",
+        help="Adaptive contribution HP neighbourhood screen versus operational v5; reporting only, never an adoption gate",
+    )
+    diagnose_qqq_adaptive_hp.add_argument("--contribution-krw", required=True, type=float)
     return parser
 
 
@@ -559,6 +566,11 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         )
     if args.target == "diagnose-qqq-kafi":
         return run_diagnose_qqq_kafi_command(
+            contribution_krw=float(args.contribution_krw),
+            settings=DataSettings(),
+        )
+    if args.target == "diagnose-qqq-adaptive-hp":
+        return run_diagnose_qqq_adaptive_hp_command(
             contribution_krw=float(args.contribution_krw),
             settings=DataSettings(),
         )
@@ -1144,6 +1156,52 @@ def run_diagnose_qqq_kafi_command(*, contribution_krw: float, settings: DataSett
             raise ValueError("no QQQ regime window remains after KAFI warmup clamping")
     except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
         logger.error("[DATA] event=diagnose_qqq_kafi_failed reason_type=%s", type(exc).__name__)
+        return 1
+    return 0
+
+
+def run_diagnose_qqq_adaptive_hp_command(*, contribution_krw: float, settings: DataSettings) -> int:
+    """Run the adaptive HP neighbourhood screen versus operational v5; reporting only."""
+    try:
+        if not math.isfinite(float(contribution_krw)) or float(contribution_krw) <= 0.0:
+            raise ValueError(f"contribution_krw must be positive, got {contribution_krw!r}")
+
+        wf_runner = make_hp_wf_runner(settings, contribution_krw=float(contribution_krw))
+        report = screen_adaptive_contribution_hp(
+            contribution_krw=float(contribution_krw),
+            wf_runner=wf_runner,
+        )
+        for row in report.rows:
+            logger.info(
+                "[DATA] event=qqq_adaptive_hp_arm downside=%.4f upside=%.4f dispersion=%.4f deadband=%.4f ratio=%.6f adopted=%s verdict=%s",
+                row.downside_power,
+                row.upside_power,
+                row.dispersion,
+                row.neutral_deadband,
+                row.pooled_tw_ratio,
+                row.process_adopted_vs_baseline,
+                str(row.verdict),
+            )
+        if report.champion is not None:
+            c = report.champion
+            logger.info(
+                "[DATA] event=qqq_adaptive_hp_champion downside=%.4f upside=%.4f dispersion=%.4f deadband=%.4f ratio=%.6f",
+                c.downside_power,
+                c.upside_power,
+                c.dispersion,
+                c.neutral_deadband,
+                c.pooled_tw_ratio,
+            )
+        else:
+            logger.info("[DATA] event=qqq_adaptive_hp_champion none")
+        logger.info(
+            "[DATA] event=qqq_adaptive_hp_done evaluations=%d operational_unlock=%s champion=%s",
+            report.evaluations,
+            report.operational_unlock,
+            "none" if report.champion is None else f"{report.champion.downside_power:.4f}/{report.champion.upside_power:.4f}/{report.champion.dispersion:.4f}/{report.champion.neutral_deadband:.4f}",
+        )
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        logger.error("[DATA] event=diagnose_qqq_adaptive_hp_failed reason_type=%s", type(exc).__name__)
         return 1
     return 0
 
