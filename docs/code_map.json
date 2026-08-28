@@ -107,5 +107,8 @@
       "tests/unit/policy/test_adaptive_contribution.py",
       "tests/unit/sim/test_allocation_adaptive_contribution.py"
     ]
+  },
+  "src/analytics/adaptive_hp_screen.py": {
+    "testing": "tests/unit/analytics/test_adaptive_hp_screen.py"
   }
 }
