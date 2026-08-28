@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from src.etf.mapping import mapping_implementation_tickers
+from src.etf.sleeves import RESEARCH_SATELLITE_VEHICLES
 from src.features.factors import estimate_factor_loadings
 from src.policy.targets import all_policy_tickers
 from src.sim.baseline import BaselineConfig, BaselineResult, run_baseline
@@ -55,7 +56,7 @@ def diagnostic_price_tickers() -> tuple[str, ...]:
 
 def research_satellite_tickers() -> tuple[str, ...]:
     """Future-industry satellite sleeve tickers for static-mix research."""
-    return ("BOTZ", "GRID", "IBB", "ITA", "IWF", "SOXX", "XLI")
+    return tuple(v.value for v in RESEARCH_SATELLITE_VEHICLES)
 
 
 def history_price_tickers() -> tuple[str, ...]:

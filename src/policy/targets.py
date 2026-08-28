@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
+from src.etf.sleeves import SleeveId, resolve_vehicle
 from src.features.returns import session_returns
 from src.features.risk import trailing_simple_vol
 
@@ -119,9 +120,9 @@ class UsEquityUniverse(StrEnum):
 
 
 UNIVERSE_VEHICLE: Final[dict[UsEquityUniverse, str]] = {
-    UsEquityUniverse.TOTAL_MARKET: "VTI",
-    UsEquityUniverse.LARGE_CAP: "IVV",
-    UsEquityUniverse.NASDAQ_100: "QQQ",
+    UsEquityUniverse.TOTAL_MARKET: resolve_vehicle(SleeveId.US_TOTAL_MARKET).value,
+    UsEquityUniverse.LARGE_CAP: resolve_vehicle(SleeveId.US_LARGE_CAP).value,
+    UsEquityUniverse.NASDAQ_100: resolve_vehicle(SleeveId.NASDAQ_100).value,
 }
 
 _STATIC_TARGETS: Final[dict[PolicyId, dict[str, float]]] = {
