@@ -1,6 +1,26 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_WAVE2_HISTORICAL_COVERAGE",
+      "date": "2026-08-28",
+      "adr_id": "ADR_20260828_WAVE2_HISTORICAL_COVERAGE",
+      "domain": "quant",
+      "title": "Wave 2: Historical coverage audit + static-DCA ingest",
+      "why": "docs/feedback.md Wave 2: extend static-DCA window toward 2000s; audit unnecessary MACRO deps; enable max-window satellite backtests before Wave 4.",
+      "resolution": "Added validation/feasibility_audit (dependency profile, audit_static_dca_window, JSON writer), fetch_and_persist_static_dca_datasets, CLI ingest static-dca and run audit-feasibility, acc_qqq_baseline_120m.json; CPI extended to 2000 via ECOS; prices/FX to 2006-08-28; post-ingest Wave 3 satellite matrix (17 arms) documented in docs/results/.",
+      "impact": "Max QQQ static window 2006-08-31..2025-04-30 (120M cohort n=9); XNYS calendar blocks pre-2006 ETF sim; 0/17 satellites pass CE>1.02; SOXX 120M median>1 but gate fail; QQQ operational unchanged; results in docs/results/20260828_*.md."
+    },
+    {
+      "task_id": "TASK_WAVE1_ROLLING_120M_COHORT",
+      "date": "2026-08-28",
+      "adr_id": "ADR_20260828_WAVE1_ROLLING_120M_COHORT",
+      "domain": "quant",
+      "title": "Wave 1: 120-month rolling accumulation cohort engine",
+      "why": "docs/feedback.md: 10-year accumulation goal mismatches 36M non-overlapping ablations (n≈4); evidence upgrade requires 120M overlapping cohorts with distribution stats, bootstrap, and recovery time before satellite expansion.",
+      "resolution": "Added recovery_months in analytics/metrics, evaluate_cohort_results in validation/evaluate, validation/accumulation_cohort (overlap metadata, summarize, run/write report), CLI run accumulation-cohort (default horizon 120, step 1/12/36); contract tests ACC-COH-* and CLI-accumulation-cohort.",
+      "impact": "Reporting-only 120M cohort engine on existing catalog window; QQQ operational policy and CE>1.02 gate unchanged; enables Wave 2 historical coverage and Wave 3 independent satellite tests."
+    },
+    {
       "task_id": "TASK_FUTURE_INDUSTRY_STATIC_MIX",
       "date": "2026-08-28",
       "adr_id": "ADR_20260828_FUTURE_INDUSTRY_STATIC_MIX",

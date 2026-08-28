@@ -32,6 +32,7 @@ from src.data.fetch import (
     fetch_and_persist_macro,
     fetch_and_persist_prices,
     fetch_and_persist_research_returns,
+    fetch_and_persist_static_dca_datasets,
 )
 from src.data.providers.base import ProviderError
 from src.data.schedule import build_decision_schedule
@@ -70,6 +71,10 @@ from src.sim.baseline import (
 )
 from src.sim.research_proxy import run_research_proxy_from_store
 from src.validation.ablation import run_ablation
+from src.validation.accumulation_cohort import (
+    run_accumulation_cohort_report,
+    write_accumulation_cohort_report,
+)
 from src.validation.bootstrap import moving_block_bootstrap
 from src.validation.campaign import (
     run_cadence_robustness,
@@ -141,7 +146,7 @@ def _build_parser() -> _Parser:
     parser = _Parser(prog="etf-manager", description="ETF research ingest CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
     ingest = subparsers.add_parser("ingest", help="Fetch and persist one vendor dataset")
-    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "factors", "research-returns", "smoke", "history"))
+    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "factors", "research-returns", "smoke", "history", "static-dca"))
     ingest.add_argument("--tickers", nargs="+", default=None, help="Price tickers (prices/smoke only)")
     ingest.add_argument("--provider", choices=("fred", "ecos"), default=None, help="FX vendor (fx/smoke only)")
     ingest.add_argument("--series-id", default=None, help="FRED series identifier (macro only)")
@@ -370,6 +375,40 @@ def _build_parser() -> _Parser:
         help="Adaptive contribution HP neighbourhood screen versus operational v5; reporting only, never an adoption gate",
     )
     diagnose_qqq_adaptive_hp.add_argument("--contribution-krw", required=True, type=float)
+    accumulation_cohort = run_targets.add_parser(
+        "accumulation-cohort",
+        help="Rolling 120M accumulation cohort report (reporting-only, never an adoption gate)",
+    )
+    accumulation_cohort.add_argument(
+        "--config",
+        required=True,
+        help="Path to the experiment JSON (baseline plus candidate)",
+    )
+    accumulation_cohort.add_argument(
+        "--horizon-months",
+        type=int,
+        default=120,
+        help="Cohort horizon in calendar months (default 120)",
+    )
+    accumulation_cohort.add_argument(
+        "--cohort-step-months",
+        type=int,
+        default=12,
+        help="Months between cohort starts; must be one of 1, 12, 36",
+    )
+    accumulation_cohort.add_argument(
+        "--bootstrap-paths",
+        type=int,
+        default=4000,
+        help="Moving-block bootstrap paths on cohort wealth ratios (must be >= 1)",
+    )
+    accumulation_cohort.add_argument("--seed", type=int, default=None, help="Bootstrap RNG seed")
+    audit_feasibility = run_targets.add_parser(
+        "audit-feasibility",
+        help="Static DCA feasibility window audit (reporting only)",
+    )
+    audit_feasibility.add_argument("--config", required=True, help="Path to the experiment JSON")
+    audit_feasibility.add_argument("--write-report", action="store_true", help="Persist audit JSON under audits/")
     return parser
 
 
@@ -396,6 +435,19 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command != "ingest":
         raise _UsageError(f"unsupported command {args.command!r}")
     dataset: str = args.dataset
+    if dataset == "static-dca":
+        if args.start is None or args.end is None:
+            raise _UsageError("ingest static-dca requires --start and --end")
+        fx_provider = str(args.provider) if args.provider is not None else "fred"
+        tickers = tuple(args.tickers) if args.tickers else None
+        return run_ingest_static_dca(
+            start=args.start,
+            end=args.end,
+            tickers=tickers,
+            fx_provider=fx_provider,
+            settings=DataSettings(),
+            secrets=load_provider_secrets(),
+        )
     if dataset == "smoke":
         return _dispatch_smoke(args)
     if dataset == "history":
@@ -574,6 +626,21 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             contribution_krw=float(args.contribution_krw),
             settings=DataSettings(),
         )
+    if args.target == "accumulation-cohort":
+        return run_accumulation_cohort_command(
+            config_path=str(args.config),
+            settings=DataSettings(),
+            horizon_months=int(args.horizon_months),
+            cohort_step_months=int(args.cohort_step_months),
+            bootstrap_paths=int(args.bootstrap_paths),
+            seed=args.seed,
+        )
+    if args.target == "audit-feasibility":
+        return run_audit_feasibility_command(
+            config_path=str(args.config),
+            settings=DataSettings(),
+            write_report=bool(getattr(args, "write_report", False)),
+        )
     raise _UsageError(f"unsupported target {args.target!r}")
 
 
@@ -735,6 +802,89 @@ def run_ingest_history(
         metadata.manifest.row_count,
     )
     return 0
+
+
+def run_ingest_static_dca(
+    *,
+    start: date,
+    end: date,
+    tickers: tuple[str, ...] | None,
+    fx_provider: str,
+    settings: DataSettings,
+    secrets: ProviderSecrets,
+    client: httpx.Client | None = None,
+) -> int:
+    """Persist only PRICES, FX, CPI for static DCA; no macro/factors/research."""
+    from src.analytics.us_vehicles import diagnostic_price_tickers, research_satellite_tickers
+
+    if tickers is None:
+        tickers = tuple(sorted({*diagnostic_price_tickers(), *research_satellite_tickers()}))
+    if fx_provider not in ("fred", "ecos"):
+        raise ValueError(f"unknown fx provider {fx_provider!r}")
+    if "QQQ" in tickers and start < date(1999, 3, 10):
+        raise _UsageError(f"static-dca start {start.isoformat()} is before QQQ listing 1999-03-10")
+    if start > end:
+        raise ValueError(f"start {start.isoformat()} is after end {end.isoformat()}")
+    try:
+        row_counts = fetch_and_persist_static_dca_datasets(
+            start=start, end=end, tickers=tickers, fx_provider=fx_provider, secrets=secrets, settings=settings, client=client
+        )
+        # Verify catalog row_counts
+        catalog_counts = {
+            str(dataset): latest_artifact(settings, dataset).manifest.row_count
+            for dataset in (Dataset.PRICES, Dataset.FX, Dataset.CPI)
+        }
+        # Prefer returned counts but ensure catalog also >=1
+        merged = {**catalog_counts, **row_counts}
+    except _UsageError:
+        raise
+    except (ProviderError, ValueError, UntrustedDatasetError, OSError) as exc:
+        logger.error("[DATA] event=static_dca_failed reason_type=%s", type(exc).__name__)
+        return 1
+    underfilled = sorted(name for name, count in merged.items() if count < 1)
+    if underfilled:
+        logger.error("[DATA] event=static_dca_failed reason=empty_catalog dataset=%s", ",".join(underfilled))
+        return 1
+    logger.info(
+        "[DATA] event=static_dca_ok tickers=%s price_rows=%d fx_rows=%d cpi_rows=%d",
+        ",".join(tickers),
+        merged.get("prices", 0),
+        merged.get("fx", 0),
+        merged.get("cpi", 0),
+    )
+    return 0
+
+
+def run_audit_feasibility_command(
+    *,
+    config_path: str,
+    settings: DataSettings,
+    write_report: bool,
+) -> int:
+    """Load ExperimentSpec, run static DCA audit, optionally persist JSON."""
+    from src.validation.experiment import load_experiment_config
+    from src.validation.feasibility_audit import (
+        WAVE2_MIN_120M_COHORTS,
+        audit_static_dca_window,
+        write_feasibility_audit_report,
+    )
+
+    try:
+        spec = load_experiment_config(config_path)
+        report = audit_static_dca_window(spec, settings)
+        if write_report:
+            import uuid
+
+            audit_id = uuid.uuid4().hex[:8]
+            write_feasibility_audit_report(report, settings, audit_id=audit_id)
+        if report.earliest_feasible_start is None:
+            return 1
+        if spec.name == "acc_qqq_baseline_120m" and report.cohort_count_120m_step12 < WAVE2_MIN_120M_COHORTS:
+            return 1
+        return 0
+    except (ValueError, UntrustedDatasetError, OSError) as exc:
+        logger.error("[DATA] event=audit_feasibility_failed reason=%s", exc)
+        return 1
 
 
 def run_baseline_command(
@@ -1640,6 +1790,77 @@ def run_cadence_robustness_command(
         report.worst_cohort_ok,
         report.bootstrap_tail_ok,
         report.robust_adopted,
+        report_path,
+    )
+    return 0
+
+
+def run_accumulation_cohort_command(
+    *,
+    config_path: str,
+    settings: DataSettings,
+    horizon_months: int,
+    cohort_step_months: int,
+    bootstrap_paths: int,
+    seed: int | None,
+) -> int:
+    """Run rolling 120M accumulation cohort report (reporting-only)."""
+    if cohort_step_months not in {1, 12, 36}:
+        raise _UsageError(f"--cohort-step-months must be one of 1, 12, 36, got {cohort_step_months}")
+    if horizon_months < 1:
+        raise _UsageError(f"--horizon-months must be >=1, got {horizon_months}")
+    if bootstrap_paths < 1:
+        raise _UsageError(f"--bootstrap-paths must be >=1, got {bootstrap_paths}")
+    if seed is None:
+        raise _UsageError("--seed is required for accumulation-cohort")
+    try:
+        spec = load_experiment_config(config_path)
+        assert_experiment_feasible(spec, settings)
+        report = run_accumulation_cohort_report(
+            spec,
+            lambda config: run_allocation_from_store(config, settings),
+            horizon_months=horizon_months,
+            step_months=cohort_step_months,
+            bootstrap_paths=bootstrap_paths,
+            seed=seed,
+        )
+        record = make_experiment(
+            config=AllocationConfig(
+                policy=spec.candidates[0].policy if spec.candidates else spec.baseline.policy,
+                start=spec.start,
+                end=spec.end,
+                monthly_contribution_krw=spec.contribution_krw,
+                fill_delay_sessions=1,
+                commission_bps=spec.commission_bps,
+                fx_spread_bps=spec.fx_spread_bps,
+            ),
+            manifest_hash=latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
+            git_commit=_resolve_git_commit(),
+            seed=seed,
+            metrics={
+                "cohorts": float(len(report.rows)),
+                "median_ratio": float(report.median_ratio),
+                "p10_ratio": float(report.p10_ratio),
+                "worst_ratio": float(report.worst_ratio),
+                "win_rate": float(report.win_rate),
+                "bootstrap_p05_ratio_mean": float(report.bootstrap_p05_ratio_mean),
+            },
+        )
+        report_path = write_accumulation_cohort_report(report, settings, record.experiment_id)
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        logger.error("[DATA] event=accumulation_cohort_cli_failed reason=%s", exc)
+        return 1
+    logger.info(
+        "[DATA] event=accumulation_cohort_cli_done experiment=%s experiment_id=%s cohorts=%d"
+        " median_ratio=%.6f p10_ratio=%.6f worst_ratio=%.6f win_rate=%.4f bootstrap_p05=%.6f report=%s",
+        spec.name,
+        record.experiment_id,
+        len(report.rows),
+        report.median_ratio,
+        report.p10_ratio,
+        report.worst_ratio,
+        report.win_rate,
+        report.bootstrap_p05_ratio_mean,
         report_path,
     )
     return 0
