@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_WAVE_AJ_QQQ_ADAPTIVE_HP_V6",
+      "date": "2026-08-28",
+      "adr_id": "ADR_20260828_WAVE_AJ_QQQ_ADAPTIVE_HP_V6",
+      "domain": "quant",
+      "title": "Wave AJ: QQQ adaptive v6 HP neighbourhood screen (reporting-only)",
+      "why": "v5 operational lock left incremental param-only upside; manual 81-arm neighbourhood screen took ~60min from redundant catalog I/O and baseline recomputation per walk-forward eval.",
+      "resolution": "Added analytics/adaptive_hp_screen (preload_hp_allocation_context, warm_baseline_arm_cache, parallel Phase A, skip Phase B when no adopters), campaign.warm_baseline_arm_cache, CLI diagnose-qqq-adaptive-hp, contract tests AHS-A..D and CLI-A-diagnose-qqq-adaptive-hp.",
+      "impact": "81 evals 2015-06..2026-06 complete in ~118s vs ~60min; no champion vs v5 (best pooled TW ratio 1.006 fails contribution_growth process gate); operational_unlock=False; OPERATIONAL_ADAPTIVE_CONTRIBUTION unchanged."
+    },
+    {
       "task_id": "TASK_WAVE_AI_QQQ_ADAPTIVE_V5_RETUNE",
       "date": "2026-08-27",
       "adr_id": "ADR_20260827_WAVE_AI_QQQ_ADAPTIVE_V5_RETUNE",

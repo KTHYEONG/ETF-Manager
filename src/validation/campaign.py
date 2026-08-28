@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Final, Literal
@@ -59,6 +60,7 @@ __all__ = [
     "run_walk_forward_adoption",
     "run_walk_forward_cost_grid",
     "run_walk_forward_proxy_adoption",
+    "warm_baseline_arm_cache",
     "write_cadence_robustness_report",
     "write_campaign_report",
     "write_cost_grid_report",
@@ -211,9 +213,46 @@ def _real_profit(result: AllocationResult) -> float:
     return result.terminal_wealth_real_krw - result.total_contribution_real_krw
 
 
+def warm_baseline_arm_cache(
+    spec: ExperimentSpec,
+    runner: Callable[[AllocationConfig], AllocationResult],
+) -> dict[tuple[date, date], AllocationResult]:
+    """Pre-compute baseline-arm allocations for every walk-forward train/test slice."""
+    if spec.train_months is None or spec.test_months is None:
+        raise ValueError("walk-forward adoption requires both train_months and test_months")
+    baseline_adaptive = resolve_baseline_adaptive_contribution(spec)
+    windows = walk_forward_windows(
+        spec.start, spec.end, train_months=spec.train_months, test_months=spec.test_months
+    )
+    if not windows:
+        raise ValueError("no walk-forward folds fit the experiment window")
+    cache: dict[tuple[date, date], AllocationResult] = {}
+    for train_start, train_end, test_start, test_end in windows:
+        for start, end in ((train_start, train_end), (test_start, test_end)):
+            key = (start, end)
+            if key in cache:
+                continue
+            cache[key] = runner(
+                _arm_config(
+                    spec,
+                    spec.baseline.policy,
+                    start,
+                    end,
+                    None,
+                    None,
+                    None,
+                    None,
+                    adaptive_contribution=baseline_adaptive,
+                )
+            )
+    return cache
+
+
 def run_walk_forward_adoption(
     spec: ExperimentSpec,
     runner: Callable[[AllocationConfig], AllocationResult],
+    *,
+    baseline_arm_cache: Mapping[tuple[date, date], AllocationResult] | None = None,
 ) -> CampaignReport:
     """Select per fold on train CE, then realize chosen-versus-baseline wealth on test.
 
@@ -312,17 +351,24 @@ def run_walk_forward_adoption(
     chosen_gains: list[float] = []
     baseline_xirrs: list[float] = []
     chosen_xirrs: list[float] = []
-    for train_start, train_end, test_start, test_end in windows:
-        baseline_train_arm = arm_result(
+    def _baseline_arm(start: date, end: date) -> AllocationResult:
+        if baseline_arm_cache is not None:
+            cached = baseline_arm_cache.get((start, end))
+            if cached is not None:
+                return cached
+        return arm_result(
             spec.baseline.policy,
-            train_start,
-            train_end,
+            start,
+            end,
             None,
             None,
             None,
             None,
             arm_adaptive_contribution=baseline_adaptive_contribution,
         )
+
+    for train_start, train_end, test_start, test_end in windows:
+        baseline_train_arm = _baseline_arm(train_start, train_end)
         candidate_train_arm = arm_result(
             candidate.policy,
             train_start,
@@ -371,16 +417,7 @@ def run_walk_forward_adoption(
         chosen_kafi_deployment = candidate_kafi_deployment if train_adopted else None
         chosen_adaptive_contribution = candidate_adaptive_contribution if train_adopted else None
         chosen_cadence = candidate_cadence if train_adopted else "monthly"
-        baseline_test_arm = arm_result(
-            spec.baseline.policy,
-            test_start,
-            test_end,
-            None,
-            None,
-            None,
-            None,
-            arm_adaptive_contribution=baseline_adaptive_contribution,
-        )
+        baseline_test_arm = _baseline_arm(test_start, test_end)
         candidate_test_arm = arm_result(
             candidate.policy,
             test_start,
