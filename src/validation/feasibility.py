@@ -30,6 +30,7 @@ from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig, apply_reserve_schedule
 from src.policy.targets import PolicyError, PolicyId, policy_sleeves
 from src.validation.experiment import (
+    experiment_target_tickers,
     resolve_adaptive_contribution,
     resolve_contribution_shape,
     resolve_currency,
@@ -130,6 +131,7 @@ def resolve_feasibility(
     mapping: MappingConfig | None = None,
     mapping_policies: tuple[PolicyId, ...] = (),
     currency: CurrencyConfig | None = None,
+    extra_mark_tickers: tuple[str, ...] = (),
 ) -> FeasibilityReport:
     """Check that the requested window can trade without lookahead or data gaps.
 
@@ -196,6 +198,11 @@ def resolve_feasibility(
                 for ticker in mapping.candidates.get(sleeve, ()):
                     mapped_choices.setdefault(ticker)
             mark_tickers = (*mark_tickers, *(ticker for ticker in mapped_choices if ticker not in known))
+        if extra_mark_tickers:
+            known_extra = set(mark_tickers)
+            extras = [t for t in extra_mark_tickers if t not in known_extra]
+            if extras:
+                mark_tickers = (*mark_tickers, *extras)
 
         cpi_violation = _cpi_violation(cpi, first_exec_close)
         if cpi_violation is not None:
@@ -294,6 +301,7 @@ def require_feasibility(
     mapping: MappingConfig | None = None,
     mapping_policies: tuple[PolicyId, ...] = (),
     currency: CurrencyConfig | None = None,
+    extra_mark_tickers: tuple[str, ...] = (),
 ) -> FeasibilityReport:
     """Resolve feasibility and fail closed with every violation code when blocked.
 
@@ -314,6 +322,7 @@ def require_feasibility(
         mapping=mapping,
         mapping_policies=mapping_policies,
         currency=currency,
+        extra_mark_tickers=extra_mark_tickers,
     )
     if report.violations:
         codes = ", ".join(violation.code for violation in report.violations)
@@ -359,6 +368,7 @@ def assert_experiment_feasible(spec: ExperimentSpec, settings: DataSettings) -> 
         mapping=mapping,
         mapping_policies=tuple(candidate.policy for candidate in spec.candidates) if mapping is not None else (),
         currency=currency,
+        extra_mark_tickers=experiment_target_tickers(spec),
     )
 
 

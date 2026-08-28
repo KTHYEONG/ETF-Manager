@@ -22,6 +22,7 @@ __all__ = [
     "diagnostic_price_tickers",
     "history_price_tickers",
     "profile_us_vehicles",
+    "research_satellite_tickers",
 ]
 
 
@@ -52,10 +53,22 @@ def diagnostic_price_tickers() -> tuple[str, ...]:
     return ("QQQ",)
 
 
+def research_satellite_tickers() -> tuple[str, ...]:
+    """Future-industry satellite sleeve tickers for static-mix research."""
+    return ("BOTZ", "GRID", "IBB", "ITA", "IWF", "SOXX", "XLI")
+
+
 def history_price_tickers() -> tuple[str, ...]:
-    """Sorted union of policy sleeves, mapping implementations, and diagnostics for history ingest."""
+    """Sorted union of policy sleeves, mapping implementations, diagnostics, and research satellites."""
     return tuple(
-        sorted({*all_policy_tickers(), *diagnostic_price_tickers(), *mapping_implementation_tickers()})
+        sorted(
+            {
+                *all_policy_tickers(),
+                *diagnostic_price_tickers(),
+                *mapping_implementation_tickers(),
+                *research_satellite_tickers(),
+            }
+        )
     )
 
 
