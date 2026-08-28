@@ -520,3 +520,52 @@ def test_feas_acg_macro_trust(scenario_id: str, tmp_path: Path, monkeypatch: pyt
     monkeypatch.setattr(feasibility_module, "latest_artifact", boom)
     with pytest.raises(UntrustedDatasetError, match="MACRO"):
         assert_experiment_feasible(spec, settings)
+
+
+def _mix_spec() -> ExperimentSpec:
+    return ExperimentSpec(
+        name="feas_mix",
+        start=_SHORT_WINDOW[0],
+        end=_SHORT_WINDOW[1],
+        contribution_krw=1_000_000.0,
+        hurdle=0.02,
+        horizon_months=0,
+        baseline=CandidateSpec(id="qqq_baseline", policy=PolicyId.QQQ, modules=0),
+        candidates=[
+            CandidateSpec(
+                id="qqq_grid_mix",
+                policy=PolicyId.QQQ,
+                modules=1,
+                targets={"QQQ": 0.9, "GRID": 0.1},
+            )
+        ],
+    )
+
+
+@pytest.mark.parametrize("scenario_id", ["FEA-MIX-extra-tickers"])
+def test_fea_mix_extra_tickers(scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """FEA-MIX-extra-tickers"""
+    days = _panel_days(*_SHORT_PANEL)
+    qqq_only = _catalog(
+        monkeypatch,
+        tmp_path,
+        days=days,
+        tickers=("QQQ",),
+        close_of_day=_constant_closes,
+        cpi_period_end=_CPI_VISIBLE_PERIOD_END,
+        name="qqq_only",
+    )
+    with pytest.raises(FeasibilityError, match="price"):
+        assert_experiment_feasible(_mix_spec(), qqq_only)
+
+    both = _catalog(
+        monkeypatch,
+        tmp_path,
+        days=days,
+        tickers=("QQQ", "GRID"),
+        close_of_day=_constant_closes,
+        cpi_period_end=_CPI_VISIBLE_PERIOD_END,
+        name="qqq_grid",
+    )
+    report = assert_experiment_feasible(_mix_spec(), both)
+    assert report.violations == ()

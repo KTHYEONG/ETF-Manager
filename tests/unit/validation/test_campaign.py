@@ -1017,3 +1017,57 @@ def test_wf_ag_v4_process(scenario_id: str) -> None:
     for fold in report.folds:
         assert fold.chosen_xirr_real >= fold.baseline_xirr_real
 
+
+class _MixConfigRunner:
+    """Records configs for static-mix walk-forward wiring checks."""
+
+    def __init__(self) -> None:
+        self.configs: list[AllocationConfig] = []
+
+    def __call__(self, config: AllocationConfig) -> AllocationResult:
+        self.configs.append(config)
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=100.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=100.0,
+            xirr_real=0.0,
+        )
+
+
+@pytest.mark.parametrize("scenario_id", ["CAM-MIX-override-wired"])
+def test_cam_mix_override_wired(scenario_id: str) -> None:
+    """CAM-MIX-override-wired"""
+    spec = ExperimentSpec(
+        name="wf_mix",
+        start=date(2012, 4, 1),
+        end=date(2024, 11, 30),
+        contribution_krw=1_000_000.0,
+        hurdle=0.02,
+        horizon_months=0,
+        train_months=60,
+        test_months=36,
+        baseline=CandidateSpec(id="qqq_baseline", policy=PolicyId.QQQ, modules=0),
+        candidates=[
+            CandidateSpec(
+                id="qqq_vti_mix",
+                policy=PolicyId.QQQ,
+                modules=1,
+                targets={"QQQ": 0.8, "VTI": 0.2},
+            )
+        ],
+    )
+    runner = _MixConfigRunner()
+    report = run_walk_forward_adoption(spec, runner)
+
+    assert len(report.folds) > 0
+    baseline_configs = [config for config in runner.configs if config.targets_override is None]
+    candidate_configs = [
+        config for config in runner.configs if config.targets_override == {"QQQ": 0.8, "VTI": 0.2}
+    ]
+    assert baseline_configs
+    assert candidate_configs
+    assert all(config.adaptive_contribution is None for config in runner.configs)
+
