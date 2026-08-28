@@ -17,12 +17,15 @@ from src.policy.currency import CurrencyConfig
 from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
 from src.policy.targets import PolicyId
+from src.policy.thesis import ThesisId, load_thesis_registry
 from src.sim.allocation import AllocationConfig
 from src.validation.experiment import (
     AdaptiveContributionSpec,
     CadenceSpec,
     CandidateSpec,
     ExperimentSpec,
+    PreregistrationSpec,
+    assert_experiment_preregistration,
     experiment_target_tickers,
     load_experiment_config,
     resolve_adaptive_contribution,
@@ -1440,3 +1443,85 @@ def test_reg_mix_identity_hash(scenario_id: str) -> None:
     )
     assert bare.config_hash != mixed.config_hash
     assert bare.experiment_id != mixed.experiment_id
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-THESIS-schema-load"])
+def test_exp_thesis_schema_load(scenario_id: str) -> None:
+    """EXP-THESIS-schema-load"""
+    spec = load_experiment_config("configs/experiments/m_thesis_ai_compute_soxx.json")
+    assert spec.thesis_id == ThesisId.AI_COMPUTE
+    assert spec.preregistration is not None
+    assert spec.preregistration.weights_locked is True
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-THESIS-fail-unknown"])
+def test_exp_thesis_fail_unknown(scenario_id: str) -> None:
+    """EXP-THESIS-fail-unknown"""
+    spec = ExperimentSpec.model_construct(
+        name="unknown_thesis",
+        start=date(2012, 1, 3),
+        end=date(2024, 12, 31),
+        contribution_krw=1_000_000.0,
+        hurdle=0.02,
+        objective="ce",
+        horizon_months=0,
+        commission_bps=0.0,
+        fx_spread_bps=0.0,
+        train_months=None,
+        test_months=None,
+        overlay=None,
+        reserve=None,
+        mapping=None,
+        currency=None,
+        cadence=None,
+        contribution_shape=None,
+        kafi_deployment=None,
+        adaptive_contribution=None,
+        baseline_adaptive_contribution=None,
+        baseline=CandidateSpec(id="qqq_baseline", policy=PolicyId.QQQ, modules=0),
+        candidates=[CandidateSpec(id="cand", policy=PolicyId.QQQ, modules=1)],
+        thesis_id="nonexistent",
+        preregistration=None,
+    )
+    with pytest.raises(ValueError, match="unknown thesis"):
+        assert_experiment_preregistration(spec, {})
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-PREREG-universe-lock"])
+def test_exp_prereg_universe_lock(scenario_id: str) -> None:
+    """EXP-PREREG-universe-lock"""
+    spec = ExperimentSpec(
+        name="prereg_iwf_reject",
+        start=date(2012, 1, 3),
+        end=date(2024, 12, 31),
+        contribution_krw=1_000_000.0,
+        hurdle=0.02,
+        horizon_months=0,
+        thesis_id=ThesisId.AI_COMPUTE,
+        preregistration=PreregistrationSpec(universe_locked=True),
+        baseline=CandidateSpec(
+            id="qqq_baseline",
+            policy=PolicyId.QQQ,
+            modules=0,
+            targets={"QQQ": 1.0},
+        ),
+        candidates=[
+            CandidateSpec(
+                id="iwf_only",
+                policy=PolicyId.QQQ,
+                modules=1,
+                targets={"IWF": 1.0},
+            )
+        ],
+    )
+    registry = load_thesis_registry(Path("configs/theses"))
+    with pytest.raises(ValueError, match="IWF"):
+        assert_experiment_preregistration(spec, registry)
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-PREREG-legacy-unchanged"])
+def test_exp_prereg_legacy_unchanged(scenario_id: str) -> None:
+    """EXP-PREREG-legacy-unchanged"""
+    spec = load_experiment_config("configs/experiments/m_qqq_iwf.json")
+    assert spec.thesis_id is None
+    assert spec.preregistration is None
