@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 from typing import Literal
@@ -18,6 +19,7 @@ from src.policy.kafi_deployment import KafiDeploymentConfig
 from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
 from src.policy.targets import PolicyId
+from src.policy.thesis import ThesisId, ThesisSpec
 
 __all__ = [
     "AdaptiveContributionSpec",
@@ -29,7 +31,9 @@ __all__ = [
     "KafiDeploymentSpec",
     "MappingSpec",
     "OverlaySpec",
+    "PreregistrationSpec",
     "ReserveSpec",
+    "assert_experiment_preregistration",
     "experiment_target_tickers",
     "load_experiment_config",
     "resolve_adaptive_contribution",
@@ -236,6 +240,16 @@ class AdaptiveContributionSpec(BaseModel):
     neutral_deadband: float = Field(default=0.0, ge=0.0)
 
 
+class PreregistrationSpec(BaseModel):
+    """Thesis preregistration flags; universe lock gates tickers."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    weights_locked: bool = False
+    universe_locked: bool = False
+    baseline_frozen: bool = True
+
+
 class ExperimentSpec(BaseModel):
     """Frozen experiment contract: shared cashflow/window plus gated arms.
 
@@ -269,6 +283,18 @@ class ExperimentSpec(BaseModel):
     baseline_adaptive_contribution: AdaptiveContributionSpec | None = None
     baseline: CandidateSpec
     candidates: list[CandidateSpec] = Field(min_length=1)
+    thesis_id: ThesisId | None = None
+    preregistration: PreregistrationSpec | None = None
+
+    @field_validator("thesis_id", mode="before")
+    @classmethod
+    def _coerce_thesis_id(cls, value: object) -> object:
+        if value is None:
+            return None
+        try:
+            return ThesisId(value)  # type: ignore[arg-type]
+        except ValueError as exc:
+            raise ValueError(f"unknown thesis {value!r}") from exc
 
     @model_validator(mode="before")
     @classmethod
@@ -539,6 +565,35 @@ def experiment_target_tickers(spec: ExperimentSpec) -> tuple[str, ...]:
             for ticker in arm.targets:
                 ordered.setdefault(ticker)
     return tuple(ordered)
+
+
+def assert_experiment_preregistration(
+    spec: ExperimentSpec,
+    registry: Mapping[ThesisId, ThesisSpec],
+    *,
+    thesis_config_dir: Path | None = None,
+) -> None:
+    """Fail closed on preregistration violations; never calls adoption_passes."""
+    del thesis_config_dir
+    prereg = spec.preregistration
+    if prereg is not None and prereg.universe_locked and spec.thesis_id is None:
+        raise ValueError("universe_locked requires thesis_id")
+    if spec.thesis_id is not None:
+        try:
+            tid = spec.thesis_id if isinstance(spec.thesis_id, ThesisId) else ThesisId(spec.thesis_id)
+        except ValueError as exc:
+            raise ValueError(f"unknown thesis {spec.thesis_id!r}") from exc
+        if tid not in registry:
+            raise ValueError(f"unknown thesis {spec.thesis_id!r}")
+        if prereg is not None and prereg.universe_locked:
+            thesis = registry[tid]
+            allowed = {"QQQ"} | {v.value for v in thesis.historical_proxies}
+            for arm in (spec.baseline, *spec.candidates):
+                if arm.targets is not None:
+                    for ticker in arm.targets:
+                        upper = str(ticker).strip().upper()
+                        if upper not in allowed:
+                            raise ValueError(f"ticker {ticker!r} not in allowed universe {sorted(allowed)!r}")
 
 
 def load_experiment_config(path: str | Path) -> ExperimentSpec:
