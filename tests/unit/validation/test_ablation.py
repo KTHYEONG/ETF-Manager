@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -17,7 +18,10 @@ from src.validation.experiment import (
     MappingSpec,
     OverlaySpec,
     ReserveSpec,
+    assert_experiment_preregistration,
+    load_experiment_config,
 )
+from src.policy.thesis import load_thesis_registry
 
 _WINDOW = (date(2012, 1, 3), date(2024, 12, 31))
 
@@ -374,3 +378,16 @@ def test_abl_mix_override_wired(scenario_id: str) -> None:
         assert config.monthly_contribution_krw == pytest.approx(1_000_000.0)
         assert config.adaptive_contribution is None
     assert report.rows[0].adopted is True
+
+
+@pytest.mark.parametrize("scenario_id", ["ABL-THESIS-prereg-wired"])
+def test_abl_thesis_prereg_wired(scenario_id: str) -> None:
+    """ABL-THESIS-prereg-wired"""
+    spec = load_experiment_config("configs/experiments/m_thesis_ai_compute_soxx.json")
+    registry = load_thesis_registry(Path("configs/theses"))
+    assert_experiment_preregistration(spec, registry)
+
+    runner = _MixWealthRunner()
+    report = run_ablation(spec, runner)
+    assert len(report.rows) == 1
+    assert report.rows[0].candidate_id == "soxx_100"
