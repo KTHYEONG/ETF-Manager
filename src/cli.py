@@ -8,6 +8,7 @@ import math
 import shutil
 import subprocess
 from datetime import date
+from pathlib import Path
 from typing import TYPE_CHECKING, Final, NoReturn, cast
 
 from src.analytics.accumulation_alpha import screen_qqq_accumulation
@@ -55,7 +56,7 @@ from src.policy.targets import (
     PolicyId,
     policy_sleeves,
 )
-from src.policy.thesis import load_thesis_registry
+from src.policy.thesis import ThesisError, load_thesis_registry
 from src.policy.tilt import TILT_FACTORS, FactorTilt
 from src.sim.allocation import (
     AllocationConfig,
@@ -87,10 +88,14 @@ from src.validation.campaign import (
     write_cost_grid_report,
 )
 from src.validation.evaluate import evaluate_cohort_wealths
-from src.validation.experiment import load_experiment_config, resolve_arm_targets
+from src.validation.experiment import (
+    assert_experiment_preregistration,
+    load_experiment_config,
+    resolve_arm_targets,
+)
 from src.validation.feasibility import assert_experiment_feasible, require_feasibility
 from src.validation.gate import adoption_passes, certainty_equivalent
-from src.validation.registry import make_experiment
+from src.validation.registry import make_experiment, write_ablation_run_record
 from src.validation.windows import rolling_cohorts
 
 if TYPE_CHECKING:
@@ -1604,6 +1609,8 @@ def run_ablation_command(*, config_path: str, settings: DataSettings) -> int:
     """
     try:
         spec = load_experiment_config(config_path)
+        registry = load_thesis_registry(Path("configs/theses"))
+        assert_experiment_preregistration(spec, registry)
         assert_experiment_feasible(spec, settings)
         report = run_ablation(spec, lambda config: run_allocation_from_store(config, settings))
         metrics: dict[str, float] = {
@@ -1613,6 +1620,7 @@ def run_ablation_command(*, config_path: str, settings: DataSettings) -> int:
         for row in report.rows:
             for gamma, ratio in row.ce_ratio.items():
                 metrics[f"{row.candidate_id}_ratio_gamma_{int(gamma)}"] = ratio
+        thesis_id_str = spec.thesis_id.value if spec.thesis_id is not None else None
         record = make_experiment(
             config=AllocationConfig(
                 policy=spec.baseline.policy,
@@ -1627,8 +1635,10 @@ def run_ablation_command(*, config_path: str, settings: DataSettings) -> int:
             git_commit=_resolve_git_commit(),
             seed=None,
             metrics=metrics,
+            thesis_id=thesis_id_str,
         )
-    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        write_ablation_run_record(spec=spec, report=report, record=record, settings=settings)
+    except (AllocationDataError, PolicyError, ThesisError, UntrustedDatasetError, XirrError, ValueError, OSError) as exc:
         logger.error("[DATA] event=ablation_cli_failed reason=%s", exc)
         return 1
     adopted_count = sum(row.adopted for row in report.rows)
