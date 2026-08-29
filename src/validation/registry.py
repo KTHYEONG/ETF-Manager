@@ -221,9 +221,11 @@ def write_ablation_run_record(
         "manifest_hash": record.manifest_hash,
         "git_commit": record.git_commit,
     }
-    experiments_dir = settings.resolved_data_root() / "experiments"
-    experiments_dir.mkdir(parents=True, exist_ok=True)
-    out_path = experiments_dir / f"{spec.name}_ablation_{record.experiment_id}.json"
+    from src.data.paths import experiments_dir
+
+    out_dir = experiments_dir(settings)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{spec.name}_ablation_{record.experiment_id}.json"
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return out_path
 
@@ -235,6 +237,8 @@ def write_prospective_freeze_record(
     settings: DataSettings,
 ) -> Path:
     """Persist prospective freeze record under data/experiments."""
+    from src.data.paths import experiments_dir
+
     payload = {
         "thesis_id": freeze.thesis_id,
         "experiment_name": freeze.experiment_name,
@@ -243,9 +247,9 @@ def write_prospective_freeze_record(
         "spec_name": spec.name,
         "baseline_config_hash": freeze_baseline_config_hash(spec),
     }
-    experiments_dir = settings.resolved_data_root() / "experiments"
-    experiments_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = experiments_dir(settings)
+    out_dir.mkdir(parents=True, exist_ok=True)
     safe_ts = freeze.frozen_at.isoformat().replace(":", "-")
-    out_path = experiments_dir / f"{spec.name}_prospective_{safe_ts}.json"
+    out_path = out_dir / f"{spec.name}_prospective_{safe_ts}.json"
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return out_path

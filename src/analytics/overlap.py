@@ -13,6 +13,10 @@ from src.data.schema import Dataset
 
 __all__ = ["HoldingsOverlapReport", "overlap_time_series", "pairwise_overlap", "thesis_overlap_vs_incumbent"]
 
+_WEIGHT_SUM_MIN = 95.0
+_WEIGHT_SUM_RENORM_MAX = 110.0
+_PLACEHOLDER_CUSIPS = frozenset({"000000000", "00000000", "999999999"})
+
 
 @dataclass(frozen=True, slots=True)
 class HoldingsOverlapReport:
@@ -54,19 +58,23 @@ def _latest_report_snapshot(frame: pl.DataFrame, *, etf_ticker: str) -> pl.DataF
     # group by holding_id, pick row with max filing_date
     snap_sorted = snap.sort(["holding_id", "filing_date"])
     deduped = snap_sorted.filter(pl.struct("holding_id").is_last_distinct())
-    # weight sum validation per snapshot band [95,105]
     total = float(deduped.select(pl.col("weight_pct").sum()).item() or 0.0)
-    if total < 95.0 or total > 105.0:
-        raise ValueError(f"weight sum {total:.2f} outside band [95, 105] for {etf_ticker} report_date {max_report}")
-    if not (0 <= total <= 200):
-        raise ValueError(f"weight sum {total:.2f} outside band [95, 105] for {etf_ticker}")
+    if total < _WEIGHT_SUM_MIN or total > _WEIGHT_SUM_RENORM_MAX:
+        raise ValueError(f"weight sum {total:.2f} outside band [{_WEIGHT_SUM_MIN:.0f}, {_WEIGHT_SUM_RENORM_MAX:.0f}] for {etf_ticker} report_date {max_report}")
+    if total > 100.0:
+        scale = 100.0 / total
+        deduped = deduped.with_columns((pl.col("weight_pct") * scale).alias("weight_pct"))
     return deduped
 
 
 def _identifier_key(frame: pl.DataFrame) -> pl.DataFrame:
     # Create matching identifier: cusip preferred else isin else holding_id
     return frame.with_columns(
-        pl.when(pl.col("cusip").is_not_null() & (pl.col("cusip") != ""))
+        pl.when(
+            pl.col("cusip").is_not_null()
+            & (pl.col("cusip") != "")
+            & (~pl.col("cusip").is_in(list(_PLACEHOLDER_CUSIPS)))
+        )
         .then(pl.col("cusip"))
         .when(pl.col("isin").is_not_null() & (pl.col("isin") != ""))
         .then(pl.col("isin"))

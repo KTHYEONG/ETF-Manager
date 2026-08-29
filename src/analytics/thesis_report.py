@@ -50,7 +50,7 @@ def _resolve_evidence_spec(
         spec = load_experiment_config(str(experiment_path))
         # Override experiment end with effective_thesis_end(as_of) when thesis path
         try:
-            eff_end = effective_thesis_end(as_of)
+            eff_end = min(spec.end, effective_thesis_end(as_of))
             if spec.end != eff_end:
                 spec = spec.model_copy(update={"end": eff_end})
         except Exception:  # noqa: S110
@@ -434,7 +434,9 @@ def write_thesis_report(report: ThesisReport, settings: DataSettings) -> Path:
         "next_falsifier": report.next_falsifier,
         "divergence": dict(report.divergence) if report.divergence is not None else None,
     }
-    out_dir = settings.resolved_data_root() / "thesis_reports"
+    from src.data.paths import thesis_reports_dir
+
+    out_dir = thesis_reports_dir(settings)
     out_dir.mkdir(parents=True, exist_ok=True)
     safe_as_of = report.evidence.as_of.isoformat().replace(":", "-")
     out_path = out_dir / f"{report.thesis_id.value}_{safe_as_of}.json"

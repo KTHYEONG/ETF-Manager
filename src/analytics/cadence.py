@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 
 from src.analytics.regimes import QQQ_REGIME_WINDOWS
 from src.policy.targets import PolicyError, PolicyId
-from src.sim.allocation import AllocationConfig
+from src.sim.allocation import AllocationConfig, AllocationDataError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -43,13 +43,13 @@ def compare_qqq_cadence(
 
     Reporting-only diagnostics (up to 3 runner calls per window): no ablation, walk-forward
     gate, or adoption decision may run here. A window whose any arm fails closed with
-    ``PolicyError`` is omitted; ``ValueError`` failures such as diverging snapshot counts
-    still propagate.
+    ``PolicyError`` or ``AllocationDataError`` is omitted. ``twice_monthly`` may produce
+    more snapshots than monthly/month_open; only those two arms must match.
 
     Raises:
-        ValueError: On non-positive ``contribution_krw``, when the arms of a compared
-            window produce diverging snapshot counts, or when every window was omitted and
-            no usable comparison remains.
+        ValueError: On non-positive ``contribution_krw``, when monthly and month_open arms
+            of a compared window produce diverging snapshot counts, or when every window was
+            omitted and no usable comparison remains.
     """
     if contribution_krw <= 0.0:
         raise ValueError(f"contribution_krw must be positive, got {contribution_krw!r}")
@@ -75,9 +75,11 @@ def compare_qqq_cadence(
             ]
         except PolicyError:
             continue
+        except AllocationDataError:
+            continue
         lengths = [len(result.snapshots) for result in results]
-        if len(set(lengths)) > 1:
-            raise ValueError(f"window {name!r} snapshot lengths diverge: {lengths}")
+        if lengths[0] != lengths[1]:
+            raise ValueError(f"window {name!r} monthly/month_open snapshot lengths diverge: {lengths[:2]}")
         comparisons.append(
             CadenceComparison(
                 name=name,

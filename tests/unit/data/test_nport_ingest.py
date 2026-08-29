@@ -135,3 +135,39 @@ def test_nport_d_persist_roundtrip(scenario_id: str) -> None:
         assert art.manifest.row_count == df.height
         reloaded = DataStore(settings).read_normalized(art, spec)
         assert reloaded.height == art.manifest.row_count
+
+
+def test_nport_ingest_writes_pointer_not_second_zip(tmp_path: Path) -> None:
+    from src.data.nport_ingest import fetch_and_persist_nport_quarter
+
+    fixture = Path("tests/fixtures/nport/minimal_2019q4.zip")
+    assert fixture.is_file()
+    zip_bytes = fixture.read_bytes()
+    payload_sha = __import__("hashlib").sha256(zip_bytes).hexdigest()
+
+    class _FakeResponse:
+        status_code = 200
+        content = zip_bytes
+
+    class _FakeClient:
+        def get(self, url: str, **kwargs: object) -> _FakeResponse:
+            _ = url, kwargs
+            return _FakeResponse()
+
+    settings = DataSettings(data_root=tmp_path / "data")
+    fetch_and_persist_nport_quarter(
+        filing_quarter="2019q4",
+        settings=settings,
+        client=_FakeClient(),
+    )
+
+    data_root = settings.resolved_data_root()
+    content_addressed = data_root / "raw" / "sec" / "etf_holdings" / payload_sha / "payload.zip"
+    zip_mirror = data_root / "raw" / "sec" / "nport" / "2019q4.zip"
+    pointer = data_root / "raw" / "sec" / "nport" / "2019q4.json"
+
+    assert content_addressed.is_file()
+    assert not zip_mirror.exists()
+    if pointer.exists():
+        assert pointer.stat().st_size < 8192
+        assert payload_sha in pointer.read_text(encoding="utf-8")

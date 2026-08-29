@@ -64,12 +64,12 @@ def test_reg_n_qqq_windows(scenario_id: str) -> None:
     assert len(QQQ_REGIME_WINDOWS) == 6
 
     by_name = {name: (start, end) for name, start, end in QQQ_REGIME_WINDOWS}
-    assert by_name["calendar_max"] == (date(2006, 10, 31), date(2026, 6, 30))
+    assert by_name["calendar_max"] == (date(2012, 8, 31), date(2024, 8, 31))
     assert by_name["gfc_crisis"] == (date(2007, 10, 1), date(2009, 3, 31))
     assert by_name["pre_ai"] == (date(2010, 1, 4), date(2019, 12, 31))
-    assert by_name["shipped_old"] == (date(2014, 1, 3), date(2024, 9, 30))
+    assert by_name["shipped_old"] == (date(2014, 1, 3), date(2024, 8, 31))
     assert by_name["bear_2022"] == (date(2022, 1, 3), date(2022, 12, 30))
-    assert by_name["recent_2023_2026"] == (date(2023, 1, 3), date(2026, 6, 30))
+    assert by_name["recent_2023_2024"] == (date(2023, 1, 3), date(2024, 8, 31))
 
 
 @pytest.mark.parametrize("scenario_id", ["REG-N-equal-cashflow"])

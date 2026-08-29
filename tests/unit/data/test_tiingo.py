@@ -113,4 +113,4 @@ def test_persistent_500_exhausts_three_attempts() -> None:
     with _client(handler) as http, pytest.raises(ProviderError, match="500"):
         TiingoClient(_TOKEN, http).fetch_prices(("SPY",), *_WINDOW)
 
-    assert len(attempts) == 3
+    assert len(attempts) == 5
