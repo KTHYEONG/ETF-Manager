@@ -1936,3 +1936,22 @@ def test_cli_thesis_rpt_dispatch(scenario_id: str, monkeypatch: pytest.MonkeyPat
     from src.policy.thesis import ThesisId as _Tid
     assert main(["run", "thesis-report", "--id", "ai_compute"]) == 0
     assert captured.get("thesis_id") == _Tid.AI_COMPUTE or captured.get("thesis_id") == "ai_compute"
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-THESIS-WAVE-dispatch"])
+def test_cli_thesis_wave_dispatch(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-THESIS-WAVE-dispatch"""
+    captured: dict[str, object] = {}
+
+    def fake_wave(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    def forbidden(*args: object, **kwargs: object):
+        raise AssertionError("must never call adoption_passes")
+
+    monkeypatch.setattr(cli, "run_thesis_wave_command", fake_wave)
+    monkeypatch.setattr(cli, "run_thesis_wave", fake_wave)
+    monkeypatch.setattr(cli, "adoption_passes", forbidden, raising=False)
+    assert main(["run", "thesis-wave"]) == 0
+    assert main(["run", "thesis-wave", "--as-of", "2025-04-30T00:00:00+00:00"]) == 0

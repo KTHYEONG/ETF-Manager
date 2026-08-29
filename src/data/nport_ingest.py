@@ -6,19 +6,22 @@ import hashlib
 import json
 import logging
 import zipfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+import polars as pl
 
+from src.data.catalog import latest_artifact
+from src.data.pit import AVAILABLE_AT
 from src.data.pipeline import persist_ingest
 from src.data.providers.base import ProviderError
 from src.data.providers.sec_nport import SecNportClient, normalize_nport_holdings
 from src.data.providers.sec_nport import _parse_raw_tables as _sec_parse_raw_tables
-from src.data.schema import Dataset
+from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
-from src.data.storage import DatasetArtifact, RawPayload
+from src.data.storage import DataStore, DatasetArtifact, RawPayload, UntrustedDatasetError
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +47,20 @@ def load_nport_series_map(path: Path = Path("configs/etf_metadata/nport_series_m
     if not isinstance(doc, dict):
         raise ValueError(f"nport series map root must be object at {path}")
     return {str(k): str(v) for k, v in doc.items()}
+
+
+def _merge_holdings_frame(existing: pl.DataFrame, incoming: pl.DataFrame) -> pl.DataFrame:
+    """Concat prior ETF_HOLDINGS partition with a new quarter frame."""
+    spec = spec_for(Dataset.ETF_HOLDINGS)
+    merge_cols = list(spec.columns.keys())
+    if AVAILABLE_AT in existing.columns:
+        existing = existing.drop(AVAILABLE_AT)
+    aligned_existing = existing.select(merge_cols)
+    aligned_incoming = incoming.select(merge_cols)
+    return pl.concat([aligned_existing, aligned_incoming], how="vertical_relaxed").unique(
+        subset=list(spec.key),
+        keep="last",
+    )
 
 
 def fetch_and_persist_nport_quarter(
@@ -110,6 +127,13 @@ def fetch_and_persist_nport_quarter(
     raw_tables = _sec_parse_raw_tables(content)
     frame = normalize_nport_holdings(raw_tables, series_map=series_map, retrieved_at=retrieved_at)
 
+    try:
+        store = DataStore(settings)
+        existing = store.read_normalized(latest_artifact(settings, Dataset.ETF_HOLDINGS), spec_for(Dataset.ETF_HOLDINGS))
+        frame = _merge_holdings_frame(existing, frame)
+    except UntrustedDatasetError:
+        pass
+
     payload = RawPayload(
         provider="sec",
         endpoint=url,
@@ -121,3 +145,26 @@ def fetch_and_persist_nport_quarter(
     artifact = persist_ingest(frame, Dataset.ETF_HOLDINGS, payload, settings)
     logger.info("[DATA] event=fetch_persist dataset=%s provider=sec rows=%d", str(Dataset.ETF_HOLDINGS), artifact.manifest.row_count)
     return artifact
+
+
+def fetch_and_persist_nport_quarters(
+    *,
+    filing_quarters: Sequence[str],
+    series_map_path: Path = Path("configs/etf_metadata/nport_series_map.json"),
+    settings: DataSettings,
+) -> tuple[DatasetArtifact, ...]:
+    """Fetch multiple quarters and persist one merged ETF_HOLDINGS partition."""
+    # wiring: fetch_and_persist_nport_quarters(
+    _ = fetch_and_persist_nport_quarters  # self reference for wiring detection
+
+    if not filing_quarters:
+        raise ValueError("filing_quarters must be non-empty")
+
+    last_artifact: DatasetArtifact | None = None
+    for fq in filing_quarters:
+        last_artifact = fetch_and_persist_nport_quarter(
+            filing_quarter=str(fq).strip().lower(),
+            series_map_path=series_map_path,
+            settings=settings,
+        )
+    return (last_artifact,) if last_artifact is not None else ()

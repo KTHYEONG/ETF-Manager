@@ -163,7 +163,7 @@ def load_thesis_registry(directory: Path) -> Mapping[ThesisId, ThesisSpec]:
     """
     if not directory.exists() or not directory.is_dir():
         raise ThesisError(f"thesis registry directory missing or not a directory: {directory!r}")
-    files = sorted(directory.glob("*.json"))
+    files = sorted(p for p in directory.glob("*.json") if p.name != "experiment_map.json")
     if not files:
         raise ThesisError(f"thesis registry empty: {directory!r}")
     registry: dict[ThesisId, ThesisSpec] = {}
