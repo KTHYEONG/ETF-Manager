@@ -1525,3 +1525,9 @@ def test_exp_prereg_legacy_unchanged(scenario_id: str) -> None:
     spec = load_experiment_config("configs/experiments/m_qqq_iwf.json")
     assert spec.thesis_id is None
     assert spec.preregistration is None
+
+@pytest.mark.parametrize("scenario_id", ["EXP-LH-objective-load"])
+def test_exp_lh_objective_load(scenario_id: str) -> None:
+    spec = load_experiment_config("configs/experiments/m_thesis_ai_compute_soxx_120m.json")
+    assert spec.objective == "long_horizon"
+    assert spec.horizon_months == 120
