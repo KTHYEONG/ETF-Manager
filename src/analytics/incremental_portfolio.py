@@ -40,6 +40,8 @@ __all__ = [
 
 INCREMENTAL_SOXX_WEIGHTS: Final[tuple[float, ...]] = (0.05, 0.10, 0.15)
 PATH_BOOTSTRAP_WIN_FLOOR: Final[float] = 0.55
+WEIGHT_UPPER_EPS: Final[float] = 1e-3
+MIN_REALIZED_FRAC_OF_TARGET: Final[float] = 0.05
 
 
 class IncrementalArmId(StrEnum):
@@ -174,6 +176,7 @@ def attribute_buy_only_soxx(
     baseline: AllocationResult,
     soxx_weight: float,
     price_at: Callable[[date, str], float],
+    fx_at: Callable[[date], float],
 ) -> BuyOnlyAttribution:
     if not candidate.snapshots:
         raise ValueError("candidate snapshots empty")
@@ -191,10 +194,18 @@ def attribute_buy_only_soxx(
             raise ValueError(f"price_at failed for {snap.session}: {exc}") from exc
         if not math.isfinite(px) or px <= 0.0:
             raise ValueError(f"price_at returned non-positive {px!r} for {snap.session}")
+        try:
+            usdkrw = float(fx_at(snap.session))
+        except Exception as exc:
+            raise ValueError(f"fx_at failed for {snap.session}: {exc}") from exc
+        if not math.isfinite(usdkrw) or usdkrw <= 0.0:
+            raise ValueError(f"fx_at returned non-positive {usdkrw!r} for {snap.session}")
         shares = float(snap.shares.get("SOXX", 0.0))
-        w = shares * px / mk
+        w = shares * px * usdkrw / mk
         if not math.isfinite(w):
             raise ValueError("realized weight non-finite")
+        if w < 0.0 or w > 1.0 + WEIGHT_UPPER_EPS:
+            raise ValueError(f"realized weight {w!r} outside [0, 1+WEIGHT_UPPER_EPS] on {snap.session}")
         realized.append(w)
     mean_realized = sum(realized) / len(realized)
     terminal_realized = realized[-1]
@@ -205,6 +216,10 @@ def attribute_buy_only_soxx(
     if not math.isfinite(base_tw) or base_tw <= 0.0 or not math.isfinite(cand_tw) or cand_tw <= 0.0:
         raise ValueError("terminal wealths must be positive")
     ratio = cand_tw / base_tw
+    if target > 0.0:
+        has_position = any(float(s.shares.get("SOXX", 0.0)) > 0.0 for s in candidate.snapshots)
+        if has_position and mean_realized < target * MIN_REALIZED_FRAC_OF_TARGET:
+            raise ValueError(f"mean realized weight {mean_realized!r} below coherence floor {target * MIN_REALIZED_FRAC_OF_TARGET!r}")
     return BuyOnlyAttribution(
         target_soxx_weight=float(target),
         mean_realized_soxx_weight=float(mean_realized),
@@ -264,6 +279,38 @@ def _make_price_at(settings: DataSettings) -> Callable[[date, str], float]:
     return _price_at
 
 
+def _make_fx_at(settings: DataSettings) -> Callable[[date], float]:
+    """PIT usdkrw at session close via Dataset.FX; ValueError on missing/non-positive."""
+    import polars as pl
+
+    from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
+    from src.data.catalog import latest_artifact
+    from src.data.query import load_as_of
+    from src.data.schema import Dataset, spec_for
+    from src.data.storage import DataStore
+
+    latest = latest_artifact(settings, Dataset.FX)
+    fx = DataStore(settings).read_normalized(latest, spec_for(Dataset.FX))
+    cal = load_calendar(DEFAULT_CALENDAR_NAME)
+
+    def _fx_at(d: date) -> float:
+        if not isinstance(d, date):
+            raise ValueError(f"fx_at requires date, got {d!r}")
+        close_ts = cal.close_ts(d)
+        if close_ts.tzinfo is None:
+            raise ValueError(f"close_ts naive for {d.isoformat()}")
+        visible = load_as_of(fx, Dataset.FX, close_ts)
+        rows = visible.filter(pl.col("date") == d)
+        if rows.is_empty():
+            raise ValueError(f"fx missing for {d.isoformat()}")
+        value = rows.item(0, "usdkrw")
+        if value is None or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0.0:
+            raise ValueError(f"non-positive usdkrw for {d.isoformat()}")
+        return float(value)
+
+    return _fx_at
+
+
 def _cohort_start_fallback(end: date) -> date:
     # fallback start ensures at least one 120M cohort ending at end
     try:
@@ -317,6 +364,7 @@ def run_incremental_portfolio(
         start = fb_start
 
     price_at = _make_price_at(settings)
+    fx_at = _make_fx_at(settings)
 
     arms: list[IncrementalArmReport] = []
     for idx, w in enumerate(INCREMENTAL_SOXX_WEIGHTS):
@@ -358,7 +406,7 @@ def run_incremental_portfolio(
         base_full = runner(replace(baseline_template, start=full_start, end=full_end))
         cand_full = runner(replace(candidate_template, start=full_start, end=full_end))
         # attribution
-        attribution = attribute_buy_only_soxx(candidate=cand_full, baseline=base_full, soxx_weight=float(w), price_at=price_at)
+        attribution = attribute_buy_only_soxx(candidate=cand_full, baseline=base_full, soxx_weight=float(w), price_at=price_at, fx_at=fx_at)
         # path bootstrap on monthly returns of full-span path
         cand_rets = monthly_simple_returns(cand_full)
         base_rets = monthly_simple_returns(base_full)
