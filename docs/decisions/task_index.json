@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_THESIS_PIT_REFRESH",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_V2_THESIS_PIT_REFRESH",
+      "domain": "data",
+      "title": "Wave C (v2): thesis panel PIT refresh + catalog as-of policy",
+      "why": "Wave C / thesis_pit_refresh: thesis-wave ran on frozen 2025-04-30 panel (~16mo lag); CLI default as_of was wall-clock now; no freshness gate; experiment JSON end hardcoded; markdown/JSON panel metadata inconsistent.",
+      "resolution": "Added data/panel_freshness.py (THESIS_PANEL_TICKERS, resolve_catalog_panel_as_of, MAX_PANEL_LAG_DAYS=62, hard_stop ack, iter_nport_quarters_for_panel, effective_thesis_end); CLI ingest thesis-panel + default thesis-wave/report as_of=panel_as_of, STALE fail-closed with --allow-stale; thesis_report overrides experiment end + catalog_lag_days vs now(UTC); thesis_wave carries panel_as_of/lag_days/freshness_status to JSON/markdown; architecture §4.8; contract tests PANEL-A..F, CLI defaults/stale/gate.",
+      "impact": "QQQ 100% operational and 36M CE>1.02 adoption_passes unchanged; thesis modules never call adoption_passes; operator can refresh BOTZ/GRID/QQQ/SOXX panel via ingest thesis-panel; stale panel blocks thesis-wave unless allow-stale or hard_stop ack; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_THESIS_MEANING",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_V2_THESIS_MEANING",

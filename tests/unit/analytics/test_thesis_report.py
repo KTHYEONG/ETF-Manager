@@ -259,3 +259,61 @@ def test_rpt_c_cohort_ce_not_singleton(scenario_id: str, tmp_path: Path, monkeyp
     expected_ce = certainty_equivalent(c_wealths, gamma=2.0) / certainty_equivalent(b_wealths, gamma=2.0)
     assert abs(cohort_ce - expected_ce) < 1e-9
     assert abs(terminal - 1.2) < 1e-9
+
+
+@pytest.mark.parametrize("scenario_id", ["test_rpt_e_overrides_experiment_end"])
+def test_rpt_e_overrides_experiment_end(scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    from src.analytics.thesis_report import build_thesis_report
+    from src.data.settings import DataSettings
+    from src.policy.thesis import ThesisId
+    from src.sim.allocation import AllocationConfig, AllocationResult, AllocationSnapshot  # noqa: F401
+
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2026, 6, 30, 20, 0, tzinfo=UTC)
+    # Create experiment JSON with end 2025-04-30
+    payload = {
+        "name": "thesis_ai_compute_evidence",
+        "start": "2007-08-31",
+        "end": "2025-04-30",
+        "contribution_krw": 1_000_000,
+        "hurdle": 0.02,
+        "horizon_months": 0,
+        "baseline": {"id": "qqq_baseline", "policy": "qqq", "modules": 0, "targets": {"QQQ": 1.0}},
+        "candidates": [{"id": "soxx_100", "policy": "qqq", "modules": 1, "targets": {"SOXX": 1.0}}],
+    }
+    exp_path = tmp_path / "exp.json"
+    exp_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    captured_ends: list[date] = []
+
+    def runner(config: AllocationConfig) -> AllocationResult:
+        captured_ends.append(config.end)
+        wealth = 110.0 if config.targets_override == {"SOXX": 1.0} else 100.0
+        return AllocationResult(
+            config=config,
+            snapshots=(AllocationSnapshot(session=date(2024, 1, 31), cash_krw=0, cash_usd=0, shares={}, mark_krw=wealth, contribution_krw=0, fees_krw=0),),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+    def fake_load_visible(settings_inner, dataset, decision_ts):
+        raise ValueError("no holdings")
+
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_load_visible)
+    # Patch cohort to avoid heavy compute
+    def fake_cohort(spec, runner_inner, horizon_months=120, step_months=12, bootstrap_paths=400, seed=7):
+        from src.validation.accumulation_cohort import AccumulationCohortReport, AccumulationCohortRow, CohortOverlapMetadata
+        overlap = CohortOverlapMetadata(horizon_months=horizon_months, step_months=step_months)
+        rows = tuple(AccumulationCohortRow(candidate_wealth=110, baseline_wealth=100, ratio=1.1, candidate_recovery_months=0) for _ in range(5))
+        return AccumulationCohortReport(name=spec.name, overlap=overlap, rows=rows, median_ratio=1.1, p10_ratio=1.0, worst_ratio=0.9, win_rate=1.0, bootstrap_p05_ratio_mean=1.0, unrecovered_cohort_count=0)
+    monkeypatch.setattr("src.validation.accumulation_cohort.run_accumulation_cohort_report", fake_cohort)
+
+    report = build_thesis_report(thesis_id=ThesisId.AI_COMPUTE, settings=settings, as_of=as_of, runner=runner, experiment_path=exp_path)
+    assert captured_ends, "runner should have been called"
+    # Effective end should be 2026-06-30, not 2025-04-30
+    assert all(e == date(2026, 6, 30) for e in captured_ends), f"expected all ends 2026-06-30 got {captured_ends}"
+    assert date(2025, 4, 30) not in captured_ends

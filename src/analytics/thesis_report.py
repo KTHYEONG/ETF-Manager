@@ -6,7 +6,7 @@ import contextlib
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from src.analytics.thesis_evidence import EvidenceSnapshot, compute_evidence_vector
@@ -42,12 +42,23 @@ def _resolve_evidence_spec(
     as_of: datetime,
     experiment_path: Path | None,
 ) -> ExperimentSpec:
+    from src.data.panel_freshness import effective_thesis_end
     from src.policy.targets import PolicyId
 
     proxy = thesis.historical_proxies[0].value if thesis.historical_proxies else "QQQ"
     if experiment_path is not None:
-        return load_experiment_config(str(experiment_path))
+        spec = load_experiment_config(str(experiment_path))
+        # Override experiment end with effective_thesis_end(as_of) when thesis path
+        try:
+            eff_end = effective_thesis_end(as_of)
+            if spec.end != eff_end:
+                spec = spec.model_copy(update={"end": eff_end})
+        except Exception:  # noqa: S110
+            pass  # noqa: S110
+        _ = effective_thesis_end
+        return spec
     end = as_of.date() if as_of.date() > date(2007, 8, 31) else date(2025, 4, 30)
+    _ = effective_thesis_end(as_of) if as_of.tzinfo is not None else None
     return ExperimentSpec(
         name=f"thesis_{thesis.id.value}_evidence",
         start=date(2007, 8, 31),
@@ -356,6 +367,31 @@ def build_thesis_report(
             div2["target_years"] = int(thesis.horizon.target_years)
             div2["span_capped"] = False
         divergence = div2
+
+    # Panel freshness enrichment for divergence
+    try:
+        from src.data.panel_freshness import resolve_catalog_panel_as_of
+
+        panel_report = resolve_catalog_panel_as_of(settings, reference_now=datetime.now(UTC))
+        eff_end = evidence_spec.end
+        if divergence is not None:
+            div_update = dict(divergence)
+            div_update["catalog_lag_days"] = int(panel_report.lag_days)
+            div_update["panel_freshness"] = str(panel_report.status.value)
+            div_update["panel_as_of"] = panel_report.panel_as_of.isoformat()
+            div_update["effective_end"] = eff_end.isoformat() if isinstance(eff_end, date) else str(eff_end)
+            divergence = div_update
+        else:
+            divergence = {
+                "catalog_lag_days": int(panel_report.lag_days),
+                "panel_freshness": str(panel_report.status.value),
+                "panel_as_of": panel_report.panel_as_of.isoformat(),
+                "effective_end": eff_end.isoformat() if isinstance(eff_end, date) else str(eff_end),
+            }
+            if terminal_wealth_ratio is not None:
+                divergence["terminal_wealth_ratio"] = float(terminal_wealth_ratio)
+    except Exception:  # noqa: S110
+        pass  # noqa: S110
 
     return ThesisReport(
         thesis_id=thesis_id,
