@@ -1,129 +1,218 @@
 {
-  "src/data/pit.py": {
-    "architecture": "docs/architecture/01_data_contracts.md",
-    "testing": "tests/unit/data/test_pit.py"
-  },
-  "src/data/quality.py": {
-    "architecture": "docs/architecture/01_data_contracts.md",
-    "testing": "tests/unit/data/test_quality.py"
-  },
-  "src/data/providers/tiingo.py": {
-    "architecture": "docs/architecture/01_data_contracts.md",
-    "testing": "tests/unit/data/test_tiingo.py"
-  },
-  "src/sim/baseline.py": {
-    "architecture": "docs/architecture/00_system_overview.md",
-    "testing": "tests/unit/sim/test_baseline.py"
-  },
-  "src/cli.py": {
-    "architecture": "docs/architecture/00_system_overview.md",
-    "testing": "tests/unit/test_cli.py"
-  },
-  "src/sim/allocation.py": {
-    "architecture": "docs/architecture/00_system_overview.md",
-    "testing": "tests/unit/sim/test_allocation.py"
-  },
-  "src/policy/tilt.py": {
-    "architecture": "docs/architecture/00_system_overview.md",
-    "testing": "tests/unit/policy/test_tilt.py"
-  },
-  "src/sim/contribution.py": {
-    "architecture": "docs/architecture/00_system_overview.md",
-    "testing": "tests/unit/sim/test_contribution.py"
-  },
-  "src/policy/overlay.py": {
-    "testing": "tests/unit/policy/test_overlay.py"
-  },
-  "src/policy/currency.py": {
-    "testing": "tests/unit/policy/test_currency.py"
-  },
-  "src/etf/mapping.py": {
-    "testing": "tests/unit/etf/test_mapping.py"
-  },
-  "src/validation/evaluate.py": {},
-  "src/execution/broker.py": {
-    "testing": "tests/unit/execution/test_broker.py"
-  },
-  "src/validation/ablation.py": {
-    "testing": "tests/unit/validation/test_ablation.py"
-  },
-  "src/policy/targets.py": {
-    "testing": "tests/unit/policy/test_targets.py"
-  },
-  "src/validation/campaign.py": {
-    "testing": "tests/unit/validation/test_campaign.py"
-  },
-  "src/sim/research_proxy.py": {
-    "testing": "tests/unit/sim/test_research_proxy.py"
-  },
-  "src/analytics/us_vehicles.py": {
-    "testing": "tests/unit/analytics/test_us_vehicles.py"
-  },
-  "src/validation/experiment.py": {
-    "testing": "tests/unit/validation/test_experiment.py",
-    "architecture": "docs/architecture/02_policy_and_validation.md"
-  },
-  "src/validation/feasibility.py": {
-    "testing": "tests/unit/validation/test_feasibility.py"
-  },
-  "src/policy/reserve.py": {
-    "testing": "tests/unit/policy/test_reserve.py"
-  },
-  "src/sim/lots.py": {
-    "testing": "tests/unit/sim/test_lots.py"
-  },
-  "src/data/schedule.py": {
-    "testing": "tests/unit/data/test_schedule.py"
-  },
-  "src/analytics/regimes.py": {
-    "testing": "tests/unit/analytics/test_regimes.py"
-  },
-  "src/analytics/blends.py": {
-    "testing": "tests/unit/analytics/test_blends.py"
-  },
-  "src/analytics/reserve_usage.py": {
-    "testing": "tests/unit/analytics/test_reserve_usage.py"
-  },
-  "src/analytics/cadence.py": {
-    "testing": "tests/unit/analytics/test_cadence.py"
-  },
   "src/analytics/accumulation_alpha.py": {
     "testing": "tests/unit/analytics/test_accumulation_alpha.py"
-  },
-  "src/validation/gate.py": {
-    "architecture": "docs/architecture/02_policy_and_validation.md",
-    "testing": "tests/unit/validation/test_gate.py"
-  },
-  "src/policy/sizing.py": {
-    "testing": "tests/unit/policy/test_sizing.py"
-  },
-  "src/features/kafi.py": {
-    "testing": "tests/unit/features/test_kafi.py"
-  },
-  "src/policy/kafi_deployment.py": {
-    "testing": "tests/unit/policy/test_kafi_deployment.py"
-  },
-  "src/policy/adaptive_contribution.py": {
-    "testing": [
-      "tests/unit/policy/test_adaptive_contribution.py",
-      "tests/unit/sim/test_allocation_adaptive_contribution.py"
-    ]
   },
   "src/analytics/adaptive_hp_screen.py": {
     "testing": "tests/unit/analytics/test_adaptive_hp_screen.py"
   },
+  "src/analytics/attribution.py": {
+    "testing": "tests/unit/analytics/test_attribution.py"
+  },
+  "src/analytics/blends.py": {
+    "testing": "tests/unit/analytics/test_blends.py"
+  },
+  "src/analytics/cadence.py": {
+    "testing": "tests/unit/analytics/test_cadence.py"
+  },
+  "src/analytics/metrics.py": {
+    "testing": "tests/unit/analytics/test_metrics.py"
+  },
+  "src/analytics/overlap.py": {
+    "testing": "tests/unit/analytics/test_overlap.py"
+  },
+  "src/analytics/regimes.py": {
+    "testing": "tests/unit/analytics/test_regimes.py"
+  },
+  "src/analytics/reserve_usage.py": {
+    "testing": "tests/unit/analytics/test_reserve_usage.py"
+  },
+  "src/analytics/us_vehicles.py": {
+    "testing": "tests/unit/analytics/test_us_vehicles.py"
+  },
+  "src/cli.py": {
+    "testing": "tests/unit/test_cli.py"
+  },
+  "src/data/calendar.py": {
+    "testing": "tests/unit/data/test_calendar.py"
+  },
+  "src/data/catalog.py": {
+    "testing": "tests/unit/data/test_catalog.py"
+  },
+  "src/data/etf_metadata_bootstrap.py": {
+    "testing": "tests/unit/data/test_etf_metadata_bootstrap.py"
+  },
+  "src/data/fetch.py": {
+    "testing": "tests/unit/data/test_fetch.py"
+  },
+  "src/data/nport_ingest.py": {
+    "testing": "tests/unit/data/test_nport_ingest.py"
+  },
+  "src/data/pipeline.py": {
+    "testing": "tests/unit/data/test_pipeline.py"
+  },
+  "src/data/pit.py": {
+    "testing": "tests/unit/data/test_pit.py"
+  },
+  "src/data/providers/base.py": {
+    "testing": [
+      "tests/unit/data/test_ecos.py",
+      "tests/unit/data/test_fred.py",
+      "tests/unit/data/test_french.py",
+      "tests/unit/data/test_tiingo.py",
+      "tests/unit/test_cli.py"
+    ]
+  },
+  "src/data/providers/ecos.py": {
+    "testing": "tests/unit/data/test_ecos.py"
+  },
+  "src/data/providers/fred.py": {
+    "testing": [
+      "tests/unit/data/test_fred.py",
+      "tests/unit/test_cli.py"
+    ]
+  },
+  "src/data/providers/french.py": {
+    "testing": "tests/unit/data/test_french.py"
+  },
+  "src/data/providers/sec_nport.py": {
+    "testing": "tests/unit/data/providers/test_sec_nport.py"
+  },
+  "src/data/providers/tiingo.py": {
+    "testing": "tests/unit/data/test_tiingo.py"
+  },
+  "src/data/quality.py": {
+    "testing": "tests/unit/data/test_quality.py"
+  },
+  "src/data/query.py": {
+    "testing": "tests/unit/data/test_query.py"
+  },
+  "src/data/schedule.py": {
+    "testing": "tests/unit/data/test_schedule.py"
+  },
+  "src/data/schema.py": {
+    "testing": "tests/unit/data/test_schema.py"
+  },
+  "src/data/secrets.py": {
+    "testing": "tests/unit/data/test_secrets.py"
+  },
+  "src/data/settings.py": {
+    "testing": "tests/unit/data/test_settings.py"
+  },
+  "src/data/storage.py": {
+    "testing": "tests/unit/data/test_storage.py"
+  },
+  "src/etf/mapping.py": {
+    "testing": "tests/unit/etf/test_mapping.py"
+  },
+  "src/etf/score.py": {
+    "testing": "tests/unit/etf/test_score.py"
+  },
+  "src/etf/sleeves.py": {
+    "testing": "tests/unit/etf/test_sleeves.py"
+  },
+  "src/execution/broker.py": {
+    "testing": "tests/unit/execution/test_broker.py"
+  },
+  "src/execution/orders.py": {
+    "testing": "tests/unit/execution/test_orders.py"
+  },
+  "src/features/drawdown.py": {
+    "testing": "tests/unit/features/test_drawdown.py"
+  },
+  "src/features/factors.py": {
+    "testing": "tests/unit/features/test_factors.py"
+  },
+  "src/features/fx.py": {
+    "testing": "tests/unit/features/test_fx.py"
+  },
+  "src/features/kafi.py": {
+    "testing": "tests/unit/features/test_kafi.py"
+  },
+  "src/features/momentum.py": {
+    "testing": "tests/unit/features/test_momentum.py"
+  },
+  "src/features/returns.py": {
+    "testing": "tests/unit/features/test_returns.py"
+  },
+  "src/features/risk.py": {
+    "testing": "tests/unit/features/test_risk.py"
+  },
+  "src/policy/adaptive_contribution.py": {
+    "testing": "tests/unit/policy/test_adaptive_contribution.py"
+  },
+  "src/policy/contribution_shape.py": {
+    "testing": "tests/unit/policy/test_contribution_shape.py"
+  },
+  "src/policy/currency.py": {
+    "testing": "tests/unit/policy/test_currency.py"
+  },
+  "src/policy/kafi_deployment.py": {
+    "testing": "tests/unit/policy/test_kafi_deployment.py"
+  },
+  "src/policy/overlay.py": {
+    "testing": "tests/unit/policy/test_overlay.py"
+  },
+  "src/policy/reserve.py": {
+    "testing": "tests/unit/policy/test_reserve.py"
+  },
+  "src/policy/sizing.py": {
+    "testing": "tests/unit/policy/test_sizing.py"
+  },
+  "src/policy/targets.py": {
+    "testing": "tests/unit/policy/test_targets.py"
+  },
+  "src/policy/thesis.py": {
+    "testing": "tests/unit/policy/test_thesis.py"
+  },
+  "src/policy/tilt.py": {
+    "testing": "tests/unit/policy/test_tilt.py"
+  },
+  "src/sim/allocation.py": {
+    "testing": "tests/unit/sim/test_allocation.py"
+  },
+  "src/sim/baseline.py": {
+    "testing": "tests/unit/sim/test_baseline.py"
+  },
+  "src/sim/contribution.py": {
+    "testing": "tests/unit/sim/test_contribution.py"
+  },
+  "src/sim/lots.py": {
+    "testing": "tests/unit/sim/test_lots.py"
+  },
+  "src/sim/research_proxy.py": {
+    "testing": "tests/unit/sim/test_research_proxy.py"
+  },
+  "src/validation/ablation.py": {
+    "testing": "tests/unit/validation/test_ablation.py"
+  },
   "src/validation/accumulation_cohort.py": {
     "testing": "tests/unit/validation/test_accumulation_cohort.py"
+  },
+  "src/validation/bootstrap.py": {
+    "testing": "tests/unit/validation/test_bootstrap.py"
+  },
+  "src/validation/campaign.py": {
+    "testing": "tests/unit/validation/test_campaign.py"
+  },
+  "src/validation/evaluate.py": {
+    "testing": "tests/unit/validation/test_evaluate.py"
+  },
+  "src/validation/experiment.py": {
+    "testing": "tests/unit/validation/test_experiment.py"
+  },
+  "src/validation/feasibility.py": {
+    "testing": "tests/unit/validation/test_feasibility.py"
   },
   "src/validation/feasibility_audit.py": {
     "testing": "tests/unit/validation/test_feasibility_audit.py"
   },
-  "src/etf/sleeves.py": {
-    "architecture": "docs/architecture/02_policy_and_validation.md",
-    "testing": "tests/unit/etf/test_sleeves.py"
+  "src/validation/gate.py": {
+    "testing": "tests/unit/validation/test_gate.py"
   },
-  "src/policy/thesis.py": {
-    "architecture": "docs/architecture/02_policy_and_validation.md",
-    "testing": "tests/unit/policy/test_thesis.py"
+  "src/validation/registry.py": {
+    "testing": "tests/unit/validation/test_registry.py"
+  },
+  "src/validation/windows.py": {
+    "testing": "tests/unit/validation/test_windows.py"
   }
 }
