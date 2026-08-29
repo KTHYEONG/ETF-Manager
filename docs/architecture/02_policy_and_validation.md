@@ -46,7 +46,11 @@ also includes diagnostic-only tickers for operator ingest where not already a po
 | File status | `discovered`, `research`, `rejected`, `dormant` only |
 | Lifecycle | Runtime transitions via `transition_thesis`; no `ADOPTED` member |
 | Inspect | `run thesis` lists/loads registry; **never** an adoption gate |
-| Horizon | prospective uses `min_years`; evaluation cohort horizon is adaptive within `[min,target]` |
+| Horizon | primary evaluation uses `target_years` only when ≥1 cohort at target (step 12m); otherwise primary absent |
+| Surface | preregistered `horizon_surface` for `{60,84,96,120}` ∩ `[min,target]` with `cohort_count` via `rolling_cohorts` |
+| Meaning | frozen `ThesisMeaningSnapshot`: `thesis_status`/`vehicle_status`/`portfolio_status`/`historical_quality`/`history_available`/`evidence_sufficient`/`thin_sample_warning` |
+| Quality | `PROSPECTIVE_ONLY`→`PARTIAL_HISTORY`→`TARGET_THIN` (`TARGET_ROBUST` only with path bootstrap) |
+| Vehicle | `ACTIVE_PROXY` if median≥1.0; `REJECTED_PROXY` if median<1.0 and (cohort_ce<0.98 or median<0.98) |
 
 Seed theses: `ai_compute` (SOXX proxy), `ai_power_bottleneck` (GRID), `physical_automation`
 (BOTZ). Full v2 evolution roadmap: `docs/plans/v2_thesis_evolution.md`.
@@ -126,9 +130,9 @@ flowchart LR
 
 ### 4.6 Accumulation cohort (`run accumulation-cohort --config`)
 
-- Default horizon **120** months; `cohort_step_months` ∈ {1, 12, 36}
-- Overlapping cohorts are **dependent** — report median/worst/p10 and optional block bootstrap
-- **Reporting only** — does not replace the 36M CE adoption gate
+- Primary horizon is `target_months` only; fallback uses longest feasible surface month when primary absent
+- Overlapping cohorts are **dependent** — report median/worst/p10 and optional block bootstrap; `thin_sample_warning` when cohort_count<10
+- **Reporting only** — does not replace the 36M CE adoption gate; `horizon_surface` always emitted in thesis reports
 
 ### 4.7 Static DCA feasibility (`run audit-feasibility --config`)
 
