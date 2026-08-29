@@ -105,20 +105,66 @@ def test_inc_h3_path_ok_threshold() -> None:
 
 def test_inc_h4_buy_only_attribution_drift() -> None:
     # two snapshots, target 0.15, realized weights 0.10 then 0.20
-    # price_at returns 100, mark 1000, shares => weight = shares*price/mark
+    # price_at returns 100, mark 1000, shares => weight = shares*price*fx/mark with fx=1
     def price_at(d: date, ticker: str) -> float:
         assert ticker == "SOXX"
         return 100.0
 
+    def fx_at(d: date) -> float:
+        return 1.0
+
     cand = _make_result((1000.0, 1000.0), ({"SOXX": 1.0}, {"SOXX": 2.0}), terminal_real=2000.0)
     base = _make_result((1000.0, 1000.0), ({}, {}), terminal_real=1000.0)
-    attr = attribute_buy_only_soxx(candidate=cand, baseline=base, soxx_weight=0.15, price_at=price_at)
+    attr = attribute_buy_only_soxx(candidate=cand, baseline=base, soxx_weight=0.15, price_at=price_at, fx_at=fx_at)
     assert attr.mean_abs_weight_drift == pytest.approx(0.05, abs=1e-9)
     assert attr.terminal_weight_drift == pytest.approx(0.05, abs=1e-9)
     assert attr.target_soxx_weight == pytest.approx(0.15)
     assert attr.mean_realized_soxx_weight == pytest.approx(0.15, abs=1e-9)
     assert attr.terminal_realized_soxx_weight == pytest.approx(0.20, abs=1e-9)
     assert attr.incremental_wealth_ratio == pytest.approx(2.0)
+
+
+def test_inc_afx_fx_scales_realized_weight() -> None:
+    def price_at(d: date, ticker: str) -> float:
+        assert ticker == "SOXX"
+        return 10.0
+
+    def fx_at(d: date) -> float:
+        return 1300.0
+
+    cand = _make_result((13000.0,), ({"SOXX": 1.0},), terminal_real=13000.0)
+    base = _make_result((13000.0,), ({},), terminal_real=13000.0)
+    attr = attribute_buy_only_soxx(candidate=cand, baseline=base, soxx_weight=0.05, price_at=price_at, fx_at=fx_at)
+    assert attr.mean_realized_soxx_weight == pytest.approx(1.0, abs=1e-12)
+    assert attr.terminal_realized_soxx_weight == pytest.approx(1.0, abs=1e-12)
+
+
+def test_inc_afx_rejects_usd_over_krw_mark() -> None:
+    def price_at(d: date, ticker: str) -> float:
+        assert ticker == "SOXX"
+        return 100.0
+
+    def fx_at(d: date) -> float:
+        return 1.0
+
+    cand = _make_result((130000.0,), ({"SOXX": 1.0},), terminal_real=130000.0)
+    base = _make_result((130000.0,), ({},), terminal_real=130000.0)
+    with pytest.raises(ValueError):
+        attribute_buy_only_soxx(candidate=cand, baseline=base, soxx_weight=0.05, price_at=price_at, fx_at=fx_at)
+
+
+def test_inc_afx_weight_above_one_fails() -> None:
+    def price_at(d: date, ticker: str) -> float:
+        assert ticker == "SOXX"
+        return 10.0
+
+    def fx_at(d: date) -> float:
+        return 1300.0
+
+    cand = _make_result((13000.0,), ({"SOXX": 2.0},), terminal_real=13000.0)
+    base = _make_result((13000.0,), ({},), terminal_real=13000.0)
+    with pytest.raises(ValueError):
+        attribute_buy_only_soxx(candidate=cand, baseline=base, soxx_weight=0.05, price_at=price_at, fx_at=fx_at)
 
 
 def test_inc_h5_classify_portfolio_status() -> None:
