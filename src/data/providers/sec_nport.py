@@ -14,6 +14,7 @@ from src.data.schema import TS_DTYPE, Dataset, spec_for
 
 _PROVIDER: Final[str] = "sec"
 _SOURCE: Final[str] = "sec_nport"
+_PLACEHOLDER_CUSIPS: Final[frozenset[str]] = frozenset({"000000000", "00000000", "999999999"})
 
 
 def _normalize_key(name: str) -> str:
@@ -404,6 +405,13 @@ def normalize_nport_holdings(
     # Ensure weight_pct finite and in [0,100]
     base = base.with_columns(pl.col("weight_pct").cast(pl.Float64))
     base = base.filter(pl.col("weight_pct").is_not_null() & pl.col("weight_pct").is_finite() & (pl.col("weight_pct") >= 0) & (pl.col("weight_pct") <= 100))
+
+    base = base.with_columns(
+        pl.when(pl.col("cusip").is_in(list(_PLACEHOLDER_CUSIPS)))
+        .then(None)
+        .otherwise(pl.col("cusip"))
+        .alias("cusip")
+    )
 
     # Fill missing identifiers to null
     # Build final frame

@@ -69,15 +69,18 @@ availability rule (`FIXED_LAG`), never as value imputation.
 
 ```text
 data/
-├── raw/<provider>/<dataset>/<retrieved_date>/payload.{json,csv,zip}
-├── normalized/<dataset>/schema_version=<v>/part-*.parquet
-├── features/<feature_set>/<config_hash>/part-*.parquet
-└── manifests/<dataset>/<retrieved_date>.json
+├── raw/<provider>/<dataset>/<sha256>/payload.{json,csv,zip}
+├── raw/sec/nport/<quarter>.json          # pointer only (sha256 + content path, <8 KiB)
+├── normalized/<dataset>/schema_version=<v>/<sha256>.parquet
+├── manifests/<dataset>/<sha256>.json
+└── results/
+    ├── experiments/   # ablation / WF / cohort JSON
+    ├── audits/        # feasibility audits
+    └── thesis/        # thesis wave / incremental JSON
 ```
 
-`raw/` is append-only and never rewritten. `normalized/` is regenerated deterministically from
-`raw/` plus a normalization version. DuckDB is a read-only query view over `normalized/` and
-`features/`; it never holds authoritative state.
+`raw/` is content-addressed by sha256 and append-only. `normalized/` is regenerated deterministically from
+`raw/` plus a normalization version. `results/` holds machine outputs; `docs/results/` remains curated narrative only.
 
 ## 6. Manifest Record
 

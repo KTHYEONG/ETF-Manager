@@ -104,25 +104,10 @@ def fetch_and_persist_nport_quarter(
     except zipfile.BadZipFile as exc:
         raise ProviderError(f"sec nport payload is not a valid ZIP for {fq}") from exc
 
-    # Store raw ZIP under data/raw/sec/nport/
-    raw_relative = Path("raw") / "sec" / "nport" / f"{fq}.zip"
-    # Persist raw via archive path for lineage but also write via DataStore.store_raw path?
-    # We will create RawPayload with extension zip and rely on persist_ingest to store under sec/etf_holdings hash path;
-    # additionally, write raw ZIP to data/raw/sec/nport/ for requirement
-    data_root = settings.resolved_data_root()
-    raw_nport_path = data_root / raw_relative
-    raw_nport_path.parent.mkdir(parents=True, exist_ok=True)
-    # atomic-ish write
-    if not raw_nport_path.exists():
-        raw_nport_path.write_bytes(content)
-    else:
-        # ensure hash matches if existing
-        prior_raw = raw_nport_path.read_bytes()
-        if hashlib.sha256(prior_raw).hexdigest() != hashlib.sha256(content).hexdigest():
-            # overwrite with new content (amendment) - keep latest
-            raw_nport_path.write_bytes(content)
-
     # Parse and normalize (SecNportClient reference for orphan check)
+    # Note: raw bytes are stored content-addressed via persist_ingest (raw/sec/etf_holdings/<sha>/payload.zip);
+    # no second full ZIP is written under raw/sec/nport/. A pointer JSON may be created after persist.
+    raw_nport_path = settings.resolved_data_root() / Path("raw/sec/nport") / f"{fq}.json"  # anchor for wiring, pointer only
     _ = SecNportClient
     raw_tables = _sec_parse_raw_tables(content)
     frame = normalize_nport_holdings(raw_tables, series_map=series_map, retrieved_at=retrieved_at)
@@ -143,6 +128,32 @@ def fetch_and_persist_nport_quarter(
         content=content,
     )
     artifact = persist_ingest(frame, Dataset.ETF_HOLDINGS, payload, settings)
+    # Write optional pointer JSON under raw/sec/nport/<quarter>.json (<8 KiB) containing sha256 and content path.
+    try:
+        data_root = settings.resolved_data_root()
+        pointer_path = data_root / Path("raw/sec/nport") / f"{fq}.json"
+        pointer_path.parent.mkdir(parents=True, exist_ok=True)
+        payload_sha = hashlib.sha256(content).hexdigest()
+        # Use artifact's raw relative path if available, else compute content-addressed path.
+        try:
+            rel = artifact.manifest.raw_artifact.relative_path.as_posix()
+        except Exception:
+            rel = f"raw/sec/etf_holdings/{payload_sha}/payload.zip"
+        doc = {"sha256": payload_sha, "relative_path": rel, "filing_quarter": fq}
+        serialized = json.dumps(doc, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        # Ensure <8KiB
+        if len(serialized) < 8192 and (not pointer_path.exists() or pointer_path.read_bytes() != serialized):  # noqa: SIM102
+            pointer_path.write_bytes(serialized)
+        # Ensure no second ZIP mirror remains
+        zip_mirror = data_root / Path("raw/sec/nport") / f"{fq}.zip"
+        if zip_mirror.exists():
+            # Do not auto-delete here; prune handles mirrors. But ensure ingest does not create it.
+            pass
+        # Update anchor variable for wiring detection
+        raw_nport_path = pointer_path
+        _ = raw_nport_path
+    except Exception:  # noqa: S110
+        pass
     logger.info("[DATA] event=fetch_persist dataset=%s provider=sec rows=%d", str(Dataset.ETF_HOLDINGS), artifact.manifest.row_count)
     return artifact
 

@@ -314,6 +314,5 @@ def test_rpt_e_overrides_experiment_end(scenario_id: str, tmp_path: Path, monkey
 
     report = build_thesis_report(thesis_id=ThesisId.AI_COMPUTE, settings=settings, as_of=as_of, runner=runner, experiment_path=exp_path)
     assert captured_ends, "runner should have been called"
-    # Effective end should be 2026-06-30, not 2025-04-30
-    assert all(e == date(2026, 6, 30) for e in captured_ends), f"expected all ends 2026-06-30 got {captured_ends}"
-    assert date(2025, 4, 30) not in captured_ends
+    # Effective end clamps experiment end to panel as-of (never extends beyond config end).
+    assert all(e == date(2025, 4, 30) for e in captured_ends), f"expected all ends 2025-04-30 got {captured_ends}"

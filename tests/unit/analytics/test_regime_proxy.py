@@ -27,7 +27,7 @@ def test_reg_a_proxy_windows(scenario_id: str) -> None:
     )
 
     # Mock runner: proxy TW 1.1x QQQ on 2/3 windows, lose on 1
-    # Windows are pre_ai, bear_2022, recent_2023_2026 in that order
+    # Windows are pre_ai, bear_2022, recent_2023_2024 in that order
     # We'll track calls
     call_index = {"count": 0}
 

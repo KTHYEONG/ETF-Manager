@@ -128,8 +128,10 @@ def run_thesis_wave(
         lag_days=lag_days,
         freshness_status=freshness_status,
     )
-    # Write combined wave JSON under data/thesis_reports/wave_{as_of}.json
-    out_dir = settings.resolved_data_root() / "thesis_reports"
+    # Write combined wave JSON under data/results/thesis/wave_{as_of}.json
+    from src.data.paths import thesis_reports_dir
+
+    out_dir = thesis_reports_dir(settings)
     out_dir.mkdir(parents=True, exist_ok=True)
     safe_as_of = as_of.isoformat().replace(":", "-")
     wave_path = out_dir / f"wave_{safe_as_of}.json"

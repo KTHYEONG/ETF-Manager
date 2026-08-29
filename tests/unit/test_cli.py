@@ -1176,7 +1176,7 @@ def test_cli_abl_arm_registry(
     )
 
     assert exit_code == 0
-    reports = list((data_root / "experiments").glob("*_ablation_*.json"))
+    reports = list((data_root / "results" / "experiments").glob("*_ablation_*.json"))
     assert len(reports) >= 1
     written = json.loads(reports[0].read_text(encoding="utf-8"))
     assert len(written["arms"]) >= 1
@@ -1228,7 +1228,7 @@ def test_cli_wf_dispatch(
     exit_code = main(["run", "walk-forward", "--config", str(wf_path)])
 
     assert exit_code == 0
-    reports = list((data_root / "experiments").glob("*.json"))
+    reports = list((data_root / "results" / "experiments").glob("*.json"))
     assert len(reports) == 1
     written = json.loads(reports[0].read_text(encoding="utf-8"))
     assert "process_adopted_vs_baseline" in written
@@ -1359,7 +1359,7 @@ def test_cli_walk_forward_costs(
     exit_code = main(["run", "walk-forward-costs", "--config", str(wf_path)])
 
     assert exit_code == 0
-    reports = list((data_root / "experiments").glob("*_costs_*.json"))
+    reports = list((data_root / "results" / "experiments").glob("*_costs_*.json"))
     assert len(reports) == 1
     written = json.loads(reports[0].read_text(encoding="utf-8"))
     assert "all_scenarios_adopted" in written
@@ -1445,7 +1445,7 @@ def test_cli_walk_forward_proxy(
     exit_code = main(["run", "walk-forward-proxy", "--config", str(wf_path)])
 
     assert exit_code == 0
-    reports = list((data_root / "experiments").glob("*.json"))
+    reports = list((data_root / "results" / "experiments").glob("*.json"))
     assert len(reports) == 1
     written = json.loads(reports[0].read_text(encoding="utf-8"))
     assert "process_adopted_vs_baseline" in written
@@ -1652,7 +1652,7 @@ def test_cli_r_cadence_robustness(
     exit_code = main(["run", "cadence-robustness", "--config", str(config_path), "--seed", "7"])
 
     assert exit_code == 0
-    reports = list((data_root / "experiments").glob("*_robustness_*.json"))
+    reports = list((data_root / "results" / "experiments").glob("*_robustness_*.json"))
     assert len(reports) == 1
     written = json.loads(reports[0].read_text(encoding="utf-8"))
     assert written["robust_adopted"] is True

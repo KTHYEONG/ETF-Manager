@@ -6,11 +6,13 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING
+
+import polars as pl
 
 from src.data.quality import FindingSeverity, QualityFinding
 from src.data.query import load_as_of
 from src.data.schema import Dataset, spec_for
+from src.data.settings import DataSettings
 from src.data.storage import (
     DatasetArtifact,
     DatasetManifest,
@@ -20,12 +22,13 @@ from src.data.storage import (
     UntrustedDatasetError,
 )
 
-if TYPE_CHECKING:
-    import polars as pl
-
-    from src.data.settings import DataSettings
-
 logger = logging.getLogger(__name__)
+
+_CATALOG_FRAME_CACHE: dict[tuple[Dataset, str], pl.DataFrame] = {}
+
+
+def clear_catalog_frame_cache() -> None:
+    _CATALOG_FRAME_CACHE.clear()
 
 
 def latest_artifact(settings: DataSettings, dataset: Dataset) -> DatasetArtifact:
@@ -59,7 +62,11 @@ def latest_artifact(settings: DataSettings, dataset: Dataset) -> DatasetArtifact
             best_key, best_artifact = key, artifact
 
     assert best_artifact is not None
-    DataStore(settings).read_normalized(best_artifact, spec_for(dataset))
+    cache_key = (dataset, best_artifact.manifest.normalized_sha256)
+    cached = _CATALOG_FRAME_CACHE.get(cache_key)
+    if cached is None:
+        frame = DataStore(settings).read_normalized(best_artifact, spec_for(dataset))
+        _CATALOG_FRAME_CACHE[cache_key] = frame
     logger.info(
         "[DATA] event=catalog_latest dataset=%s sha=%s retrieved_at=%s",
         str(dataset),
@@ -76,7 +83,12 @@ def load_visible(settings: DataSettings, dataset: Dataset, decision_ts: datetime
         UntrustedDatasetError: When the latest partition fails any lineage check.
         ValueError: On a naive ``decision_ts``.
     """
-    frame = DataStore(settings).read_normalized(latest_artifact(settings, dataset), spec_for(dataset))
+    artifact = latest_artifact(settings, dataset)
+    cache_key = (dataset, artifact.manifest.normalized_sha256)
+    frame = _CATALOG_FRAME_CACHE.get(cache_key)
+    if frame is None:
+        frame = DataStore(settings).read_normalized(artifact, spec_for(dataset))
+        _CATALOG_FRAME_CACHE[cache_key] = frame
     visible = load_as_of(frame, dataset, decision_ts)
     logger.info("[DATA] event=catalog_visible dataset=%s rows=%d", str(dataset), visible.height)
     return visible

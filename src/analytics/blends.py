@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Final
 
 from src.analytics.regimes import QQQ_REGIME_WINDOWS
 from src.policy.targets import PolicyId
-from src.sim.allocation import AllocationConfig
+from src.sim.allocation import AllocationConfig, AllocationDataError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -68,30 +68,33 @@ def compare_qqq_blends(
     comparisons: list[BlendComparison] = []
     for name, start, end in windows:
         results: dict[str, AllocationResult] = {}
-        for recipe_id, weights in QQQ_BLEND_RECIPES:
-            if recipe_id == "vti":
-                config = AllocationConfig(
-                    policy=PolicyId.VTI,
-                    start=start,
-                    end=end,
-                    monthly_contribution_krw=float(contribution_krw),
-                )
-            elif recipe_id == "qqq":
-                config = AllocationConfig(
-                    policy=PolicyId.QQQ,
-                    start=start,
-                    end=end,
-                    monthly_contribution_krw=float(contribution_krw),
-                )
-            else:
-                config = AllocationConfig(
-                    policy=PolicyId.QQQ,
-                    start=start,
-                    end=end,
-                    monthly_contribution_krw=float(contribution_krw),
-                    targets_override=dict(weights),
-                )
-            results[recipe_id] = runner(config)
+        try:
+            for recipe_id, weights in QQQ_BLEND_RECIPES:
+                if recipe_id == "vti":
+                    config = AllocationConfig(
+                        policy=PolicyId.VTI,
+                        start=start,
+                        end=end,
+                        monthly_contribution_krw=float(contribution_krw),
+                    )
+                elif recipe_id == "qqq":
+                    config = AllocationConfig(
+                        policy=PolicyId.QQQ,
+                        start=start,
+                        end=end,
+                        monthly_contribution_krw=float(contribution_krw),
+                    )
+                else:
+                    config = AllocationConfig(
+                        policy=PolicyId.QQQ,
+                        start=start,
+                        end=end,
+                        monthly_contribution_krw=float(contribution_krw),
+                        targets_override=dict(weights),
+                    )
+                results[recipe_id] = runner(config)
+        except AllocationDataError:
+            continue
         counts = {len(result.snapshots) for result in results.values()}
         if len(counts) != 1:
             detail = ", ".join(f"{recipe}={len(results[recipe].snapshots)}" for recipe in results)
@@ -110,4 +113,6 @@ def compare_qqq_blends(
                     candidate=results[recipe_id],
                 )
             )
+    if not comparisons:
+        raise ValueError(f"no usable blend comparisons over {len(windows)} windows; every window lacked catalog coverage")
     return tuple(comparisons)
