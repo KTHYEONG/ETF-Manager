@@ -16,14 +16,18 @@ if TYPE_CHECKING:
     from src.validation.ablation import AblationReport
     from src.validation.experiment import ExperimentSpec
 
+from src.validation.prospective import ProspectiveFreezeRecord
+
 __all__ = [
     "ArmOutcome",
     "ExperimentRecord",
     "ExperimentRunRecord",
+    "ProspectiveFreezeRecord",
     "build_ablation_arm_outcomes",
     "freeze_baseline_config_hash",
     "make_experiment",
     "write_ablation_run_record",
+    "write_prospective_freeze_record",
 ]
 
 
@@ -220,5 +224,28 @@ def write_ablation_run_record(
     experiments_dir = settings.resolved_data_root() / "experiments"
     experiments_dir.mkdir(parents=True, exist_ok=True)
     out_path = experiments_dir / f"{spec.name}_ablation_{record.experiment_id}.json"
+    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return out_path
+
+
+def write_prospective_freeze_record(
+    *,
+    spec: ExperimentSpec,
+    freeze: ProspectiveFreezeRecord,
+    settings: DataSettings,
+) -> Path:
+    """Persist prospective freeze record under data/experiments."""
+    payload = {
+        "thesis_id": freeze.thesis_id,
+        "experiment_name": freeze.experiment_name,
+        "frozen_at": freeze.frozen_at.isoformat(),
+        "targets_hash": freeze.targets_hash,
+        "spec_name": spec.name,
+        "baseline_config_hash": freeze_baseline_config_hash(spec),
+    }
+    experiments_dir = settings.resolved_data_root() / "experiments"
+    experiments_dir.mkdir(parents=True, exist_ok=True)
+    safe_ts = freeze.frozen_at.isoformat().replace(":", "-")
+    out_path = experiments_dir / f"{spec.name}_prospective_{safe_ts}.json"
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return out_path
