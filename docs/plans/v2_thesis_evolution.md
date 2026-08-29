@@ -1,6 +1,8 @@
-# ETF-Manager v2: Thesis-Centric Evolution Plan
+# ETF-Manager v2: Next Plan
 
-Review of the v2 thesis-centric direction against `docs/architecture/` (post–Wave 0), Wave 1–3 results, and completed Wave 0 implementation.
+Post–thesis-wave roadmap. Normative contracts live in `docs/architecture/`. This file is the ordered **why and when**; it is not an adoption gate.
+
+Input: `docs/results/20260829_v2_thesis_wave_detail.md` and the 2026-08-29 review (`docs/feedback.md`). Judgment that diverges from that review is in §3.
 
 ---
 
@@ -8,348 +10,321 @@ Review of the v2 thesis-centric direction against `docs/architecture/` (post–W
 
 | | Question the system answers |
 | --- | --- |
-| **v1 (today)** | Which `PolicyId` / ETF mix beat QQQ on past accumulation under PIT data and CE gate? |
-| **v2 (target)** | Which **economic thesis** is structurally true, investable via listed vehicles, not already overpriced, and robust enough to challenge QQQ over a 10+ year horizon? |
+| **v1 (operational)** | Which `PolicyId` / ETF mix beat QQQ on past accumulation under PIT data and the 36M CE gate? |
+| **v2 kernel (built)** | Which **thesis JSON** maps to a sleeve/vehicle, with a five-slot evidence blob and a single decision enum? |
+| **v2 target (this plan)** | Which **economic thesis** is structurally true, investable via a clean listed vehicle, not already overpriced, and robust enough on **incremental** QQQ replacement to challenge the incumbent over 10+ years? |
 
-v2 is **not** “find the best backtest ETF.” Backtest becomes one step in a longer pipeline.
+v2 is not “find the best backtest ETF.” The 2026-08-29 wave showed the kernel can **wrap** ETF-proxy history in v2 shape. It cannot yet **verify** a thesis.
+
+**Next milestone:** complete one vertical slice (`ai_compute`) through the full chain below. Breadth (new industries, new tickers) is closed until that slice is the reference implementation.
+
+```text
+Thesis → Fundamental series → Structural change (fundamentals, not prices)
+      → Exposure / purity → Vehicle → Valuation / crowding
+      → Historical accumulation → Path robustness
+      → Incremental portfolio vs QQQ → Decision vector
+```
 
 ---
 
-## 2. Accepted v2 direction
+## 2. Current state (2026-08-29)
 
-Wave 3 (2026-08-28) showed the limit of v1:
+Operational lock is unchanged: `PolicyId.QQQ` 100%, buy-only, 36M CE adoption gate. Thesis-wave / report / decision **never** call `adoption_passes`.
 
-- 17 satellite arms (`QQQ + X%` via `targets_override`): **0/17** pass 36M CE > 1.02
-- SOXX 15%: 120M median ratio **1.0273** — reporting only, not adoption
-- BOTZ: **no** 120M cohort (history too short)
-- GRID: confirms prior reject
+### 2.1 What the kernel actually is
 
-The system cannot yet say separately:
-
-1. “AI power thesis may be structurally valid”
-2. “GRID is a dirty vehicle for that thesis”
-3. “Historical backtest is the wrong regime for this thesis”
-
-`next.md` correctly identifies that the **research unit** must change from ETF/`PolicyId` to **thesis**.
-
-Other directions we **accept**:
-
-- **Sleeve ≠ vehicle** — economic exposure vs listed ticker (`NASDAQ_100` / `QQQ` / `QQQM`)
-- **Falsifiers required** — every thesis must state what would prove it wrong
-- **Evidence as a vector** — structural / historical / valuation / overlap / crowding; **no magic composite score**
-- **QQQ stays operational incumbent** — goal is validated challenge, not “beat QQQ algorithm”
-- **Prospective OOS** for industries with short history (freeze weights, paper forward)
-- **Preregistration / hypothesis registry** — failed experiments kept, not discarded
-- **Strangler migration** — `next.md` §21 also says no big-bang rewrite
-
----
-
-## 3. What we defer or reject (for now)
-
-| `next.md` proposal | Why not now |
-| --- | --- |
-| Full `src/etf_manager/` tree (~50 modules) | 74 Python files today; rename breaks imports/tests with zero new research questions |
-| `sim→backtest`, `policy→portfolio`, CLI split | `cli.py` is large but functional; housekeeping after identity is used |
-| Holdings look-through / purity % | **No holdings code**; N-PORT PIT only from **2019Q4** (`01_data_contracts.md`) |
-| PELT / Bai-Perron / CUSUM on capex, MW, grid queue | **No such `Dataset`**; manual `QQQ_REGIME_WINDOWS` in `regimes.py` is honest reporting-only |
-| 120M CE as **operational adoption gate** | n=9 overlapping cohorts (Wave 2 target n≥10 unmet); dependent samples; 36M gate stays until sample rules pass |
-| YAML thesis configs | Project uses JSON + Pydantic `extra="forbid"`; no PyYAML dependency |
-| Research index backcast (2026 picks in 2010) | Violates I9/I10; historical leg = ETF proxy only |
-| Hansen SPA / scenario IRF / `live/` package | No identification strategy; ops/research seam already exists in architecture docs |
-| Collapsing five evidence slots to one number | `next.md` itself forbids this — **invariant** |
-
-**Principle:** add capability only when **data + contract** exist; do not rename folders to simulate progress.
-
----
-
-## 4. v1 architecture (current)
-
-Source: `docs/architecture/00_system_overview.md`, `02_policy_and_validation.md`.
-
-```text
-L1 Data → L2 Features → L3 Policy (PolicyId → targets)
-                              ↓
-L4 Simulation (ledger SSOT) → L5 Validation (CE / WF / cohorts)
-                              ↓
-L6 ETF mapping (optional)     Analytics (reporting only)
-```
-
-**Identity chain today:**
-
-```text
-PolicyId (qqq, vti, …) → resolve_targets → ticker weights → run_allocation
-```
-
-**Operational lock:** `PolicyId.QQQ` 100%, adaptive contribution locked.
-
-**Adoption gate:** 36M (and WF) CE ratio > `1 + delta0 × modules` for γ ∈ {2, 5, 10}.
-
-**Research satellites:** `targets_override` on `PolicyId.QQQ` — still ticker-centric, not thesis-centric.
-
-**Already built (feedback / Wave 1–3):**
-
-| Done | Module / artifact |
-| --- | --- |
-| Wave 1 | 120M rolling accumulation cohort (`validation/accumulation_cohort.py`) — **reporting only** |
-| Wave 2 | Historical coverage audit, static-DCA ingest, CPI to 2000, prices to 2006 |
-| Wave 3 | Independent satellite matrix, `research_satellite_tickers()` |
-| Earlier | `targets_override`, I9 research proxy, I12 experiment registry, factor attribution, PaperBroker |
-
----
-
-## 5. v2 architecture (target)
-
-Logical pipeline from `next.md` §2 — **phased**, not all at once:
-
-```text
-WORLD (macro / industry change)
-  ↓
-THESIS (hypothesis + falsifiers + lifecycle)
-  ↓
-FUNDAMENTAL EVIDENCE     ← needs new datasets (later)
-  ↓
-EXPOSURE / PURITY        ← needs N-PORT holdings (later)
-  ↓
-SLEEVE → VEHICLE         ← Wave 0
-  ↓
-VALUATION / EXPECTATIONS ← later
-  ↓
-HISTORICAL VALIDATION    ← existing sim + validation
-  ↓
-REGIME / ROBUSTNESS      ← reporting → computed (later)
-  ↓
-DECISION (reject / watch / prospective / operational challenger)
-```
-
-**New identity chain (after Wave 0+):**
-
-```text
-ThesisId → candidate SleeveId(s) → resolve_vehicle → VehicleId (QQQ, SOXX, …)
-                ↓
-         ExperimentSpec / targets_override / PolicyId (operational alias)
-                ↓
-         run_allocation (unchanged engine)
-```
-
-**What stays the same:**
-
-- PIT data layer (`src/data/*`), invariants I1–I12
-- Ledger-centric simulation (`src/sim/allocation.py`)
-- CE gate for operational adoption (until a future wave passes explicit sample-size rules)
-- QQQ operational lock unless a **separate** adoption wave succeeds
-
-**Module placement (strangler — inside existing `src/`, not `etf_manager/`):**
-
-| Concern | v1 location | v2 addition (incremental) |
+| Layer | Status | Honest reading |
 | --- | --- | --- |
-| Sleeve / vehicle IDs | `policy/targets.py` (`UsEquityUniverse`) | `etf/sleeves.py` |
-| Thesis registry | — | `policy/thesis.py` + `configs/theses/*.json` |
-| Exposure / overlap | — | new module **after** holdings ingest |
-| Evidence slots | — | declared on `ThesisSpec`, computed in analytics **reporting only** |
-| Regime | `analytics/regimes.py` (manual windows) | changepoint **only on ingested fundamental series** |
-| Experiments | `validation/experiment.py` | optional `thesis_id`, preregistration flags |
-| CLI | `cli.py` | `run thesis` (inspect); split later if needed |
+| Thesis registry, sleeve/vehicle IDs, `run thesis` | Done | Identity kernel |
+| Experiment `thesis_id` + preregistration flags | Done | Experiments can speak thesis |
+| N-PORT overlap slot | Done, **audit required** | `overlap_a_only_wt` ≈ 195 for SOXX is not a valid portfolio weight |
+| 120M / adaptive-horizon accumulation | Done | Vehicle history vs QQQ, overlapping cohorts |
+| Regime windows in the `structural` slot | Done, **misnamed** | Market-regime performance, not structural evidence |
+| Adaptive horizon (`span ≥ min_years` ⇒ not prospective) | Done, **over-steers** | Longest horizon with n≥1 became the decision input (BOTZ 96M n=1) |
+| `ThesisDecision` enum | Done, **too coarse** | One of reject / watch / prospective / continue_research |
+| Singleton-window CE γ=2 on thesis-wave | Done, **γ is a no-op** | `certainty_equivalent((W,), γ=2)` = W; ratio is a single terminal-wealth ratio |
+| Valuation / crowding / fundamental PIT / change-point | **Not implemented** | Slots print `unknown` |
+| Paired path bootstrap / buy-only attribution / incremental 5–15% | **Not implemented** | Next research question is unanswered |
+| Catalog as-of vs report date | **Stale** | Report 2026-08-29; panel as-of **2025-04-30** (~16 months) |
+
+The 2026-08-29 wave is therefore: **ETF proxy historical performance, packaged as v2.** That is useful. It is not a thesis verdict.
+
+### 2.2 Board after the wave
+
+The experiment that ran was `SOXX/GRID/BOTZ 100%` vs `QQQ 100%`. That answers “was the proxy vehicle historically stronger than QQQ?”, not “does a QQQ sleeve replacement help?”.
+
+| Thesis | Thesis | Vehicle | Portfolio vs QQQ | Next |
+| --- | --- | --- | --- | --- |
+| **AI Compute** | Unresolved, strongest research lead | SOXX = **active proxy** (strong 120M surface; n=8 overlapping) | **Unverified** | Finish the v2 slice; do not adopt |
+| **AI Power Bottleneck** | Unresolved — do **not** close | GRID = **rejected proxy** | None | Rebuild exposure; no more GRID vs QQQ backtests |
+| **Physical Automation** | Unresolved — do **not** close | BOTZ = **rejected proxy** (short history, strongly negative surface) | None | Split industrial vs humanoid; last |
+| QQQ | — | Incumbent | — | **Operational 100%** |
+
+SOXX 120M (step 12M): median ratio 1.278, p10 1.099, worst 1.088, win rate 100%, n=8. Adjacent cohorts share 108/120 = 90% of months. Treat this as **consistent observed history**, not eight independent 10-year experiments.
+
+GRID 120M: median 0.788, worst 0.625, win rate 0%. Vehicle evidence is strongly negative. Thesis evidence is still missing.
+
+BOTZ: 8.62y span, 96M n=1 ratio 0.613. History exists; evidence for a 10y objective does not. Low QQQ overlap (reported 2%) plus weak accumulation implies **not a hidden QQQ clone** — still a failed proxy.
+
+### 2.3 Confirmed code facts (integrity, not policy)
+
+1. **SOXX decision enum is `continue_research`.** Watch requires `median ≥ 1` **and** `ce < 1.02`. CE ratio 1.20 does not take the watch branch. The contradiction is in **report prose** (`docs/results/20260829_v2_thesis_wave_detail.md` §5.1 / §6.2: “hurdle not met”, “below adoption”), not in `synthesize_thesis_decision` for this case.
+2. **Thesis-wave CE is a singleton wealth ratio.** `_ce_ratio_gamma_2` passes a 1-tuple into `certainty_equivalent`. Comparing that number to the **operational** 36M cohort CE hurdle (`1 + 0.02 × modules`) mixes two instruments.
+3. **Holdings PIT likely aggregates multiple `report_date`s.** `overlap.py` keeps max `filing_date` per `(etf_ticker, report_date, holding_id)`, then sums `weight_pct`. Two ~100% snapshots explain `a_only_weight_pct ≈ 195`. Until this is fixed, do not treat “SOXX/QQQ overlap = 11.5%” as a fact.
 
 ---
 
-## 6. Side-by-side comparison
+## 3. Judgment vs the review memo
 
-| Dimension | v1 (`docs/architecture/`) | v2 (evolution target) |
+The review’s diagnosis is accepted: **depth over breadth; AI Compute first; do not adopt SOXX; do not kill Power/Automation theses because GRID/BOTZ failed.** The following are deliberate changes to the memo’s 10-step serial list.
+
+| Review memo | This plan | Why |
 | --- | --- | --- |
-| Primary research object | `PolicyId` / ETF ticker | `ThesisId` |
-| “Why buy?” | Implicit in policy name | Explicit thesis + causal chain + **falsifiers** |
-| Economic vs listed | Partial (`UsEquityUniverse` → ticker) | First-class `SleeveId` / `VehicleId` |
-| ETF = industry? | Often assumed (GRID = power) | Measured purity / overlap when data exists |
-| Regime | Fixed reporting windows | Fundamental changepoint (future) |
-| Horizon vs gate | 36M CE adoption; 120M report-only | 120M as **additional** objective when n/rules OK |
-| Short history | “insufficient history → reject” | **Prospective challenger** + frozen paper OOS |
-| Experiment discipline | JSON specs + registry | + preregistration, failed-run registry |
-| Package layout | `src/data`, `policy`, `sim`, … | Same roots; new files beside old |
-| Operational policy | QQQ 100% | QQQ 100% until formal challenger adoption |
+| 10 serial steps (integrity → … → Physical last) | Six waves A–F; C parallel with B; D has two tracks | Serializing refresh behind schema, and valuation behind every historical test, delays the actual incremental-portfolio question |
+| Refresh “market + FX/CPI + holdings + fundamentals + valuation” as one P0 | **Wave C = existing series only** | Fundamentals/valuation have no `Dataset` yet; inventing a refresh of missing data is not a wave |
+| AI Compute fundamentals **then** robustness **then** 5/10/15 | **Track H and Track F in parallel** after A+C; 5/10/15 after Track H robustness | Incremental QQQ replacement is the research question; it does not require CAPEX ingest. **Adoption** still requires both tracks |
+| Keep using CE vs 0.98 / 1.02 as thesis gates, plus boundary tests | **Demote singleton CE from thesis gates in Wave A** | γ=2 on one wealth is the wealth ratio. Operational 36M CE is unchanged |
+| Build a 10-dimension decision object in one redesign | Wave B splits **statuses that already have meaning**; remaining slots stay explicit `UNKNOWN` | No empty valuation/crowding machinery before data (same rule as the old plan) |
+| `n ≥ 10` → quality warning | Same, and **do not wait for n=10 overlapping 120M cohorts** | 10y × 1y step needs a long calendar; even n=10 is 90% overlapping |
+| Longest feasible horizon as eval | Target 120M primary when it exists; **preregistered multi-horizon surface** secondary; never n=1-at-max-h as the sole reject | BOTZ 96M n=1 was the over-correction after removing the 120M hard-code |
+| SOXX 100 vs QQQ 100 as current result | Keep as **vehicle diagnostic** only | Next **portfolio** experiment is preregistered 5/10/15, not 17–30% |
+
+Deferred or rejected (unchanged from the old plan, still correct):
+
+- Big-bang `src/etf_manager/` rename, YAML thesis configs, 2010 backcast of 2026 research indexes, Hansen SPA, collapsing evidence to one score, changing QQQ ops because a research report looks strong.
+
+**Principle:** add capability when **data + contract** exist. Fix lying reports before generating more of them.
 
 ---
 
-## 7. Phased work order
+## 4. Accepted v2 direction (still binding)
 
-Execute in order. **Do not skip Wave 0** — later waves depend on stable IDs.
+- **Research unit = thesis**, not ticker / `PolicyId`.
+- **Sleeve ≠ vehicle** — economic exposure vs listed implementation.
+- **Falsifiers required** on every thesis.
+- **Evidence is a vector** — no magic composite score. A final `CONTINUE_RESEARCH` is a summary, not a score.
+- **QQQ stays operational incumbent** until a **separate** adoption wave. Research cannot write `operational_challenger` from JSON.
+- **Preregistration** — weights and universe locked before seeing results; failed runs stay in the registry.
+- **Strangler** — new files beside `src/`; no layout theater.
+- **Analytics never call `adoption_passes`.**
+
+---
+
+## 5. Completed kernel (do not re-implement)
+
+Old plan Waves 0–7 are **first-pass complete**. Do not reopen identity, `run thesis`, experiment `thesis_id`, N-PORT ingest, or E2E `run thesis-wave` as if they were missing.
+
+| Old wave | Delivered |
+| --- | --- |
+| 0 Identity | `ThesisId` / `SleeveId` / `VehicleId`, `configs/theses/*.json`, `run thesis` |
+| 1 Experiments | `thesis_id`, preregistration flags, registry |
+| 2 Holdings | N-PORT `ETF_HOLDINGS`, overlap slot (semantics broken — Wave A) |
+| 3 Evidence vector | Five slots; valuation/crowding/true structural still empty |
+| 4 Long horizon | 120M reporter; `long_horizon_passes` still `n≥10` gate (Wave B demotes) |
+| 5 Prospective | `span < min_years`; mixed up with evidence sufficiency (Wave B splits) |
+| 6 Regime | Price-window proxy stuffed into `structural` (Wave B renames) |
+| 7 E2E | `run thesis-wave` 2025-04-30 |
+
+---
+
+## 6. Work order
+
+Execute A before D. **C is a research-run gate**, not a schema-code gate: ingest may start during B. E and F do not start in code until D has a non-lying evidence vector and at least one complete track.
 
 ```mermaid
 flowchart LR
-  W0[Wave 0 Identity] --> W1[Wave 1 Experiments]
-  W1 --> W2[Wave 2 Holdings]
-  W2 --> W3[Wave 3 Evidence]
-  W3 --> W4[Wave 4 Long horizon]
-  W4 --> W5[Wave 5 Prospective]
-  W5 --> W6[Wave 6 Regime data]
-  W6 --> W7[Wave 7 E2E theses]
+  A[A Integrity] --> B[B Meaning]
+  A --> C[C PIT refresh]
+  B --> D[D AI Compute slice]
+  C --> D
+  D --> E[E AI Power reopen]
+  E --> F[F Physical Automation]
 ```
 
-### Wave 0 — Research identity kernel **(next implement)**
+```text
+D = Track H (historical / incremental)  ∥  Track F (fundamental / valuation)
+Operational Challenger only if both tracks complete AND incremental 5/10/15 survives
+```
 
-**Spec:** `docs/specs/v2_research_identity_contract.json`
+### Wave A — Integrity (P0)
 
-| Deliverable | Description |
+Stop the evidence system from contradicting its own numbers. No new theses, no new tickers, no operational change.
+
+| Deliverable | Rule |
 | --- | --- |
-| `SleeveId`, `VehicleId`, `resolve_vehicle` | `NASDAQ_100` → `QQQ`; satellites → SOXX/GRID/BOTZ |
-| `ThesisSpec` + registry loader | JSON in `configs/theses/`, falsifiers required |
-| Three seed theses | `ai_compute`, `ai_power_bottleneck`, `physical_automation` |
-| `run thesis` CLI | Inspect/list only; **no** adoption gate |
-| Wire `UNIVERSE_VEHICLE` | Derived from `resolve_vehicle`; QQQ lock unchanged |
+| Report / rationale vs booleans | `ce ≥ 1.02` cannot emit “CE hurdle fail” / “below adoption”. Rationale strings are generated from the same predicates as the enum |
+| Boundary tests | 0.98 / 1.00 / 1.02 on whatever CE **distribution** remains in the thesis path; plus median 1.0 |
+| Singleton CE | Document as wealth ratio. **Remove it from thesis reject/watch gates.** If thesis CE stays, it is CE of the **cohort wealth vector**, not a 1-tuple |
+| Operational CE | Unchanged: ablation / walk-forward 36M `adoption_passes` |
+| Holdings PIT | One as-of snapshot per vehicle: latest `report_date` with `available_at ≤ t`. `Σ weight_pct = 100 ± ε` or fail-closed. `a_only_weight_pct ∈ [0, 100]` |
+| Overlap citation | Until the audit passes, reports must not claim a precise SOXX/QQQ overlap percentage as fact |
 
-**Exit criteria:** contract tests pass; operational QQQ and 36M CE unchanged.
+**Exit:** unit tests for the invariants; overlap fixture with two report dates does not double-count; regenerated wave markdown cannot say SOXX CE 1.20 failed a 1.02 hurdle.
 
-**Command:** `/implement docs/specs/v2_research_identity_contract.json`
-
----
-
-### Wave 1 — Experiments speak thesis
-
-| Deliverable | Description |
-| --- | --- |
-| `thesis_id` on `CandidateSpec` | Optional link from experiment JSON to registry |
-| Preregistration fields | `weights_locked`, `universe_locked`, baseline frozen at run time |
-| Failed experiment registry | All arms logged (extend `validation/registry.py`) |
-| Update `docs/architecture/02_policy_and_validation.md` | Design line: Thesis → Sleeve → Vehicle |
-
-**Gate:** still 36M CE; no operational change.
+**Next spec:** integrity of `thesis_decision` / `thesis_report` / `overlap` / CE wiring.
 
 ---
 
-### Wave 2 — Holdings & overlap (data-blocked)
+### Wave B — Meaning (schema, not more ETF runs)
 
-| Prerequisite | SEC N-PORT ingest, PIT from 2019Q4 |
-| --- | --- |
-| `Dataset` + provider | Holdings weights, as-of filing date |
-| Overlap / purity | e.g. “SOXX add = mostly NVDA overlap with QQQ?” |
-| GRID thesis purity | Reporting-only % buckets |
+Separate questions the single enum currently smashes together.
 
-**Cannot start** until ingest schema and manifests exist.
-
----
-
-### Wave 3 — Computed evidence (reporting only)
-
-Fill `ThesisSpec` evidence vector from **existing** engines:
-
-| Slot | Source |
-| --- | --- |
-| Historical accumulation | 120M cohort reporter, factor attribution |
-| Structural | placeholder until Wave 6 fundamentals |
-| Valuation / crowding | placeholder until valuation datasets |
-| Overlap | Wave 2 holdings |
-
-**Invariant:** evidence output never calls `adoption_passes`.
-
----
-
-### Wave 4 — Long-horizon objective (optional additive)
-
-| Deliverable | Description |
-| --- | --- |
-| `objective=long_horizon` on `ExperimentSpec` | Alongside `ce`, not replacing until approved |
-| Fail-closed rules | Min cohort count, overlap dependence disclosure |
-| SOXX-style divergence | Document when 120M median and 36M CE disagree |
-
-**Not** an automatic operational lock change.
-
----
-
-### Wave 5 — Prospective OOS
-
-| Deliverable | Description |
-| --- | --- |
-| Freeze timestamp + immutable weights | Extend I12 lineage |
-| Paper portfolio forward | `PaperBroker` on calendar time |
-| Status `PROSPECTIVE_CHALLENGER` | Runtime transition from `ThesisSpec` |
-
-For BOTZ-like cases: history insufficient → prospective, not permanent reject.
-
----
-
-### Wave 6 — Fundamental regime (data-blocked)
-
-| Prerequisite | Ingest capex, industry series with PIT `available_at` |
-| --- | --- |
-| Changepoint detector | On fundamentals only — **not** price returns |
-| Thesis health | Align breaks across series → confidence, not auto-trade |
-
-Replaces manual windows for **structural** claims only; keep manual windows for stress reports.
-
----
-
-### Wave 7 — End-to-end research waves
-
-Run three seed theses through full pipeline:
-
-| Thesis | Role |
-| --- | --- |
-| AI Compute | Strong history + strong fundamentals proxy (SOXX) |
-| AI Power Bottleneck | Weak history + regime story (GRID) |
-| Physical Automation | Short history + prospective path (BOTZ) |
-
-**Output shape** (from `next.md` §19): thesis report with evidence vector + decision + next falsifier — not a ticker rank table.
-
----
-
-### Deferred housekeeping (after Wave 1+)
-
-Only when thesis IDs are used in production experiments:
-
-- Split `cli.py` into `app/cli/*.py`
-- Rename modules (`sim`→`backtest`, etc.) with compatibility shims
-- Optional `research/` vs `execution/` package boundaries
-
----
-
-## 8. Seed theses (Wave 0 configs)
-
-| ThesisId | Proxy vehicle | Typical question |
+| Dimension | Meaning | AI Compute now (expected) |
 | --- | --- | --- |
-| `ai_compute` | SOXX | Does semiconductor exposure add durable 10y accumulation vs QQQ? |
-| `ai_power_bottleneck` | GRID | Is grid/power exposure structurally accelerating despite weak ETF history? |
-| `physical_automation` | BOTZ | Is commercialization lag vs hype visible; is prospective OOS needed? |
+| `thesis_status` | Is the economic phenomenon real? | `UNRESOLVED` |
+| `vehicle_status` | Does this ETF carry the thesis? | SOXX `ACTIVE_PROXY`; GRID/BOTZ `REJECTED_PROXY` |
+| `portfolio_status` | Does a QQQ sleeve replacement help? | `UNVERIFIED` |
+| `historical_quality` | How much 10y-objective evidence exists? | `TARGET_THIN` (120M exists, overlapping n=8) |
+| `history_available` | Is there enough calendar to evaluate at all? | yes for all three current proxies |
+| `evidence_sufficient` | Enough for the **target** horizon? | SOXX/GRID yes-thin; BOTZ no |
 
-Do **not** add 30 ETFs until these three paths work in code.
+`historical_quality` values:
+
+| Status | Meaning |
+| --- | --- |
+| `TARGET_ROBUST` | Target 120M with disclosed dependence still acceptable under Wave D bootstrap rules |
+| `TARGET_THIN` | 120M possible; sample or overlap too weak to treat as confirmation |
+| `PARTIAL_HISTORY` | ≥ min horizon, < target (BOTZ today) |
+| `PROSPECTIVE_ONLY` | < min horizon — freeze and paper-forward, do not reject for “no 120M” |
+
+**Horizon:** keep **120M as primary** when at least one cohort exists. Always emit a **preregistered secondary surface** `{60, 84, 96, 120}` months (integer years already in `[min, target]`). Do not promote “max h with n≥1” to the decision. BOTZ: `PARTIAL_HISTORY` + strongly negative surface → `REJECTED_PROXY`; thesis stays `UNRESOLVED`.
+
+**Rename:** current `structural` slot → `market_regime_performance`. True `structural` remains `UNKNOWN / NOT_IMPLEMENTED` until Track F change-points on **fundamental** series (not returns). Price-up → “thesis confirmed” is forbidden.
+
+**Long-horizon flag:** `n ≥ 10` becomes a **quality warning**, not a pass/fail that blocks `continue_research`. Report `raw_cohort_count`, temporal overlap ratio, calendar span, path-bootstrap probability, worst/p05 together.
+
+**Decision object:** vector of the dimensions above; a single `ThesisDecision` is derived last. Do not fill valuation/crowding/structural with placeholder formulas.
+
+**Exit:** GRID reject is a **vehicle** reject; AI Power thesis is not `rejected`. BOTZ same. Reports cannot label regime windows as structural evidence.
 
 ---
 
-## 9. Invariants (all waves)
+### Wave C — PIT refresh (existing series)
+
+Bring **already contracted** series to the latest PIT as-of. Do not pretend to refresh datasets that do not exist.
+
+| In scope | Out of scope (Track F) |
+| --- | --- |
+| ETF/equity prices, USD/KRW, KRW CPI | Hyperscaler CAPEX, semiconductor revenue, valuation multiples |
+| N-PORT holdings (post Wave A snapshot rule) | Crowding / revisions products |
+
+**As-of policy:** thesis-wave `as_of` is the catalog’s last admissible timestamp, and the lag to calendar-today is printed. A report dated D with panel as-of D−16 months is a **quality failure**.
+
+**Exit:** operator ingest + quality gate; a thesis-wave as-of in 2026-H2 (or documented provider hard stop, not a silent 2025-04 panel).
+
+C may run in parallel with B. **D research conclusions require A and C.** B’s schema can land on the old panel.
+
+---
+
+### Wave D — AI Compute reference slice
+
+One thesis, end-to-end. No fifth industry. SOXX remains the **active historical proxy**, not an adopted sleeve.
+
+#### Track H — Historical completeness (after A+C)
+
+Answers: *If we replace 5/10/15% of QQQ with SOXX under buy-only, does 10y real accumulation improve, and is that improvement allocation skill or buy-only drift?*
+
+| Item | Rule |
+| --- | --- |
+| **Not** the next decision experiment | SOXX 100 vs QQQ 100 (vehicle diagnostic only) |
+| **Preregistered arms** | `QQQ95/SOXX5`, `QQQ90/SOXX10`, `QQQ85/SOXX15` vs `QQQ100` |
+| **Forbidden after seeing results** | 17 / 20 / 25 / 30% or any widened grid |
+| Path robustness | Paired **monthly path** block bootstrap (not resampling overlapping terminal ratios); walk-forward; cost/FX stress; regime windows as `market_regime` |
+| Buy-only attribution | Realized SOXX weight path vs target; contribution vs price-drift; incremental wealth vs QQQ. Required before any “15% worked” claim |
+| Metrics (all arms) | 120M real wealth, cohort CE γ∈{2,5,10}, XIRR, p10/worst, path-bootstrap tail, realized weight, MDD/recovery, incremental attribution |
+
+Track H may conclude `portfolio_status = HISTORICALLY_PROMISING` or `HISTORICALLY_WEAK`. That is **not** operational adoption.
+
+#### Track F — Fundamental completeness (after A+B; new datasets)
+
+Answers: *Is the AI compute economic phenomenon happening, is SOXX a clean vehicle, and is the market already priced for it?*
+
+| Item | Rule |
+| --- | --- |
+| Purity / look-through | Post–Wave A holdings; QQQ overlap as **incremental** exposure, not a vanity % |
+| Thesis exposure | Semiconductor / foundry / equipment revenue mapping — companies first, ticker second |
+| Structural | Change-point on PIT fundamental series (CAPEX, related industry series). **Not** price windows |
+| Valuation / crowding | Independent slots; `UNKNOWN` until a contracted dataset exists |
+| Falsifiers | Monitor `capex_structural_slowdown` (and peers) as data, not as a string on the report |
+
+**Do not start Track F ingest until `Dataset` + `available_at` + quality policy exist** (`01_data_contracts.md`).
+
+#### Wave D exit
+
+| Label | Condition |
+| --- | --- |
+| Slice usable as reference | Track H **or** Track F produces honest, schema-correct artifacts other theses can copy |
+| `Operational Challenger` | **Both** tracks complete, incremental 5/10/15 still alive under robustness + attribution, valuation/crowding not `UNKNOWN`, separate adoption wave still required for QQQ lock |
+| Not this wave | New ETFs, AI Power code, BOTZ revival, raising SOXX weight after looking at 15% |
+
+---
+
+### Wave E — AI Power reopen (after D reference exists)
+
+GRID is archived `REJECTED_PROXY`. **Do not re-run GRID 100 vs QQQ 100.**
+
+Order: causal chain → fundamental series → beneficiaries → holdings → revenue exposure → ETF purity → **then** a new vehicle (GRID / PAVE / XLI / research basket). The same architecture as Wave D, not a new satellite matrix.
+
+Thesis stays `UNRESOLVED` until that chain can falsify it. Dormant is allowed **after** structural/fundamental evidence exists and fails — not after a dirty ETF backtest.
+
+---
+
+### Wave F — Physical Automation (last)
+
+BOTZ archived `REJECTED_PROXY`. Split **Industrial Automation** vs **Humanoid Optionality**. Define company/revenue exposure before picking a ticker. Prospective frozen paper only if history is truly `PROSPECTIVE_ONLY`, not because a 96M n=1 print was ugly.
+
+---
+
+## 7. Invariants (all waves)
 
 | Rule | Enforcement |
 | --- | --- |
 | I1–I12 | Unchanged |
-| QQQ operational lock | Until explicit adoption wave |
-| 36M CE gate | Default adoption until Wave 4 rules approved |
-| Thesis registry ≠ adoption | JSON cannot set `operational_challenger` or adopt |
+| QQQ operational lock | Until an **explicit adoption wave** (not thesis-wave, not JSON status) |
+| 36M CE gate | Default **PolicyId** adoption; thesis-wave does not call it |
+| Thesis registry ≠ adoption | Config cannot set operational challenger |
 | Analytics / thesis inspect | Never call `adoption_passes` |
-| No 2010 backcast of 2026 research index | I9/I10 |
-| Five evidence dimensions | Never merged into one score |
-| `from src.*` public layout | No `etf_manager/` rename without dedicated migration wave |
+| No 2010 backcast of 2026 indexes | I9 / I10 |
+| Evidence vector | Never merged into one score |
+| `from src.*` layout | No `etf_manager/` rename |
+| Vehicle reject ≠ thesis reject | GRID/BOTZ fail as proxies; theses stay open until fundamentals speak |
+| No post-hoc weight grid | 5/10/15 locked before Track H runs |
+| Structural ≠ price regime | Rename in B; fill only from fundamental change-points |
 
 ---
 
-## 10. How this relates to `docs/architecture/`
+## 8. Closed for now
+
+- New industry theses or a broader ETF screen.
+- Treating SOXX 100% vs QQQ 100% as the portfolio question.
+- Adopting any SOXX allocation.
+- Closing AI Power or Physical Automation **theses** because GRID/BOTZ lost.
+- Calling current regime windows structural confirmation.
+- Treating overlapping cohort `n` as independent sample size.
+- Researcher-chosen weights 17%+ after seeing SOXX 100% results.
+- Repeating GRID or BOTZ as backtest vehicles.
+
+---
+
+## 9. Relation to `docs/architecture/`
 
 | Document | Role |
 | --- | --- |
-| `docs/architecture/*` | **Current** normative contracts (v1 layers, thesis registry Wave 0, I1–I12, CE math) |
-| `docs/plans/v2_thesis_evolution.md` (this file) | **Evolution** roadmap and deferred v2 scope |
+| `docs/architecture/*` | **Current** contracts (layers, I1–I12, 36M CE, Wave 0 identity) |
+| This file | **Evolution** order after the kernel |
 
-When Wave 0 lands, update **`00_system_overview.md`** module map and **`02_policy_and_validation.md`** design principle **surgically** (English, ≤300 lines per file). Do not duplicate this plan into architecture docs.
+When A/B land, update **`00_system_overview.md`** (evidence/decision nodes) and **`02_policy_and_validation.md`** (horizon, prospective, roadmap table) surgically. English, ≤300 lines per file. Do not paste this plan into architecture docs.
+
+`02_policy_and_validation.md` §7 still lists kernel waves as done; append A–F there only after the corresponding spec is implemented.
 
 ---
 
-## 11. Immediate next step
+## 10. Immediate next step
 
 ```text
-Wave 0: implement thesis / sleeve / vehicle identity
-        → configs/theses/*.json (3 files)
-        → run thesis (inspect)
-        → zero change to QQQ operations or CE gate
+Wave A: thesis report/decision cannot contradict metrics;
+        singleton CE is not a thesis gate;
+        holdings overlap is one PIT snapshot with weights ≈ 100%.
 ```
 
-```bash
-/implement docs/specs/v2_research_identity_contract.json
-```
-
-After Wave 0: sync architecture tables, then spec Wave 1 (experiment `thesis_id` + preregistration).
+Spec the integrity contract (decision predicates, CE wiring, overlap snapshot), then `/implement` that spec. Do not start Track H 5/10/15 or new industry work until A (and C before any new **conclusion**) is done.
