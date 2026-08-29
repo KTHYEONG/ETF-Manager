@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ from src.validation.prospective import (
     ProspectiveEligibility,
     evaluate_prospective_eligibility,
     resolve_evaluation_horizon,
+    resolve_horizon_surface,
     resolve_proxy_history_span,
 )
 
@@ -152,7 +154,24 @@ def build_thesis_report(
     except Exception:
         evaluation_horizon = None
 
-    # Long horizon verdict from accumulation cohort (adaptive horizon)
+    # Horizon surface for preregistered months
+    horizon_surface: tuple = ()  # type: ignore[type-arg]
+    surface_start: date | None = None
+    surface_end: date | None = None
+    try:
+        if experiment_path is not None:
+            surface_start, surface_end = evidence_spec.start, evidence_spec.end
+        else:
+            try:
+                ps2, pe2 = resolve_proxy_history_span(thesis=thesis, settings=settings, as_of=as_of)
+                surface_start, surface_end = ps2, pe2
+            except Exception:
+                surface_start, surface_end = evidence_spec.start, evidence_spec.end
+        horizon_surface = resolve_horizon_surface(thesis=thesis, catalog_start=surface_start, catalog_end=surface_end)
+    except Exception:
+        horizon_surface = ()
+
+    # Long horizon verdict from accumulation cohort (primary target only)
     long_horizon: LongHorizonVerdict | None = None
     cohort_ce_ratio: float | None = None
     try:
@@ -170,6 +189,34 @@ def build_thesis_report(
         long_horizon = None
         cohort_ce_ratio = None
 
+    # Fallback when primary absent but history_available: longest feasible surface month
+    fallback_horizon_months: int | None = None
+    if evaluation_horizon is None and horizon_surface:
+        try:
+            span_days_fb = (surface_end - surface_start).days if surface_start is not None and surface_end is not None else 0
+            span_years_fb = span_days_fb / 365.25
+            history_available_fb = span_years_fb >= float(thesis.horizon.min_years)
+        except Exception:  # noqa: BLE001
+            history_available_fb = False
+        if history_available_fb:
+            feasible = [p for p in horizon_surface if p.cohort_count >= 1]
+            if feasible:
+                fallback_point = max(feasible, key=lambda p: p.horizon_months)
+                fallback_horizon_months = int(fallback_point.horizon_months)
+                # At most one fallback accumulation
+                try:
+                    from src.validation.accumulation_cohort import run_accumulation_cohort_report
+
+                    fb_report = run_accumulation_cohort_report(
+                        evidence_spec, runner, horizon_months=fallback_horizon_months, step_months=12, bootstrap_paths=400, seed=7
+                    )
+                    if long_horizon is None:
+                        long_horizon = long_horizon_passes(fb_report)
+                        if cohort_ce_ratio is None:
+                            cohort_ce_ratio = _cohort_ce_ratio_gamma_2(fb_report)
+                except Exception:  # noqa: BLE001,S110
+                    pass
+
     # Prospective eligibility from primary proxy listing span (not full catalog)
     prospective: ProspectiveEligibility
     try:
@@ -177,7 +224,7 @@ def build_thesis_report(
         prospective = evaluate_prospective_eligibility(
             thesis=thesis, catalog_start=proxy_start, catalog_end=proxy_end
         )
-        # When span >= min_years but no feasible cohort horizon, keep prospective False (history attempted as insufficient_data)
+        # When span >= min_years but no feasible cohort horizon, keep prospective False
         if evaluation_horizon is None:
             try:
                 span_years_check = (proxy_end - proxy_start).days / 365.25
@@ -201,15 +248,93 @@ def build_thesis_report(
     suggested_status = ThesisStatus.PROSPECTIVE_CHALLENGER if prospective.eligible else thesis.status
     next_falsifier = thesis.falsifiers[0] if thesis.falsifiers else ""
 
-    # Divergence when CE and long horizon metrics coexist
+    # Divergence with meaning inputs and horizon surface
     divergence: Mapping[str, object] | None = None
-    if long_horizon is not None and terminal_wealth_ratio is not None:
+    # Build divergence whenever we have any metrics or surface to emit
+    should_emit = (long_horizon is not None and terminal_wealth_ratio is not None) or bool(horizon_surface) or fallback_horizon_months is not None
+    if should_emit:
+        # Determine median for divergence
+        median: float | None = None
+        if long_horizon is not None:
+            median = float(long_horizon.median_ratio)
+        if evidence.historical.status == "computed":
+            with contextlib.suppress(Exception):
+                median = float(evidence.historical.metrics.get("median_ratio", median if median is not None else 0))
+        # fallback median when evidence not computed but terminal exists
+        if median is None and terminal_wealth_ratio is not None:
+            median = float(terminal_wealth_ratio)
+
+        div: dict[str, object] = {}
+        if long_horizon is not None:
+            div["long_horizon_passes"] = bool(long_horizon.passes)
+            div["median_ratio"] = float(median) if median is not None else float(long_horizon.median_ratio)
+            div["long_horizon_median"] = float(long_horizon.median_ratio)
+            div["cohort_count"] = int(long_horizon.cohort_count)
+            div["overlap_dependence_disclosed"] = bool(long_horizon.overlap_dependence_disclosed)
+        elif median is not None:
+            div["median_ratio"] = float(median)
+        if terminal_wealth_ratio is not None:
+            div["terminal_wealth_ratio"] = float(terminal_wealth_ratio)
+        if cohort_ce_ratio is not None:
+            div["cohort_ce_ratio_gamma_2"] = float(cohort_ce_ratio)
+            div["ce_ratio_gamma_2"] = float(cohort_ce_ratio)
+        if evidence.historical.status == "computed":
+            with contextlib.suppress(Exception):
+                div["historical_median_ratio"] = float(evidence.historical.metrics.get("median_ratio", median if median is not None else 0))
+        # horizon surface emission
+        div["horizon_surface"] = tuple({"horizon_months": int(p.horizon_months), "cohort_count": int(p.cohort_count)} for p in horizon_surface)
+        if evaluation_horizon is not None:
+            div["evaluated_horizon_months"] = int(evaluation_horizon.horizon_months)
+            div["target_years"] = int(thesis.horizon.target_years)
+            div["span_capped"] = bool(evaluation_horizon.span_capped)
+        else:
+            div["evaluated_horizon_months"] = 0
+            div["target_years"] = int(thesis.horizon.target_years)
+            div["span_capped"] = False
+            if fallback_horizon_months is not None:
+                div["fallback_horizon_months"] = int(fallback_horizon_months)
+        # meaning inputs via classify
+        try:
+            from src.analytics.thesis_meaning import classify_thesis_meaning
+
+            # Derive primary count for meaning: use evaluated horizon cohort_count if present else None
+            primary_count: int | None = None
+            if evaluation_horizon is not None and long_horizon is not None:
+                # need to check if long_horizon came from fallback; fallback case already has fallback_horizon_months
+                if fallback_horizon_months is None:
+                    primary_count = int(long_horizon.cohort_count) if long_horizon is not None else None
+                else:
+                    primary_count = None
+            # fallback for BOTZ-like where evidence.historical may have no count should stay None
+            # median and ce already derived
+            span_years_mean = float(prospective.catalog_span_years)
+            overlap_disclosed = bool(long_horizon.overlap_dependence_disclosed) if long_horizon is not None else False
+            meaning = classify_thesis_meaning(
+                span_years=span_years_mean,
+                min_years=int(thesis.horizon.min_years),
+                target_years=int(thesis.horizon.target_years),
+                primary_cohort_count=primary_count,
+                median_ratio=median,
+                cohort_ce_ratio=cohort_ce_ratio,
+                overlap_dependence_disclosed=overlap_disclosed,
+            )
+            div["historical_quality"] = meaning.historical_quality.value
+            div["history_available"] = bool(meaning.history_available)
+            div["evidence_sufficient"] = bool(meaning.evidence_sufficient)
+            div["vehicle_status"] = meaning.vehicle_status.value
+            div["thesis_status"] = meaning.thesis_status.value
+            div["portfolio_status"] = meaning.portfolio_status.value
+            div["thin_sample_warning"] = bool(meaning.thin_sample_warning)
+        except Exception:  # noqa: BLE001,S110
+            pass
+        divergence = div
+    elif long_horizon is not None and terminal_wealth_ratio is not None:
         median = (
             float(evidence.historical.metrics.get("median_ratio", long_horizon.median_ratio))
             if evidence.historical.status == "computed"
             else float(long_horizon.median_ratio)
         )
-        div: dict[str, object] = {
+        div2: dict[str, object] = {
             "long_horizon_passes": bool(long_horizon.passes),
             "median_ratio": float(median),
             "terminal_wealth_ratio": float(terminal_wealth_ratio),
@@ -218,21 +343,19 @@ def build_thesis_report(
             "overlap_dependence_disclosed": bool(long_horizon.overlap_dependence_disclosed),
         }
         if cohort_ce_ratio is not None:
-            div["cohort_ce_ratio_gamma_2"] = float(cohort_ce_ratio)
-            # transitional alias only to cohort CE
-            div["ce_ratio_gamma_2"] = float(cohort_ce_ratio)
+            div2["cohort_ce_ratio_gamma_2"] = float(cohort_ce_ratio)
+            div2["ce_ratio_gamma_2"] = float(cohort_ce_ratio)
         if evidence.historical.status == "computed":
-            div["historical_median_ratio"] = float(evidence.historical.metrics.get("median_ratio", median))
+            div2["historical_median_ratio"] = float(evidence.historical.metrics.get("median_ratio", median))
         if evaluation_horizon is not None:
-            div["evaluated_horizon_months"] = int(evaluation_horizon.horizon_months)
-            div["target_years"] = int(thesis.horizon.target_years)
-            div["span_capped"] = bool(evaluation_horizon.span_capped)
+            div2["evaluated_horizon_months"] = int(evaluation_horizon.horizon_months)
+            div2["target_years"] = int(thesis.horizon.target_years)
+            div2["span_capped"] = bool(evaluation_horizon.span_capped)
         else:
-            # Fallback still include horizon fields for compliance when no feasible horizon but long_horizon missing won't be here
-            div["evaluated_horizon_months"] = 0
-            div["target_years"] = int(thesis.horizon.target_years)
-            div["span_capped"] = False
-        divergence = div
+            div2["evaluated_horizon_months"] = 0
+            div2["target_years"] = int(thesis.horizon.target_years)
+            div2["span_capped"] = False
+        divergence = div2
 
     return ThesisReport(
         thesis_id=thesis_id,
@@ -253,6 +376,7 @@ def write_thesis_report(report: ThesisReport, settings: DataSettings) -> Path:
         "evidence": {
             "historical": {"status": report.evidence.historical.status, "summary": report.evidence.historical.summary, "metrics": dict(report.evidence.historical.metrics)},
             "structural": {"status": report.evidence.structural.status, "summary": report.evidence.structural.summary, "metrics": dict(report.evidence.structural.metrics)},
+            "market_regime": {"status": report.evidence.market_regime.status, "summary": report.evidence.market_regime.summary, "metrics": dict(report.evidence.market_regime.metrics)},
             "valuation": {"status": report.evidence.valuation.status, "summary": report.evidence.valuation.summary, "metrics": dict(report.evidence.valuation.metrics)},
             "overlap": {"status": report.evidence.overlap.status, "summary": report.evidence.overlap.summary, "metrics": dict(report.evidence.overlap.metrics)},
             "crowding": {"status": report.evidence.crowding.status, "summary": report.evidence.crowding.summary, "metrics": dict(report.evidence.crowding.metrics)},
