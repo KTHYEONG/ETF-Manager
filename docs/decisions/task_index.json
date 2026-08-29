@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_TRACK_H_ATTRIBUTION_FX",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_V2_TRACK_H_ATTRIBUTION_FX",
+      "domain": "quant",
+      "title": "Track H (v2): buy-only SOXX attribution FX integrity (KRW-consistent weights)",
+      "why": "Track H incremental run reported historically_promising but mean_realized_soxx_weight was ~1e-4 vs targets 5/10/15% because attribute_buy_only_soxx omitted usdkrw in shares*px/mark_krw; drift ≈ target invalidated buy-only claims.",
+      "resolution": "Added fx_at to attribute_buy_only_soxx (w=shares*px_usd*usdkrw/mark_krw), _make_fx_at PIT Dataset.FX, WEIGHT_UPPER_EPS=1e-3 and MIN_REALIZED_FRAC_OF_TARGET=0.05 fail-closed guards; wired in run_incremental_portfolio; contract tests INC-AFX + H4 fx_at=1.0; architecture §4.9 KRW formula; fresh panel E2E 2026-08-28 historically_promising with mean_realized ≈ target.",
+      "impact": "QQQ 100% operational and adoption_passes unchanged; thesis-incremental never calls adoption_passes; superseded 2025-05-30 attribution near-zero weights; operator must CPI backfill from 2000-01-01 after thesis-panel ingest to avoid early-cohort PIT gap."
+    },
+    {
       "task_id": "TASK_V2_TRACK_H_INCREMENTAL",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_V2_TRACK_H_INCREMENTAL",
