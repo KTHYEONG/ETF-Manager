@@ -262,3 +262,52 @@ def test_ev_adaptive_horizon_not_hardcoded_120(tmp_path: Path, monkeypatch: pyte
     snapshot = compute_evidence_vector(thesis=thesis, settings=settings, as_of=as_of, runner=runner)
     assert captured.get("horizon_months") == 96
     assert snapshot.historical.status == "computed"
+
+
+def test_ev_market_regime_not_structural(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.analytics.thesis_evidence import compute_evidence_vector
+    from src.analytics.thesis_evidence import EvidenceSlot
+
+    thesis = ThesisSpec(
+        id=ThesisId.AI_COMPUTE,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["f1"],
+        candidate_sleeves=["ai_semiconductor"],
+        historical_proxies=["SOXX"],
+    )
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2025, 4, 30, tzinfo=UTC)
+
+    def fake_regime(*args, **kwargs):
+        return EvidenceSlot(status="computed", summary="regime proxy computed", metrics={"windows_tested": 3})
+
+    monkeypatch.setattr("src.analytics.regime_proxy.compute_regime_proxy_slot", fake_regime)
+
+    def fake_load_visible(settings, dataset, decision_ts):
+        if dataset == Dataset.ETF_HOLDINGS:
+            raise ValueError("no holdings")
+        import polars as pl
+
+        return pl.DataFrame()
+
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_load_visible)
+
+    def runner(config: AllocationConfig) -> AllocationResult:
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=100.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=100.0,
+            xirr_real=0.0,
+        )
+
+    snapshot = compute_evidence_vector(thesis=thesis, settings=settings, as_of=as_of, runner=runner, include_regime=True)
+    assert snapshot.market_regime.status in ("computed", "insufficient_data")
+    assert snapshot.structural.status == "unknown"
+    assert ("not implemented" in snapshot.structural.summary.lower() or "fundamental" in snapshot.structural.summary.lower())

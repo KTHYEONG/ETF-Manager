@@ -195,3 +195,32 @@ def test_dec_j_watch_uses_cohort_ce_not_terminal_wealth(scenario_id: str) -> Non
     )
     rec = synthesize_thesis_decision(report)
     assert rec.decision == ThesisDecision.WATCH
+
+
+def test_dec_k_watch_ignores_thin_sample_flag() -> None:
+    report = _make_report(
+        prospective_eligible=False,
+        divergence={"median_ratio": 1.05, "cohort_ce_ratio_gamma_2": 0.99, "long_horizon_passes": True},
+        long_horizon_passes=True,
+        long_horizon_median=1.05,
+    )
+    rec = synthesize_thesis_decision(report)
+    assert rec.decision == ThesisDecision.WATCH
+    assert hasattr(rec, "meaning")
+    # thin_sample_warning may be True or False but meaning must exist
+
+
+def test_dec_l_reject_keeps_thesis_unresolved() -> None:
+    from src.analytics.thesis_meaning import ThesisEvidenceStatus, VehicleEvidenceStatus
+
+    report = _make_report(
+        prospective_eligible=False,
+        divergence={"median_ratio": 0.61, "cohort_ce_ratio_gamma_2": 0.56, "long_horizon_passes": False},
+        long_horizon_passes=False,
+        long_horizon_median=0.61,
+        historical_median=0.61,
+    )
+    rec = synthesize_thesis_decision(report)
+    assert rec.decision == ThesisDecision.REJECT
+    assert rec.meaning.thesis_status == ThesisEvidenceStatus.UNRESOLVED
+    assert rec.meaning.vehicle_status == VehicleEvidenceStatus.REJECTED_PROXY
