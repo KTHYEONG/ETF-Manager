@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_TRACK_H_INCREMENTAL",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_V2_TRACK_H_INCREMENTAL",
+      "domain": "quant",
+      "title": "Wave D (v2): Track H incremental portfolio — QQQ95/90/85 vs QQQ100",
+      "why": "Wave D / Track H: thesis-wave answered SOXX100 vehicle diagnostic only; portfolio_status stuck UNVERIFIED; no preregistered 5/10/15% arms, buy-only attribution, or paired monthly path bootstrap.",
+      "resolution": "Added analytics/incremental_portfolio.py (INCREMENTAL_SOXX_WEIGHTS, paired_path_block_bootstrap, attribute_buy_only_soxx, classify_portfolio_status, run_incremental_portfolio with fail-closed PIT price_at + XNYS session clamp); PortfolioEvidenceStatus HISTORICALLY_PROMISING/WEAK + classify_thesis_meaning portfolio_status kwarg; CLI run thesis-incremental (STALE gate like thesis-wave); preregistered experiment m_thesis_ai_compute_soxx_inc_5_10_15 + experiment_map ai_compute_incremental; architecture §4.9; contract tests INC-H1..H7 + CLI parser.",
+      "impact": "QQQ 100% operational and adoption_passes unchanged; thesis-incremental never calls adoption_passes; 2025-05-30 run (allow-stale): portfolio_status historically_promising (median_ratio≥1 + path bootstrap ok on all three arms); buy-only realized SOXX weight near zero vs target — attribution drift disclosed for follow-up; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_THESIS_PIT_REFRESH",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_V2_THESIS_PIT_REFRESH",

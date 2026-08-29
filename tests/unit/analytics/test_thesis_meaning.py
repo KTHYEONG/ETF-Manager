@@ -85,3 +85,28 @@ def test_mean_d_never_target_robust_without_bootstrap() -> None:
         path_bootstrap_ok=True,
     )
     assert snap_robust.historical_quality == HistoricalQuality.TARGET_ROBUST
+
+
+def test_inc_h7_meaning_default_unverified() -> None:
+    snap = classify_thesis_meaning(
+        span_years=18.67,
+        min_years=5,
+        target_years=10,
+        primary_cohort_count=8,
+        median_ratio=1.278,
+        cohort_ce_ratio=1.20,
+        overlap_dependence_disclosed=True,
+    )
+    assert snap.portfolio_status == PortfolioEvidenceStatus.UNVERIFIED
+    # explicit portfolio_status should be honored
+    snap2 = classify_thesis_meaning(
+        span_years=18.67,
+        min_years=5,
+        target_years=10,
+        primary_cohort_count=8,
+        median_ratio=1.278,
+        cohort_ce_ratio=1.20,
+        overlap_dependence_disclosed=True,
+        portfolio_status=PortfolioEvidenceStatus.HISTORICALLY_PROMISING,
+    )
+    assert snap2.portfolio_status == PortfolioEvidenceStatus.HISTORICALLY_PROMISING

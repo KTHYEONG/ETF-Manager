@@ -22,6 +22,7 @@ from src.analytics.overlap import pairwise_overlap, thesis_overlap_vs_incumbent
 from src.analytics.regimes import QQQ_REGIME_WINDOWS, compare_policy_regimes
 from src.analytics.reserve_usage import compare_qqq_reserve
 from src.analytics.thesis_evidence import compute_evidence_vector
+from src.analytics.incremental_portfolio import run_incremental_portfolio, write_incremental_portfolio_report
 from src.analytics.thesis_report import build_thesis_report, write_thesis_report
 from src.analytics.thesis_wave import run_thesis_wave
 from src.analytics.us_vehicles import (
@@ -450,6 +451,16 @@ def _build_parser() -> _Parser:
     )
     thesis_wave.add_argument("--as-of", dest="as_of", default=None, help="ISO datetime for wave as-of (default now)")
     thesis_wave.add_argument("--allow-stale", action="store_true", help="Allow stale panel without hard-stop")
+    thesis_incremental = run_targets.add_parser(
+        "thesis-incremental",
+        help="Run Track H incremental portfolio (QQQ95/90/85 vs QQQ100) with attribution and path bootstrap",
+    )
+    thesis_incremental.add_argument("--thesis-id", dest="thesis_id", default="ai_compute", help="Thesis id (default ai_compute)")
+    thesis_incremental.add_argument("--as-of", dest="as_of", default=None, help="ISO datetime for as-of (default panel_as_of)")
+    thesis_incremental.add_argument("--allow-stale", action="store_true", help="Allow stale panel without hard-stop")
+    thesis_incremental.add_argument("--seed", type=int, default=7, help="Bootstrap RNG seed")
+    thesis_incremental.add_argument("--bootstrap-paths", type=int, default=400, help="Bootstrap paths for path bootstrap")
+    thesis_incremental.add_argument("--contribution-krw", type=float, default=1_000_000, help="Monthly contribution KRW")
     return parser
 
 
@@ -750,6 +761,16 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
             settings=DataSettings(),
             allow_stale=bool(getattr(args, "allow_stale", False)),
+        )
+    if args.target == "thesis-incremental":
+        return run_thesis_incremental_command(
+            thesis_id=str(getattr(args, "thesis_id", "ai_compute")),
+            as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
+            settings=DataSettings(),
+            seed=int(getattr(args, "seed", 7)),
+            bootstrap_paths=int(getattr(args, "bootstrap_paths", 400)),
+            allow_stale=bool(getattr(args, "allow_stale", False)),
+            contribution_krw=float(getattr(args, "contribution_krw", 1_000_000)),
         )
     raise _UsageError(f"unsupported target {args.target!r}")
 
@@ -1272,6 +1293,113 @@ def run_thesis_wave_command(*, as_of: str | None, settings: DataSettings, allow_
         len(wave.failures),
     )
     return 1 if wave.failures else 0
+
+
+def run_thesis_incremental_command(
+    *,
+    thesis_id: str,
+    as_of: str | None,
+    settings: DataSettings,
+    seed: int,
+    bootstrap_paths: int,
+    allow_stale: bool = False,
+    contribution_krw: float = 1_000_000,
+) -> int:
+    """Run Track H incremental portfolio; panel gate like thesis-wave; never adoption_passes."""
+    _anchor = "run thesis-incremental"
+    _ = run_incremental_portfolio
+    _ = write_incremental_portfolio_report
+    from datetime import datetime
+
+    _ = resolve_catalog_panel_as_of
+    _anchor_now = datetime.now(UTC)
+    try:
+        if as_of is not None:
+            as_of_dt = datetime.fromisoformat(as_of)
+            if as_of_dt.tzinfo is None:
+                as_of_dt = as_of_dt.replace(tzinfo=UTC)
+            try:
+                _ = resolve_catalog_panel_as_of(settings, reference_now=as_of_dt)
+                from src.data.catalog import latest_artifact
+                from src.data.schema import Dataset, spec_for
+                from src.data.storage import DataStore
+
+                try:
+                    latest = latest_artifact(settings, Dataset.PRICES)
+                    frame = DataStore(settings).read_normalized(latest, spec_for(Dataset.PRICES))
+                    max_d = frame.get_column("date").max()
+                    if isinstance(max_d, date) and as_of_dt.date() > max_d:
+                        raise ValueError(f"explicit --as-of {as_of_dt.isoformat()} is after last catalog price session {max_d.isoformat()}")
+                except ValueError:
+                    raise
+                except Exception:  # noqa: S110
+                    pass
+            except ValueError:
+                raise
+            except Exception:  # noqa: S110
+                pass
+        else:
+            try:
+                as_of_dt = resolve_catalog_panel_as_of(settings, reference_now=datetime.now(UTC)).panel_as_of
+            except Exception as exc:
+                logger.error("[DATA] event=thesis_incremental_panel_failed reason=%s", exc)
+                return 1
+        from src.data.panel_freshness import PanelFreshnessStatus
+
+        try:
+            gate_report = resolve_catalog_panel_as_of(settings, reference_now=datetime.now(UTC))
+        except Exception as exc:
+            logger.error("[DATA] event=thesis_incremental_panel_failed reason=%s", exc)
+            return 1
+        if gate_report.status == PanelFreshnessStatus.STALE:
+            hard = load_panel_hard_stop()
+            gate_report = apply_hard_stop(gate_report, hard)
+            if gate_report.status != PanelFreshnessStatus.HARD_STOP_ACK and not allow_stale:
+                logger.error("[DATA] event=thesis_incremental_stale panel_as_of=%s lag_days=%d", gate_report.panel_as_of.isoformat(), gate_report.lag_days)
+                return 1
+        elif gate_report.status == PanelFreshnessStatus.INSUFFICIENT_DATA:
+            logger.error("[DATA] event=thesis_incremental_insufficient_data reason=insufficient catalog")
+            return 1
+        logger.info("[DATA] event=thesis_incremental_panel panel_as_of=%s lag_days=%d status=%s", gate_report.panel_as_of.isoformat(), gate_report.lag_days, gate_report.status.value)
+        # validate thesis_id
+        from src.policy.thesis import ThesisId
+
+        try:
+            tid = ThesisId(thesis_id)
+        except ValueError as exc:
+            logger.error("[DATA] event=thesis_incremental_failed reason=%s", exc)
+            return 2
+        if tid != ThesisId.AI_COMPUTE:
+            logger.error("[DATA] event=thesis_incremental_failed reason=only ai_compute supported")
+            return 2
+        from src.sim.allocation import run_allocation_from_store
+
+        def _runner(config):  # type: ignore[no-untyped-def]
+            return run_allocation_from_store(config, settings)
+
+        report = run_incremental_portfolio(
+            settings=settings,
+            as_of=as_of_dt,
+            runner=_runner,
+            contribution_krw=float(contribution_krw),
+            bootstrap_paths=int(bootstrap_paths),
+            seed=int(seed),
+            panel_report=gate_report,
+        )
+        out_path = Path(f"docs/results/{as_of_dt.date().isoformat()}_incremental_{thesis_id}.json")
+        # also write under data root for history
+        write_incremental_portfolio_report(report, out_path)
+        # also write under data dir
+        try:
+            data_path = settings.resolved_data_root() / "thesis_reports" / f"incremental_{thesis_id}_{as_of_dt.date().isoformat()}.json"
+            write_incremental_portfolio_report(report, data_path)
+        except Exception:  # noqa: S110
+            pass
+        logger.info("[DATA] event=thesis_incremental_done thesis_id=%s portfolio_status=%s arms=%d", thesis_id, report.portfolio_status.value, len(report.arms))
+    except (ValueError, OSError) as exc:
+        logger.error("[DATA] event=thesis_incremental_failed reason=%s", exc)
+        return 1
+    return 0
 
 
 def run_baseline_command(
