@@ -233,5 +233,9 @@
   },
   "src/validation/windows.py": {
     "testing": "tests/unit/validation/test_windows.py"
+  },
+  "src/analytics/thesis_meaning.py": {
+    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "testing": "tests/unit/analytics/test_thesis_meaning.py"
   }
 }

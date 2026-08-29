@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_THESIS_MEANING",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_V2_THESIS_MEANING",
+      "domain": "quant",
+      "title": "Wave B (v2): thesis meaning vector + target-primary horizon",
+      "why": "Wave B / thesis_meaning: one ThesisDecision collapsed thesis/vehicle/portfolio; resolve_evaluation_horizon promoted max-h-with-n≥1 (BOTZ 96M) to primary; long_horizon_passes gated WATCH; regime proxy lived in structural slot.",
+      "resolution": "Added analytics/thesis_meaning.py (ThesisMeaningSnapshot, classify_thesis_meaning M-2..M-6); prospective.py target-only resolve_evaluation_horizon + resolve_horizon_surface {60,84,96,120}; thesis_evidence market_regime slot (structural unknown); thesis_report horizon_surface/fallback_horizon_months + meaning on divergence; thesis_decision meaning on all paths, watch ignores lh_passes, vehicle REJECT keeps thesis UNRESOLVED; architecture doc update; contract tests MEAN-A..D, PROSP-D/E/F, DEC-K/L, EV-market-regime, RPT-D.",
+      "impact": "QQQ 100% operational and 36M CE>1.02 adoption_passes unchanged; thesis modules never call adoption_passes; E2E thesis-wave 2025-04-30: ai_compute continue_research (TARGET_THIN, primary 120M), ai_power_bottleneck reject (REJECTED_PROXY), physical_automation reject via 96M fallback (PARTIAL_HISTORY, no primary); specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_THESIS_INTEGRITY",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_V2_THESIS_INTEGRITY",
