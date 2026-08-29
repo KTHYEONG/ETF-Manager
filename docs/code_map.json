@@ -26,6 +26,12 @@
   "src/analytics/reserve_usage.py": {
     "testing": "tests/unit/analytics/test_reserve_usage.py"
   },
+  "src/analytics/thesis_evidence.py": {
+    "testing": "tests/unit/analytics/test_thesis_evidence.py"
+  },
+  "src/analytics/thesis_report.py": {
+    "testing": "tests/unit/analytics/test_thesis_report.py"
+  },
   "src/analytics/us_vehicles.py": {
     "testing": "tests/unit/analytics/test_us_vehicles.py"
   },
@@ -208,6 +214,9 @@
   },
   "src/validation/gate.py": {
     "testing": "tests/unit/validation/test_gate.py"
+  },
+  "src/validation/prospective.py": {
+    "testing": "tests/unit/validation/test_prospective.py"
   },
   "src/validation/registry.py": {
     "testing": "tests/unit/validation/test_registry.py"
