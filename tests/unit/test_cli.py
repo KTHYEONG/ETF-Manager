@@ -2041,3 +2041,83 @@ def test_cli_thesis_wave_gate_fails_on_panel_error(scenario_id: str, monkeypatch
     monkeypatch.setattr(cli, "run_thesis_wave", fake_wave)
     assert main(["run", "thesis-wave"]) == 1
     assert called["wave"] is False
+
+
+@pytest.mark.parametrize("scenario_id", ["test_cli_thesis_incremental_parser"])
+def test_cli_thesis_incremental_parser(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """test_cli_thesis_incremental_parser"""
+    # help should contain thesis-incremental and exit 0
+    import io
+    import contextlib
+
+    f = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+            cli._build_parser().parse_args(["run", "--help"])
+    except SystemExit:
+        pass
+    help_text = f.getvalue()
+    # fallback to run parser help
+    if "thesis-incremental" not in help_text:
+        help_text = cli._build_parser().format_help()
+        # also check run subparser
+        try:
+            with contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                cli._build_parser().parse_args(["run", "thesis-incremental", "--help"])
+        except SystemExit:
+            pass
+        help_text += f.getvalue()
+    assert "thesis-incremental" in help_text
+
+    # also verify main with --help exits 0 without calling runner
+    try:
+        rc = main(["run", "thesis-incremental", "--help"])
+    except SystemExit as exc:
+        rc = exc.code
+    assert rc == 0
+
+    # fresh panel should invoke run_incremental_portfolio
+    from datetime import UTC, datetime, date
+    from src.data.panel_freshness import CatalogPanelReport, PanelFreshnessStatus
+    from pathlib import Path
+
+    fake_panel = CatalogPanelReport(
+        panel_as_of=datetime(2026, 6, 30, 20, 0, tzinfo=UTC),
+        lag_days=10,
+        status=PanelFreshnessStatus.FRESH,
+        ticker_last_session={t: date(2026, 6, 30) for t in ("BOTZ", "GRID", "QQQ", "SOXX")},
+        cpi_last_observation=date(2026, 6, 30),
+        fx_last_observation=date(2026, 6, 30),
+        holdings_last_filing=None,
+    )
+    monkeypatch.setattr(cli, "resolve_catalog_panel_as_of", lambda settings, reference_now=None, tickers=None: fake_panel)
+    # patch the incremental runner where cli imports it
+    called: dict[str, object] = {}
+
+    def fake_run(*, settings, as_of, runner, contribution_krw, bootstrap_paths, seed, panel_report=None):  # type: ignore[no-untyped-def]
+        called["called"] = True
+        from src.analytics.incremental_portfolio import IncrementalPortfolioReport
+        from src.analytics.thesis_meaning import PortfolioEvidenceStatus
+
+        return IncrementalPortfolioReport(
+            thesis_id="ai_compute",
+            as_of=as_of,
+            panel_as_of=fake_panel.panel_as_of,
+            lag_days=fake_panel.lag_days,
+            freshness_status=fake_panel.status.value,
+            arms=(),
+            portfolio_status=PortfolioEvidenceStatus.HISTORICALLY_WEAK,
+        )
+
+    # patch both possible import locations
+    monkeypatch.setattr(cli, "run_incremental_portfolio", fake_run, raising=False)
+    monkeypatch.setattr("src.analytics.incremental_portfolio.run_incremental_portfolio", fake_run, raising=False)
+
+    # avoid writing report?
+    monkeypatch.setattr(cli, "write_incremental_portfolio_report", lambda report, path: Path("tmp/fake.json"), raising=False)  # noqa: S108
+    # also patch in incremental module if needed
+    monkeypatch.setattr("src.analytics.incremental_portfolio.write_incremental_portfolio_report", lambda report, path: Path("tmp/fake.json"), raising=False)  # noqa: S108
+
+    rc2 = main(["run", "thesis-incremental", "--thesis-id", "ai_compute"])
+    assert rc2 == 0
+    assert called.get("called") is True

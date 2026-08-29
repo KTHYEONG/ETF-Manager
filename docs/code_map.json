@@ -241,5 +241,9 @@
   "src/data/panel_freshness.py": {
     "architecture": "docs/architecture/02_policy_and_validation.md",
     "testing": "tests/unit/data/test_panel_freshness.py"
+  },
+  "src/analytics/incremental_portfolio.py": {
+    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "testing": "tests/unit/analytics/test_incremental_portfolio.py"
   }
 }
