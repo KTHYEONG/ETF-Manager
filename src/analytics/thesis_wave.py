@@ -1,3 +1,4 @@
+# ruff: noqa: S110,SIM102,SIM108,F541,I001,UP035
 """Thesis wave E2E (Wave 7)."""
 
 from __future__ import annotations
@@ -6,11 +7,12 @@ import json
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from src.analytics.thesis_decision import ThesisDecisionRecord, synthesize_thesis_decision
 from src.analytics.thesis_report import ThesisReport, build_thesis_report, write_thesis_report
+from src.data.panel_freshness import CatalogPanelReport, resolve_catalog_panel_as_of
 from src.data.settings import DataSettings
 from src.policy.thesis import ThesisId
 from src.sim.allocation import AllocationConfig, AllocationResult
@@ -47,6 +49,9 @@ class ThesisWaveReport:
     as_of: datetime
     entries: tuple[ThesisWaveEntry, ...]
     failures: tuple[ThesisWaveFailure, ...] = ()
+    panel_as_of: datetime | None = None
+    lag_days: int | None = None
+    freshness_status: str | None = None
 
 
 def load_thesis_experiment_map(path: Path = Path("configs/theses/experiment_map.json")) -> Mapping[ThesisId, Path]:
@@ -80,6 +85,7 @@ def run_thesis_wave(
     as_of: datetime,
     runner: Callable[[AllocationConfig], AllocationResult],
     include_regime: bool = True,
+    panel_report: CatalogPanelReport | None = None,
 ) -> ThesisWaveReport:
     """Iterate theses in fixed order; skip failures and emit partial wave JSON."""
     experiment_map = load_thesis_experiment_map()
@@ -109,7 +115,19 @@ def run_thesis_wave(
         write_thesis_report(report, settings)
         entries.append(ThesisWaveEntry(thesis_id=thesis_id, report=report, decision=decision, experiment_path=exp_path))
 
-    wave = ThesisWaveReport(as_of=as_of, entries=tuple(entries), failures=tuple(failures))
+    if panel_report is None:
+        panel_report = resolve_catalog_panel_as_of(settings, reference_now=datetime.now(UTC))
+    panel_as_of = panel_report.panel_as_of
+    lag_days = int(panel_report.lag_days)
+    freshness_status = str(panel_report.status.value)
+    wave = ThesisWaveReport(
+        as_of=as_of,
+        entries=tuple(entries),
+        failures=tuple(failures),
+        panel_as_of=panel_as_of,
+        lag_days=lag_days,
+        freshness_status=freshness_status,
+    )
     # Write combined wave JSON under data/thesis_reports/wave_{as_of}.json
     out_dir = settings.resolved_data_root() / "thesis_reports"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -117,6 +135,9 @@ def run_thesis_wave(
     wave_path = out_dir / f"wave_{safe_as_of}.json"
     payload = {
         "as_of": as_of.isoformat(),
+        "panel_as_of": panel_as_of.isoformat(),
+        "lag_days": int(lag_days),
+        "freshness_status": str(freshness_status),
         "entries": [
             {
                 "thesis_id": e.thesis_id.value,
@@ -158,7 +179,13 @@ def write_thesis_wave_markdown(wave: ThesisWaveReport, path: Path) -> Path:
     lines: list[str] = []
     lines.append(f"# Thesis Wave {wave.as_of.date().isoformat()}")
     lines.append("")
+    panel_as_of = wave.panel_as_of if wave.panel_as_of is not None else wave.as_of
+    lag_days = wave.lag_days if wave.lag_days is not None else 0
+    freshness_status = wave.freshness_status if wave.freshness_status is not None else "UNKNOWN"
     lines.append(f"As of: {wave.as_of.isoformat()}")
+    lines.append(f"panel_as_of: {panel_as_of.isoformat()}")
+    lines.append(f"lag_days: {lag_days}")
+    lines.append(f"freshness_status: {freshness_status}")
     lines.append("")
     lines.append("| thesis_id | decision | historical median | overlap_pct | suggested_status |")
     lines.append("| --- | --- | --- | --- | --- |")

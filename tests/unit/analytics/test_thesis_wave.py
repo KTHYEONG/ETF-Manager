@@ -112,3 +112,26 @@ def test_wave_b_experiment_map_fail(scenario_id: str, tmp_path: Path, monkeypatc
 
     with pytest.raises(ValueError, match="missing"):  # noqa: PT011
         run_thesis_wave(settings=settings, as_of=as_of, runner=runner)
+
+
+@pytest.mark.parametrize("scenario_id", ["WAVE-C-markdown-panel-freshness"])
+def test_wave_c_markdown_panel_freshness(scenario_id: str, tmp_path: Path) -> None:
+    """WAVE-C-markdown-panel-freshness"""
+    from src.analytics.thesis_wave import ThesisWaveReport, write_thesis_wave_markdown
+
+    as_of = datetime(2026, 6, 30, 20, 0, tzinfo=UTC)
+    panel_as_of = datetime(2026, 6, 30, 20, 0, tzinfo=UTC)
+    wave = ThesisWaveReport(
+        as_of=as_of,
+        entries=(),
+        failures=(),
+        panel_as_of=panel_as_of,
+        lag_days=29,
+        freshness_status="FRESH",
+    )
+    md_path = tmp_path / "wave.md"
+    write_thesis_wave_markdown(wave, md_path)
+    text = md_path.read_text(encoding="utf-8")
+    assert "lag_days: 29" in text
+    assert "freshness_status: FRESH" in text
+    assert f"panel_as_of: {panel_as_of.isoformat()}" in text

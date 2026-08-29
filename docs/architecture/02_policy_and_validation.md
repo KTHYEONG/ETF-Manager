@@ -139,6 +139,15 @@ flowchart LR
 - Audits max feasible window, dependency profile, and 120M cohort count for an experiment JSON
 - `ingest static-dca` extends CPI/prices/FX for long-horizon satellite panels
 
+### 4.8 Thesis panel freshness (Wave C)
+
+- `THESIS_PANEL_TICKERS=("BOTZ","GRID","QQQ","SOXX")`, `MAX_PANEL_LAG_DAYS=62`
+- `panel_as_of` = latest XNYS month-end close where PRICES(all tickers)+FX+CPI boundary-pass; `lag_days=(reference_now-panel_as_of).days`
+- Default `run thesis-wave`/`thesis-report` `as_of` = `panel_as_of` from `resolve_catalog_panel_as_of` (not `datetime.now` alone); explicit `--as-of` after catalog coverage fails closed
+- `STALE` (`lag_days>62`) fails wave unless `--allow-stale` or `configs/data/panel_hard_stop.json` ack (`HARD_STOP_ACK`); experiment JSON `end` non-authoritative for thesis path — runtime uses `effective_thesis_end(as_of)`
+- `ingest thesis-panel` refreshes PRICES/FX/CPI for panel tickers plus N-PORT quarters `iter_nport_quarters_for_panel` covering `[panel-18m, panel]`
+- Wave JSON/markdown surfaces `panel_as_of`, `lag_days`, `freshness_status`; `build_thesis_report` records `catalog_lag_days` in divergence
+
 ## 5. Completed Experiment Matrix
 
 | Config | Baseline | Candidate | Gate | Result (2026-08-23) |
