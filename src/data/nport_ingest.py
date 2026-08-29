@@ -63,6 +63,61 @@ def _merge_holdings_frame(existing: pl.DataFrame, incoming: pl.DataFrame) -> pl.
     )
 
 
+def _read_nport_pointer_zip(pointer_path: Path, data_root: Path) -> bytes | None:
+    """Return cached ZIP bytes when pointer JSON and payload hash are valid."""
+    try:
+        doc = json.loads(pointer_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    sha = doc.get("sha256")
+    rel = doc.get("relative_path")
+    if not isinstance(sha, str) or not isinstance(rel, str) or len(sha) != 64:
+        return None
+    target = data_root / Path(rel)
+    try:
+        target.resolve().relative_to(data_root.resolve())
+    except ValueError:
+        return None
+    if not target.is_file():
+        return None
+    data = target.read_bytes()
+    if hashlib.sha256(data).hexdigest() != sha:
+        return None
+    return data
+
+
+def _load_nport_zip_bytes(
+    filing_quarter: str, settings: DataSettings, client: httpx.Client | None
+) -> tuple[bytes, bool]:
+    """Load N-PORT ZIP from pointer cache when valid, otherwise HTTP GET."""
+    fq = filing_quarter.strip().lower()
+    url = _nport_bulk_url(fq)
+    data_root = settings.resolved_data_root()
+    pointer_path = data_root / Path("raw/sec/nport") / f"{fq}.json"
+    if pointer_path.is_file():
+        cached = _read_nport_pointer_zip(pointer_path, data_root)
+        if cached is not None:
+            return cached, True
+    # Fallback to HTTP
+    if client is not None:
+        try:
+            resp = client.get(url, headers={"User-Agent": _USER_AGENT, "Accept-Encoding": "gzip"})
+            if resp.status_code >= 400:
+                raise ProviderError(f"provider returned HTTP {resp.status_code}")
+            return resp.content, False
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"transport failure ({type(exc).__name__})") from exc
+    else:
+        with httpx.Client(timeout=httpx.Timeout(600.0), headers={"User-Agent": _USER_AGENT}) as owned:
+            try:
+                resp = owned.get(url, headers={"User-Agent": _USER_AGENT})
+                if resp.status_code >= 400:
+                    raise ProviderError(f"provider returned HTTP {resp.status_code}")
+                return resp.content, False
+            except httpx.HTTPError as exc:
+                raise ProviderError(f"transport failure ({type(exc).__name__})") from exc
+
+
 def fetch_and_persist_nport_quarter(
     *,
     filing_quarter: str,
@@ -78,24 +133,7 @@ def fetch_and_persist_nport_quarter(
     fq = filing_quarter.strip().lower()
     url = _nport_bulk_url(fq)
     retrieved_at = datetime.now(UTC)
-    content: bytes
-    if client is not None:
-        try:
-            resp = client.get(url, headers={"User-Agent": _USER_AGENT, "Accept-Encoding": "gzip"})
-            if resp.status_code >= 400:
-                raise ProviderError(f"provider returned HTTP {resp.status_code}")
-            content = resp.content
-        except httpx.HTTPError as exc:
-            raise ProviderError(f"transport failure ({type(exc).__name__})") from exc
-    else:
-        with httpx.Client(timeout=httpx.Timeout(600.0), headers={"User-Agent": _USER_AGENT}) as owned:
-            try:
-                resp = owned.get(url, headers={"User-Agent": _USER_AGENT})
-                if resp.status_code >= 400:
-                    raise ProviderError(f"provider returned HTTP {resp.status_code}")
-                content = resp.content
-            except httpx.HTTPError as exc:
-                raise ProviderError(f"transport failure ({type(exc).__name__})") from exc
+    content, _from_cache = _load_nport_zip_bytes(fq, settings, client)
 
     # Validate zip
     try:
@@ -107,14 +145,18 @@ def fetch_and_persist_nport_quarter(
     # Parse and normalize (SecNportClient reference for orphan check)
     # Note: raw bytes are stored content-addressed via persist_ingest (raw/sec/etf_holdings/<sha>/payload.zip);
     # no second full ZIP is written under raw/sec/nport/. A pointer JSON may be created after persist.
-    raw_nport_path = settings.resolved_data_root() / Path("raw/sec/nport") / f"{fq}.json"  # anchor for wiring, pointer only
+    raw_nport_path = (
+        settings.resolved_data_root() / Path("raw/sec/nport") / f"{fq}.json"
+    )  # anchor for wiring, pointer only
     _ = SecNportClient
     raw_tables = _sec_parse_raw_tables(content)
     frame = normalize_nport_holdings(raw_tables, series_map=series_map, retrieved_at=retrieved_at)
 
     try:
         store = DataStore(settings)
-        prior_holdings = store.read_normalized(latest_artifact(settings, Dataset.ETF_HOLDINGS), spec_for(Dataset.ETF_HOLDINGS))
+        prior_holdings = store.read_normalized(
+            latest_artifact(settings, Dataset.ETF_HOLDINGS), spec_for(Dataset.ETF_HOLDINGS)
+        )
         frame = _merge_holdings_frame(prior_holdings, frame)
     except UntrustedDatasetError:
         pass
@@ -154,7 +196,11 @@ def fetch_and_persist_nport_quarter(
         _ = raw_nport_path
     except Exception:  # noqa: S110
         pass
-    logger.info("[DATA] event=fetch_persist dataset=%s provider=sec rows=%d", str(Dataset.ETF_HOLDINGS), artifact.manifest.row_count)
+    logger.info(
+        "[DATA] event=fetch_persist dataset=%s provider=sec rows=%d",
+        str(Dataset.ETF_HOLDINGS),
+        artifact.manifest.row_count,
+    )
     return artifact
 
 
