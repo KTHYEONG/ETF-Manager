@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_WAVE67_THESIS_E2E",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_V2_WAVE67_THESIS_E2E",
+      "domain": "quant",
+      "title": "Wave 6–7 (v2): thesis decision synthesis + batch thesis-wave E2E",
+      "why": "v2 roadmap Waves 6–7: operator needed one-command thesis portfolio review with decision rules (REJECT/WATCH/PROSPECTIVE/CONTINUE), regime-proxy structural slot, multi-quarter N-PORT overlap, and fail-soft batch over experiment_map; initial E2E failed on GRID pre-listing start, regime window abort, and N-PORT quarter overwrite.",
+      "resolution": "Added analytics/thesis_decision.py (synthesize_thesis_decision), analytics/thesis_wave.py (run_thesis_wave fail-soft + markdown), analytics/regime_proxy.py (window clip/skip), configs/theses/experiment_map.json, CLI run thesis-wave; patched validation/prospective.py resolve_proxy_history_span + target_years eligibility, nport_ingest _merge_holdings_frame for multi-quarter ETF_HOLDINGS, real nport_series_map IDs (GRID S000026919, BOTZ S000054693), GRID experiment start 2009-11-30; E2E thesis-wave 2025-04-30: ai_compute continue_research (median 1.278, overlap 11.5%), ai_power_bottleneck reject (CE 0.652), physical_automation prospective (span 8.62y<10y, overlap 2.0%); structural regime 3/3 windows tested, failures=[].",
+      "impact": "QQQ 100% operational and 36M CE>1.02 gate unchanged; thesis-wave/report/decision never call adoption_passes; multi-quarter N-PORT merge retains QQQ+SOXX+GRID+BOTZ; overlap diagnostics restored; enables operator batch thesis review. Specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_WAVE345_THESIS_RESEARCH",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_V2_WAVE345_THESIS_RESEARCH",

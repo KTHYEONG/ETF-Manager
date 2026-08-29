@@ -1531,3 +1531,13 @@ def test_exp_lh_objective_load(scenario_id: str) -> None:
     spec = load_experiment_config("configs/experiments/m_thesis_ai_compute_soxx_120m.json")
     assert spec.objective == "long_horizon"
     assert spec.horizon_months == 120
+
+
+@pytest.mark.parametrize("scenario_id", ["EXP-GRID-load"])
+def test_exp_grid_load(scenario_id: str) -> None:
+    """EXP-GRID-load"""
+    spec = load_experiment_config("configs/experiments/m_thesis_ai_power_bottleneck_grid.json")
+    assert spec.thesis_id == ThesisId.AI_POWER_BOTTLENECK
+    assert spec.candidates[0].targets == {"GRID": 1.0}
+    assert spec.preregistration is not None
+    assert spec.preregistration.weights_locked is True

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -9,6 +10,8 @@ import polars as pl
 
 from src.data.query import load_as_of
 from src.data.schema import Dataset
+
+__all__ = ["HoldingsOverlapReport", "overlap_time_series", "pairwise_overlap", "thesis_overlap_vs_incumbent"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,3 +140,25 @@ def thesis_overlap_vs_incumbent(
 ) -> HoldingsOverlapReport:
     """Convenience for thesis proxy vs incumbent."""
     return pairwise_overlap(holdings, vehicle_a=proxy_ticker, vehicle_b=incumbent, as_of=as_of)
+
+
+def overlap_time_series(
+    holdings: pl.DataFrame,
+    *,
+    vehicle_a: str,
+    vehicle_b: str,
+    as_ofs: Sequence[datetime],
+) -> tuple[HoldingsOverlapReport, ...]:
+    """Compute overlap per PIT instant, skipping missing dates without raising."""
+    from collections.abc import Sequence as Seq  # noqa: F401
+
+    reports: list[HoldingsOverlapReport] = []
+    for as_of in as_ofs:
+        try:
+            rep = pairwise_overlap(holdings, vehicle_a=vehicle_a, vehicle_b=vehicle_b, as_of=as_of)
+        except ValueError as exc:
+            if "no PIT row exists" in str(exc):
+                continue
+            raise
+        reports.append(rep)
+    return tuple(reports)
