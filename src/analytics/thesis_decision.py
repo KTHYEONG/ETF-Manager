@@ -27,7 +27,6 @@ class ThesisDecisionRecord:
 
 def synthesize_thesis_decision(report: ThesisReport) -> ThesisDecisionRecord:
     """Synthesize decision from report without calling adoption gate."""
-    # Prospective eligibility has top priority
     if report.prospective.eligible:
         return ThesisDecisionRecord(
             decision=ThesisDecision.PROSPECTIVE,
@@ -39,69 +38,87 @@ def synthesize_thesis_decision(report: ThesisReport) -> ThesisDecisionRecord:
             },
         )
 
-    # Extract median and CE from divergence or evidence
     median: float | None = None
-    ce_ratio: float | None = None
+    cohort_ce: float | None = None
     lh_passes: bool | None = None
 
     if report.divergence is not None:
         try:
-            median = float(report.divergence.get("median_ratio", report.divergence.get("historical_median_ratio", 0)))  # type: ignore[arg-type]
+            val = report.divergence.get("median_ratio", report.divergence.get("historical_median_ratio", None))
+            median = float(val) if val is not None else None  # type: ignore[arg-type]
         except Exception:
             median = None
         try:
-            ce_ratio = float(report.divergence.get("ce_ratio_gamma_2"))  # type: ignore[arg-type]
+            raw = report.divergence.get("cohort_ce_ratio_gamma_2")
+            cohort_ce = float(raw) if raw is not None else None  # type: ignore[arg-type]
         except Exception:
-            ce_ratio = None
+            cohort_ce = None
         try:
-            lh_passes = bool(report.divergence.get("long_horizon_passes"))
+            v = report.divergence.get("long_horizon_passes")
+            lh_passes = bool(v) if v is not None else None
         except Exception:
             lh_passes = None
 
-    # Fallback median from historical slot
     if median is None:
         try:
             if report.evidence.historical.status == "computed":
-                median = float(report.evidence.historical.metrics.get("median_ratio", 0))
+                raw_m = report.evidence.historical.metrics.get("median_ratio")
+                if raw_m is not None:
+                    median = float(raw_m)
             elif report.long_horizon is not None:
                 median = float(report.long_horizon.median_ratio)
         except Exception:
             median = None
 
-    # Fallback ce from divergence only; if missing we cannot evaluate watch/reject gates that need ce
     if lh_passes is None and report.long_horizon is not None:
         lh_passes = bool(report.long_horizon.passes)
 
-    # Watch: median>=1.0 and ce<1.02 and not lh pass
-    if median is not None and ce_ratio is not None and lh_passes is not None and median >= 1.0 and ce_ratio < 1.02 and not lh_passes:
+    if median is not None and cohort_ce is not None and lh_passes is not None and median >= 1.0 and cohort_ce < 1.02 and not lh_passes:
         return ThesisDecisionRecord(
             decision=ThesisDecision.WATCH,
-            rationale=f"watch divergence median {median:.4f} ce {ce_ratio:.4f} lh_passes {lh_passes}",
+            rationale=f"watch median {median:.4f} cohort_ce {cohort_ce:.4f} lh_passes {lh_passes}",
             metrics={
                 "median_ratio": float(median),
-                "ce_ratio_gamma_2": float(ce_ratio),
+                "cohort_ce_ratio_gamma_2": float(cohort_ce),
                 "long_horizon_passes": bool(lh_passes),
             },
         )
 
-    # Reject: ce<0.98 and median<1.0
-    if median is not None and ce_ratio is not None and ce_ratio < 0.98 and median < 1.0:
-        return ThesisDecisionRecord(
-            decision=ThesisDecision.REJECT,
-            rationale=f"reject weak ce {ce_ratio:.4f} median {median:.4f}",
-            metrics={
-                "median_ratio": float(median),
-                "ce_ratio_gamma_2": float(ce_ratio),
-            },
-        )
+    if median is not None:
+        if cohort_ce is not None:
+            if cohort_ce < 0.98 and median < 1.0:
+                return ThesisDecisionRecord(
+                    decision=ThesisDecision.REJECT,
+                    rationale=f"reject weak median {median:.4f} cohort_ce {cohort_ce:.4f}",
+                    metrics={
+                        "median_ratio": float(median),
+                        "cohort_ce_ratio_gamma_2": float(cohort_ce),
+                    },
+                )
+        else:
+            if median < 0.98:
+                return ThesisDecisionRecord(
+                    decision=ThesisDecision.REJECT,
+                    rationale=f"reject weak median {median:.4f} median-only",
+                    metrics={
+                        "median_ratio": float(median),
+                    },
+                )
 
-    # Default continue_research
-    rationale = "continue_research"
+    if cohort_ce is not None and cohort_ce >= 1.02:
+        rationale = f"continue_research median {median:.4f} cohort_ce {cohort_ce:.4f}" if median is not None else "continue_research"
+    else:
+        if median is not None and cohort_ce is not None:
+            rationale = f"continue_research median {median:.4f} cohort_ce {cohort_ce:.4f}"
+        elif median is not None:
+            rationale = f"continue_research median {median:.4f}"
+        else:
+            rationale = "continue_research"
     metrics: dict[str, float | int | str | bool] = {}
     if median is not None:
         metrics["median_ratio"] = float(median)
-    if ce_ratio is not None:
-        metrics["ce_ratio_gamma_2"] = float(ce_ratio)
+    if cohort_ce is not None:
+        metrics["cohort_ce_ratio_gamma_2"] = float(cohort_ce)
     if lh_passes is not None:
         metrics["long_horizon_passes"] = bool(lh_passes)
     metrics["prospective_eligible"] = False
