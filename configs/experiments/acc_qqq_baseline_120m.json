@@ -1,10 +1,9 @@
 {
   // QQQ baseline vs QQQ95+GRID5 candidate for 120M accumulation cohort
-  // start placeholder: 2000-01-01 ; operator trims end to catalog max after ingest
-  // end placeholder: 2025-06-30 ; operator trims end to catalog max after ingest
+  // start: XNYS calendar lower bound; end aligned to catalog-safe execution window
   "name": "acc_qqq_baseline_120m",
-  "start": "2000-01-01",
-  "end": "2025-06-30",
+  "start": "2012-08-31",
+  "end": "2024-08-31",
   "contribution_krw": 1000000,
   "hurdle": 0.02,
   "objective": "ce",

@@ -90,7 +90,7 @@ def test_ahs_a_build_spec(scenario_id: str) -> None:
     assert spec.train_months == 60
     assert spec.test_months == 36
     assert spec.start == date(2015, 6, 1)
-    assert spec.end == date(2026, 6, 30)
+    assert spec.end == date(2024, 8, 31)
     assert spec.hurdle == pytest.approx(0.02)
     assert spec.candidates[0].policy == PolicyId.QQQ
     assert resolve_adaptive_contribution(spec) is not None

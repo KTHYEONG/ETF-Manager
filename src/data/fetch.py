@@ -18,7 +18,9 @@ from src.data.providers.ecos import EcosClient
 from src.data.providers.fred import FredClient
 from src.data.providers.french import FrenchClient
 from src.data.providers.tiingo import TiingoClient
-from src.data.schema import Dataset
+from src.data.catalog import latest_artifact
+from src.data.schema import Dataset, spec_for
+from src.data.storage import DataStore, UntrustedDatasetError
 from src.data.secrets import ProviderSecrets
 from src.data.settings import DataSettings
 from src.data.storage import DatasetArtifact, RawPayload
@@ -39,11 +41,63 @@ def fetch_and_persist_prices(
     secrets: ProviderSecrets,
     settings: DataSettings,
     client: httpx.Client | None = None,
+    incremental: bool = False,
 ) -> DatasetArtifact:
-    """Fetch Tiingo EOD prices and persist through the ingest seam."""
+    """Fetch Tiingo EOD prices and persist through the ingest seam.
+
+    When ``incremental`` is true and multiple tickers are requested, each ticker is
+    fetched separately and merged into the latest trusted PRICES partition so a
+    single vendor rate-limit burst does not shrink the operational panel.
+    """
+    if not tickers:
+        raise ValueError("fetch_and_persist_prices requires at least one ticker")
     with _http(client) as session:
-        payload, frame = TiingoClient(secrets.tiingo_api, session).fetch_prices(tickers, start, end)
-        artifact = persist_ingest(frame, Dataset.PRICES, payload, settings)
+        tiingo = TiingoClient(secrets.tiingo_api, session)
+        if incremental and len(tickers) > 1:
+            spec = spec_for(Dataset.PRICES)
+            store = DataStore(settings)
+            try:
+                existing = store.read_normalized(latest_artifact(settings, Dataset.PRICES), spec)
+            except UntrustedDatasetError:
+                existing = None
+            bodies: list[bytes] = []
+            frames: list[pl.DataFrame] = []
+            for ticker in tickers:
+                try:
+                    payload, frame = tiingo.fetch_prices((ticker,), start, end)
+                except ProviderError as exc:
+                    if "429" not in str(exc):
+                        raise
+                    logger.warning("[DATA] event=prices_ticker_skipped ticker=%s reason=rate_limit", ticker)
+                    continue
+                bodies.append(payload.content)
+                frames.append(frame)
+            if not frames:
+                raise ProviderError("tiingo returned no prices for any requested ticker")
+            merged = pl.concat(frames, how="vertical")
+            if existing is not None:
+                drop = list(tickers)
+                kept = existing.select(*spec.columns).filter(~pl.col("ticker").is_in(drop))
+                merged = pl.concat([kept, merged], how="vertical")
+            merged = merged.select(*spec.columns).cast(pl.Schema(dict(spec.columns)))
+            payload = RawPayload(
+                provider="tiingo",
+                endpoint=f"daily/{'+'.join(tickers)}/prices",
+                request_params={
+                    "tickers": list(tickers),
+                    "startDate": start.isoformat(),
+                    "endDate": end.isoformat(),
+                    "format": "json",
+                    "incremental": True,
+                },
+                retrieved_at=frames[-1].get_column("retrieved_at").max(),
+                extension="json",
+                content=b"\n".join(bodies),
+            )
+            artifact = persist_ingest(merged, Dataset.PRICES, payload, settings)
+        else:
+            payload, frame = tiingo.fetch_prices(tickers, start, end)
+            artifact = persist_ingest(frame, Dataset.PRICES, payload, settings)
     _log_done("prices", "tiingo", artifact.manifest.row_count)
     return artifact
 

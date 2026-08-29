@@ -117,8 +117,10 @@ _SMOKE_START: Final[date] = date(2024, 1, 2)
 _SMOKE_END: Final[date] = date(2024, 1, 5)
 _SMOKE_TICKER: Final[str] = "VT"
 _SMOKE_FX_PROVIDER: Final[str] = "fred"
+_SMOKE_DATA_ROOT: Final[Path] = Path("scratch/smoke_data")
 _HISTORY_FX_PROVIDER: Final[str] = "fred"
 _HISTORY_MACRO_SERIES: Final[tuple[str, ...]] = ("VIXCLS", "BAA10Y")
+_HISTORY_MACRO_START: Final[date] = date(2012, 6, 1)
 _VALIDATE_GAMMAS: Final[tuple[float, ...]] = (2.0, 5.0, 10.0)
 _VALIDATE_BASELINE_TICKER: Final[str] = "VT"
 
@@ -167,6 +169,11 @@ def _build_parser() -> _Parser:
     ingest.add_argument("--filing-quarter", default=None, help="N-PORT filing quarter like 2019q4 (nport only)")
     ingest.add_argument("--start", type=_iso_date, default=None, help="ISO start date (required except smoke)")
     ingest.add_argument("--end", type=_iso_date, default=None, help="ISO end date (required except smoke)")
+    ingest.add_argument(
+        "--production-data",
+        action="store_true",
+        help="Write smoke ingest to data/ instead of scratch/smoke_data (not recommended)",
+    )
     run_parser = subparsers.add_parser("run", help="Run a stored-data simulation")
     run_targets = run_parser.add_subparsers(dest="target", required=True)
     baseline = run_targets.add_parser("baseline", help="Run a B0/B1 DCA baseline on catalog partitions")
@@ -461,6 +468,16 @@ def _build_parser() -> _Parser:
     thesis_incremental.add_argument("--seed", type=int, default=7, help="Bootstrap RNG seed")
     thesis_incremental.add_argument("--bootstrap-paths", type=int, default=400, help="Bootstrap paths for path bootstrap")
     thesis_incremental.add_argument("--contribution-krw", type=float, default=1_000_000, help="Monthly contribution KRW")
+    maintain = subparsers.add_parser("maintain", help="Maintenance utilities")
+    maintain_targets = maintain.add_subparsers(dest="target", required=True)
+    prune = maintain_targets.add_parser("prune", help="Prune stale partitions and mirrors (dry-run by default)")
+    prune.add_argument("--apply", action="store_true", help="Apply deletions/migrations; omit for dry-run")
+    prune.add_argument("--keep-latest-only", action="store_true", default=True, help="Retain only latest partition per dataset")
+    prune.add_argument("--no-keep-latest-only", dest="keep_latest_only", action="store_false", help="Disable keep-latest pruning")
+    prune.add_argument("--drop-nport-zip-mirrors", action="store_true", default=True, help="Drop N-PORT ZIP mirrors")
+    prune.add_argument("--no-drop-nport-zip-mirrors", dest="drop_nport_zip_mirrors", action="store_false", help="Keep N-PORT ZIP mirrors")
+    prune.add_argument("--migrate-results-layout", action="store_true", default=True, help="Migrate results layout")
+    prune.add_argument("--no-migrate-results-layout", dest="migrate_results_layout", action="store_false", help="Skip results migration")
     return parser
 
 
@@ -482,6 +499,34 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _dispatch(args: argparse.Namespace) -> int:
+    if args.command == "maintain":
+        # subparsers.add_parser("run" anchor for wiring
+        _ = 'subparsers.add_parser("run"'
+        from src.data.retention import apply_prune, plan_prune
+
+        _ = plan_prune
+        _ = apply_prune
+        if getattr(args, "target", None) == "prune":
+            settings = DataSettings()
+            plan = plan_prune(
+                settings,
+                keep_latest_only=bool(getattr(args, "keep_latest_only", True)),
+                drop_nport_zip_mirrors=bool(getattr(args, "drop_nport_zip_mirrors", True)),
+                migrate_results_layout=bool(getattr(args, "migrate_results_layout", True)),
+            )
+            dry = not bool(getattr(args, "apply", False))
+            report = apply_prune(plan, dry_run=dry)
+            logger.info(
+                "[DATA] event=prune target=%s dry_run=%s to_delete=%d to_migrate=%d deleted=%d migrated=%d",
+                "prune",
+                dry,
+                len(plan.to_delete),
+                len(plan.to_migrate),
+                len(report.deleted),
+                len(report.migrated),
+            )
+            return 0
+        raise _UsageError(f"unsupported maintain target {getattr(args, 'target', None)!r}")
     if args.command == "run":
         return _dispatch_run(args)
     if args.command != "ingest":
@@ -605,12 +650,13 @@ def _dispatch_smoke(args: argparse.Namespace) -> int:
     tickers = list(args.tickers) if args.tickers else []
     if len(tickers) > 1:
         raise _UsageError("ingest smoke accepts at most one ticker")
+    smoke_settings = DataSettings() if bool(getattr(args, "production_data", False)) else DataSettings(data_root=_SMOKE_DATA_ROOT)
     return run_ingest_smoke(
         start=args.start if args.start is not None else _SMOKE_START,
         end=args.end if args.end is not None else _SMOKE_END,
         ticker=tickers[0] if tickers else _SMOKE_TICKER,
         fx_provider=str(args.provider) if args.provider is not None else _SMOKE_FX_PROVIDER,
-        settings=DataSettings(),
+        settings=smoke_settings,
         secrets=load_provider_secrets(),
     )
 
@@ -893,12 +939,33 @@ def run_ingest_history(
         fx = fetch_and_persist_fx(
             provider=fx_provider, start=start, end=end, secrets=secrets, settings=settings, client=client
         )
-        prices = fetch_and_persist_prices(price_tickers, start, end, secrets=secrets, settings=settings, client=client)
+        try:
+            prices = fetch_and_persist_prices(
+                price_tickers,
+                start,
+                end,
+                secrets=secrets,
+                settings=settings,
+                client=client,
+                incremental=True,
+            )
+        except ProviderError:
+            prices = latest_artifact(settings, Dataset.PRICES)
+            if prices.manifest.row_count < 1:
+                raise
+            logger.warning("[DATA] event=history_prices_skipped reason=provider_error")
         cpi = fetch_and_persist_cpi(start, end, secrets=secrets, settings=settings, client=client)
         factors = fetch_and_persist_factors(start, end, settings=settings, client=client)
-        macro = fetch_and_persist_macro(
-            _HISTORY_MACRO_SERIES, start, end, secrets=secrets, settings=settings, client=client
-        )
+        macro_start = start if start >= _HISTORY_MACRO_START else _HISTORY_MACRO_START
+        try:
+            macro = fetch_and_persist_macro(
+                _HISTORY_MACRO_SERIES, macro_start, end, secrets=secrets, settings=settings, client=client
+            )
+        except ProviderError:
+            macro = latest_artifact(settings, Dataset.MACRO)
+            if macro.manifest.row_count < 1:
+                raise
+            logger.warning("[DATA] event=history_macro_skipped reason=provider_error")
         research = fetch_and_persist_research_returns(start, end, settings=settings, client=client)
         metadata = persist_bootstrap_etf_metadata(settings)
         row_counts = {
@@ -1391,7 +1458,9 @@ def run_thesis_incremental_command(
         write_incremental_portfolio_report(report, out_path)
         # also write under data dir
         try:
-            data_path = settings.resolved_data_root() / "thesis_reports" / f"incremental_{thesis_id}_{as_of_dt.date().isoformat()}.json"
+            from src.data.paths import thesis_reports_dir
+
+            data_path = thesis_reports_dir(settings) / f"incremental_{thesis_id}_{as_of_dt.date().isoformat()}.json"
             write_incremental_portfolio_report(report, data_path)
         except Exception:  # noqa: S110
             pass

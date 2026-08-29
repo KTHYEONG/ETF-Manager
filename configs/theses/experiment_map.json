@@ -1,6 +1,5 @@
 {
   "ai_compute": "configs/experiments/m_thesis_ai_compute_soxx_120m.json",
-  "ai_compute_incremental": "configs/experiments/m_thesis_ai_compute_soxx_inc_5_10_15.json",
   "ai_power_bottleneck": "configs/experiments/m_thesis_ai_power_bottleneck_grid.json",
   "physical_automation": "configs/experiments/m_thesis_physical_automation_botz_prospective.json"
 }

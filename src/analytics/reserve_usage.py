@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Final
 from src.analytics.regimes import QQQ_REGIME_WINDOWS
 from src.policy.reserve import ReserveConfig
 from src.policy.targets import PolicyError, PolicyId
-from src.sim.allocation import AllocationConfig
+from src.sim.allocation import AllocationConfig, AllocationDataError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -162,6 +162,8 @@ def compare_qqq_reserve(
                 )
             )
         except PolicyError:
+            continue
+        except AllocationDataError:
             continue
         if len(plain.snapshots) != len(reserved.snapshots):
             raise ValueError(

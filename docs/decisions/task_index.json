@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_DATA_STORAGE_OPS",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_DATA_STORAGE_OPS",
+      "domain": "data",
+      "title": "Data storage refactor + operator CLI hardening (ingest guard, diagnose, overlap)",
+      "why": "Partial ingest and smoke overwrote production PRICES; experiment end 2024-09-30 caused execution past last bar; thesis-wave/diagnose-qqq failed on stale regime windows and SOXX holdings weight band; ingest history blocked by Tiingo 429 and FRED macro range.",
+      "resolution": "Added catalog frame cache, retention prune, results paths, ingest_guard PartitionShrinkError, smoke isolated to scratch/smoke_data; overlap weight renormalize [100,110] and placeholder CUSIP nulling; QQQ_REGIME_WINDOWS clamped to 2024-08-31 with AllocationDataError skip; incremental Tiingo prices merge + history ProviderError fallbacks; adaptive_hp end 2024-08-31; cadence allows twice_monthly snapshot mismatch; configs end 2024-08-31.",
+      "impact": "maintain prune/diagnose-qqq*/diagnose-overlap/thesis-wave PASS on catalog; PRICES extended QQQ to 2006-08-31 (11/20 tickers pending Tiingo hourly reset); MACRO VIXCLS+BAA10Y restored 31380 rows; ingest history may still exit 1 under Tiingo 429 until hourly quota resets; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_TRACK_H_ATTRIBUTION_FX",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_V2_TRACK_H_ATTRIBUTION_FX",

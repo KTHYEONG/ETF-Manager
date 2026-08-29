@@ -47,7 +47,7 @@ __all__ = [
 ]
 
 _DEFAULT_START: Final[date] = date(2015, 6, 1)
-_DEFAULT_END: Final[date] = date(2026, 6, 30)
+_DEFAULT_END: Final[date] = date(2024, 8, 31)
 _DEFAULT_HURDLE: Final[float] = 0.02
 _DEFAULT_TRAIN_MONTHS: Final[int] = 60
 _DEFAULT_TEST_MONTHS: Final[int] = 36

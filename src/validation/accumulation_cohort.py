@@ -290,10 +290,12 @@ def write_accumulation_cohort_report(
             for row in report.rows
         ],
     }
-    experiments_dir = settings.resolved_data_root() / "experiments"
-    experiments_dir.mkdir(parents=True, exist_ok=True)
+    from src.data.paths import experiments_dir
+
+    out_dir = experiments_dir(settings)
+    out_dir.mkdir(parents=True, exist_ok=True)
     # Use name or 'accumulation' fallback
     base_name = report.name if report.name else "accumulation"
-    out_path = experiments_dir / f"{base_name}_accumulation_{experiment_id}.json"
+    out_path = out_dir / f"{base_name}_accumulation_{experiment_id}.json"
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return out_path
