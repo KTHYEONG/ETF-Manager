@@ -1,0 +1,88 @@
+{
+  "thesis_id": "ai_compute",
+  "as_of": "2025-05-30T20:00:00+00:00",
+  "panel_as_of": "2025-05-30T20:00:00+00:00",
+  "lag_days": 456,
+  "freshness_status": "STALE",
+  "portfolio_status": "historically_promising",
+  "arms": [
+    {
+      "arm_id": "qqq95_soxx5",
+      "soxx_weight": 0.05,
+      "median_ratio": 1.007176747463661,
+      "p10_ratio": 1.0021136803598611,
+      "worst_ratio": 0.9968853454888071,
+      "win_rate": 0.8888888888888888,
+      "cohort_count": 9,
+      "ce_gamma_2": 1.0070737317590057,
+      "ce_gamma_5": 1.0043794992178103,
+      "ce_gamma_10": 1.0006743416875017,
+      "attribution": {
+        "target_soxx_weight": 0.05,
+        "mean_realized_soxx_weight": 2.7357129129967657e-05,
+        "terminal_realized_soxx_weight": 2.3435932114427752e-05,
+        "mean_abs_weight_drift": 0.049972642870870033,
+        "terminal_weight_drift": -0.04997656406788557,
+        "incremental_wealth_ratio": 1.0114868586503833
+      },
+      "path_bootstrap": {
+        "n_paths": 400,
+        "win_rate": 0.8875,
+        "p05_terminal_ratio": 0.9948141909282818,
+        "ok": true
+      }
+    },
+    {
+      "arm_id": "qqq90_soxx10",
+      "soxx_weight": 0.1,
+      "median_ratio": 1.0173865055198144,
+      "p10_ratio": 1.0051242068502952,
+      "worst_ratio": 0.9936342736239794,
+      "win_rate": 0.8888888888888888,
+      "cohort_count": 9,
+      "ce_gamma_2": 1.0190786377465644,
+      "ce_gamma_5": 1.0118572312266292,
+      "ce_gamma_10": 1.0022123775396072,
+      "attribution": {
+        "target_soxx_weight": 0.1,
+        "mean_realized_soxx_weight": 8.571019561992788e-05,
+        "terminal_realized_soxx_weight": 7.868821673808908e-05,
+        "mean_abs_weight_drift": 0.09991428980438008,
+        "terminal_weight_drift": -0.09992131178326191,
+        "incremental_wealth_ratio": 1.039326182005041
+      },
+      "path_bootstrap": {
+        "n_paths": 400,
+        "win_rate": 0.9225,
+        "p05_terminal_ratio": 0.9959388598899462,
+        "ok": true
+      }
+    },
+    {
+      "arm_id": "qqq85_soxx15",
+      "soxx_weight": 0.15,
+      "median_ratio": 1.0272484184914936,
+      "p10_ratio": 1.0079060602362337,
+      "worst_ratio": 0.9902619881049904,
+      "win_rate": 0.8888888888888888,
+      "cohort_count": 9,
+      "ce_gamma_2": 1.0304795759437497,
+      "ce_gamma_5": 1.0185238215773451,
+      "ce_gamma_10": 1.0030652765192547,
+      "attribution": {
+        "target_soxx_weight": 0.15,
+        "mean_realized_soxx_weight": 0.00013906705119816234,
+        "terminal_realized_soxx_weight": 0.00013741881246737917,
+        "mean_abs_weight_drift": 0.14986093294880182,
+        "terminal_weight_drift": -0.14986258118753262,
+        "incremental_wealth_ratio": 1.0652051239017144
+      },
+      "path_bootstrap": {
+        "n_paths": 400,
+        "win_rate": 0.9375,
+        "p05_terminal_ratio": 0.9936809838605484,
+        "ok": true
+      }
+    }
+  ]
+}

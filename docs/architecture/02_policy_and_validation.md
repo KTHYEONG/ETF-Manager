@@ -148,6 +148,14 @@ flowchart LR
 - `ingest thesis-panel` refreshes PRICES/FX/CPI for panel tickers plus N-PORT quarters `iter_nport_quarters_for_panel` covering `[panel-18m, panel]`
 - Wave JSON/markdown surfaces `panel_as_of`, `lag_days`, `freshness_status`; `build_thesis_report` records `catalog_lag_days` in divergence
 
+### 4.9 Incremental portfolio (Track H)
+
+- Preregistered arms `qqq95_soxx5` / `qqq90_soxx10` / `qqq85_soxx15` vs `QQQ100`; `INCREMENTAL_SOXX_WEIGHTS=(0.05,0.10,0.15)`; `SOXX100` stays vehicle diagnostic only
+- Primary cohorts `120M` step `12M` ending at `effective_thesis_end(panel_as_of)`; CE `γ∈{2,5,10}` on cohort wealth vectors; `portfolio_status` from `classify_portfolio_status`
+- `PortfolioEvidenceStatus`: `unverified` (before Track H), `historically_promising` if any arm `median_ratio≥1` and `path_bootstrap.ok`, else `historically_weak`
+- Path bootstrap: paired monthly returns joint circular block (`block 12`, `PATH_BOOTSTRAP_WIN_FLOOR=0.55`, `ok iff win_rate≥0.55`)
+- Buy-only attribution: realized SOXX weight `shares*price/mark` vs target; `mean_abs_weight_drift`, `terminal_weight_drift`, `incremental_wealth_ratio`; CLI `run thesis-incremental` shares STALE gate with thesis-wave
+
 ## 5. Completed Experiment Matrix
 
 | Config | Baseline | Candidate | Gate | Result (2026-08-23) |

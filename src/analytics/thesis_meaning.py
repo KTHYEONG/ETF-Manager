@@ -34,6 +34,8 @@ class ThesisEvidenceStatus(StrEnum):
 
 class PortfolioEvidenceStatus(StrEnum):
     UNVERIFIED = "unverified"
+    HISTORICALLY_PROMISING = "historically_promising"
+    HISTORICALLY_WEAK = "historically_weak"
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +59,7 @@ def classify_thesis_meaning(
     cohort_ce_ratio: float | None,
     overlap_dependence_disclosed: bool,
     path_bootstrap_ok: bool = False,
+    portfolio_status: PortfolioEvidenceStatus | None = None,
 ) -> ThesisMeaningSnapshot:
     """Pure classifier implementing M-2..M-6 and vehicle rules; TARGET_ROBUST only if path_bootstrap_ok."""
     history_available = float(span_years) >= float(min_years)
@@ -94,7 +97,10 @@ def classify_thesis_meaning(
     _ = overlap_dependence_disclosed
 
     thesis_status = ThesisEvidenceStatus.UNRESOLVED
-    portfolio_status = PortfolioEvidenceStatus.UNVERIFIED
+    if portfolio_status is not None:
+        portfolio_status = PortfolioEvidenceStatus(portfolio_status)
+    else:
+        portfolio_status = PortfolioEvidenceStatus.UNVERIFIED
 
     return ThesisMeaningSnapshot(
         thesis_status=thesis_status,
