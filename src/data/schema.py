@@ -23,6 +23,7 @@ class Dataset(StrEnum):
     FACTORS = "factors"
     ETF_METADATA = "etf_metadata"
     RESEARCH_RETURNS = "research_returns"
+    ETF_HOLDINGS = "etf_holdings"
 
 
 class AvailabilityKind(StrEnum):
@@ -221,6 +222,31 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         total_return_source=TotalReturnSource.NOT_APPLICABLE,
         schema_version="1",
     )
+    etf_holdings = DatasetSpec(
+        dataset=Dataset.ETF_HOLDINGS,
+        columns={
+            "etf_ticker": pl.String(),
+            "report_date": pl.Date(),
+            "filing_date": TS_DTYPE,
+            "holding_id": pl.String(),
+            "issuer_name": pl.String(),
+            "cusip": pl.String(),
+            "isin": pl.String(),
+            "lei": pl.String(),
+            "weight_pct": pl.Float64(),
+            "value_usd": pl.Float64(),
+            "source": pl.String(),
+            "retrieved_at": TS_DTYPE,
+        },
+        key=("etf_ticker", "report_date", "filing_date", "holding_id"),
+        observation_column="report_date",
+        availability=AvailabilityRule(kind=AvailabilityKind.RELEASE_COLUMN, release_column="filing_date"),
+        missing_policy=MissingPolicy.FAIL,
+        revisable=True,
+        total_return_source=TotalReturnSource.NOT_APPLICABLE,
+        schema_version="1",
+        nullable_columns=frozenset({"cusip", "isin", "lei", "issuer_name", "value_usd"}),
+    )
     return {
         Dataset.PRICES: prices,
         Dataset.FX: fx,
@@ -229,6 +255,7 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         Dataset.FACTORS: factors,
         Dataset.ETF_METADATA: etf_metadata,
         Dataset.RESEARCH_RETURNS: research_returns,
+        Dataset.ETF_HOLDINGS: etf_holdings,
     }
 
 

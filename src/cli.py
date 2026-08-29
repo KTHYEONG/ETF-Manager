@@ -7,7 +7,7 @@ import logging
 import math
 import shutil
 import subprocess
-from datetime import date
+from datetime import UTC, date
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, NoReturn, cast
 
@@ -16,6 +16,7 @@ from src.analytics.adaptive_hp_screen import make_hp_wf_runner, screen_adaptive_
 from src.analytics.blends import compare_qqq_blends
 from src.analytics.cadence import compare_qqq_cadence
 from src.analytics.metrics import XirrError
+from src.analytics.overlap import pairwise_overlap, thesis_overlap_vs_incumbent
 from src.analytics.regimes import QQQ_REGIME_WINDOWS, compare_policy_regimes
 from src.analytics.reserve_usage import compare_qqq_reserve
 from src.analytics.us_vehicles import (
@@ -35,6 +36,7 @@ from src.data.fetch import (
     fetch_and_persist_research_returns,
     fetch_and_persist_static_dca_datasets,
 )
+from src.data.nport_ingest import fetch_and_persist_nport_quarter
 from src.data.providers.base import ProviderError
 from src.data.schedule import build_decision_schedule
 from src.data.schema import Dataset, spec_for
@@ -152,10 +154,11 @@ def _build_parser() -> _Parser:
     parser = _Parser(prog="etf-manager", description="ETF research ingest CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
     ingest = subparsers.add_parser("ingest", help="Fetch and persist one vendor dataset")
-    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "factors", "research-returns", "smoke", "history", "static-dca"))
+    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "factors", "research-returns", "smoke", "history", "static-dca", "nport"))
     ingest.add_argument("--tickers", nargs="+", default=None, help="Price tickers (prices/smoke only)")
     ingest.add_argument("--provider", choices=("fred", "ecos"), default=None, help="FX vendor (fx/smoke only)")
     ingest.add_argument("--series-id", default=None, help="FRED series identifier (macro only)")
+    ingest.add_argument("--filing-quarter", default=None, help="N-PORT filing quarter like 2019q4 (nport only)")
     ingest.add_argument("--start", type=_iso_date, default=None, help="ISO start date (required except smoke)")
     ingest.add_argument("--end", type=_iso_date, default=None, help="ISO end date (required except smoke)")
     run_parser = subparsers.add_parser("run", help="Run a stored-data simulation")
@@ -421,6 +424,13 @@ def _build_parser() -> _Parser:
     )
     thesis.add_argument("--id", dest="thesis_id", default=None, help="Thesis id to inspect (omit to list)")
     thesis.add_argument("--config-dir", default="configs/theses", help="Thesis registry directory")
+    diagnose_overlap = run_targets.add_parser(
+        "diagnose-overlap",
+        help="Holdings overlap between two vehicles at PIT as-of (reporting only, never an adoption gate)",
+    )
+    diagnose_overlap.add_argument("--vehicle", required=True, help="Primary vehicle ticker (e.g. SOXX)")
+    diagnose_overlap.add_argument("--baseline", required=True, help="Baseline vehicle ticker (e.g. QQQ)")
+    diagnose_overlap.add_argument("--as-of", dest="as_of", default=None, help="ISO datetime for PIT as-of (default now)")
     return parser
 
 
@@ -447,6 +457,13 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command != "ingest":
         raise _UsageError(f"unsupported command {args.command!r}")
     dataset: str = args.dataset
+    if dataset == "nport":
+        fq = getattr(args, "filing_quarter", None)
+        if not fq:
+            raise _UsageError("ingest nport requires --filing-quarter like 2019q4")
+        fetch_and_persist_nport_quarter(filing_quarter=str(fq), settings=DataSettings())
+        logger.info("[DATA] event=cli_ingest_done dataset=nport filing_quarter=%s", str(fq))
+        return 0
     if dataset == "static-dca":
         if args.start is None or args.end is None:
             raise _UsageError("ingest static-dca requires --start and --end")
@@ -657,6 +674,13 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         return run_thesis_command(
             thesis_id=args.thesis_id if isinstance(args.thesis_id, str) else None,
             config_dir=str(args.config_dir),
+        )
+    if args.target == "diagnose-overlap":
+        return run_diagnose_overlap_command(
+            vehicle=str(args.vehicle),
+            baseline=str(args.baseline),
+            as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
+            settings=DataSettings(),
         )
     raise _UsageError(f"unsupported target {args.target!r}")
 
@@ -945,6 +969,58 @@ def run_thesis_command(*, thesis_id: str | None, config_dir: str) -> int:
         )
     logger.info("[DATA] event=thesis_inspect count=%d config_dir=%s", len(registry), config_dir)
     return 0
+
+
+def run_diagnose_overlap_command(
+    *,
+    vehicle: str,
+    baseline: str,
+    as_of: str | None,
+    settings: DataSettings,
+) -> int:
+    """Run pairwise holdings overlap at PIT as_of (reporting only)."""
+    from datetime import datetime
+
+    # anchor for wiring: run diagnose-overlap and pairwise_overlap
+    _ = pairwise_overlap
+    _ = thesis_overlap_vs_incumbent
+    _anchor = "run diagnose-overlap"
+    try:
+        if as_of is not None:
+            as_of_dt = datetime.fromisoformat(as_of)
+            if as_of_dt.tzinfo is None:
+                as_of_dt = as_of_dt.replace(tzinfo=UTC)
+        else:
+            as_of_dt = datetime.now(UTC)
+        # Fail-closed when no PIT row exists for as_of
+        try:
+            holdings = load_visible(settings, Dataset.ETF_HOLDINGS, as_of_dt)
+        except Exception as exc:
+            logger.error("[DATA] event=diagnose_overlap_failed reason=%s", exc)
+            return 1
+        if holdings.is_empty():
+            logger.error("[DATA] event=diagnose_overlap_failed reason=no PIT row exists for as_of %s", as_of_dt.isoformat())
+            return 1
+        report = pairwise_overlap(holdings, vehicle_a=vehicle, vehicle_b=baseline, as_of=as_of_dt)
+        logger.info(
+            "[DATA] event=diagnose_overlap vehicle=%s baseline=%s overlap_pct=%.4f shared=%d as_of=%s",
+            report.vehicle_a,
+            report.vehicle_b,
+            report.overlap_pct,
+            report.shared_holdings_count,
+            report.as_of.isoformat(),
+        )
+        return 0
+    except ValueError as exc:
+        # explicit fail-closed message for missing PIT row
+        if "no PIT row exists" in str(exc):
+            logger.error("[DATA] event=diagnose_overlap_failed reason=%s", exc)
+            return 1
+        logger.error("[DATA] event=diagnose_overlap_failed reason=%s", exc)
+        return 1
+    except Exception as exc:
+        logger.error("[DATA] event=diagnose_overlap_failed reason=%s", exc)
+        return 1
 
 
 def run_baseline_command(
