@@ -5,7 +5,7 @@
   "contribution_krw": 1000000,
   "hurdle": 0.02,
   "objective": "long_horizon",
-  "horizon_months": 120,
+  "horizon_months": 96,
   "thesis_id": "physical_automation",
   "preregistration": {
     "weights_locked": true,

@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_HORIZON_ELIGIBILITY",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_V2_HORIZON_ELIGIBILITY",
+      "domain": "quant",
+      "title": "Post-Wave 7: adaptive evaluation horizon + prospective min_years gate",
+      "why": "Wave 7 E2E marked physical_automation prospective solely because proxy_span 8.62y < target_years 10; evidence/report hard-coded 120M cohorts (n=0 on BOTZ), hiding CE≈0.56 and median≈0.61 on an 8.6y evaluable panel.",
+      "resolution": "Added EvaluationHorizon + resolve_evaluation_horizon (max whole-year h in [min,target] with step-12 cohorts≥1); prospective eligibility uses min_years not target_years; thesis_evidence/thesis_report use adaptive horizon with span_capped disclosure; BOTZ experiment horizon_months 96; nport_ingest prior_raw/prior_holdings mypy fix; fixture minimal_2019q4.zip series_id S000004354; contract tests PROSP-C/D, DEC-E, EV-adaptive; E2E thesis-wave 2025-04-30 physical_automation reject (median 0.613, CE 0.563).",
+      "impact": "QQQ 100% operational and 36M CE>1.02 gate unchanged; thesis-wave/report never call adoption_passes; physical_automation decision prospective→reject with 96M span_capped eval; ai_compute continue_research unchanged; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_WAVE67_THESIS_E2E",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_V2_WAVE67_THESIS_E2E",

@@ -225,7 +225,8 @@
     "testing": "tests/unit/validation/test_gate.py"
   },
   "src/validation/prospective.py": {
-    "testing": "tests/unit/validation/test_prospective.py"
+    "testing": "tests/unit/validation/test_prospective.py",
+    "architecture": "docs/architecture/02_policy_and_validation.md"
   },
   "src/validation/registry.py": {
     "testing": "tests/unit/validation/test_registry.py"
