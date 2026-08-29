@@ -19,6 +19,8 @@ from src.analytics.metrics import XirrError
 from src.analytics.overlap import pairwise_overlap, thesis_overlap_vs_incumbent
 from src.analytics.regimes import QQQ_REGIME_WINDOWS, compare_policy_regimes
 from src.analytics.reserve_usage import compare_qqq_reserve
+from src.analytics.thesis_evidence import compute_evidence_vector
+from src.analytics.thesis_report import build_thesis_report, write_thesis_report
 from src.analytics.us_vehicles import (
     compare_vehicle_dca,
     history_price_tickers,
@@ -424,6 +426,14 @@ def _build_parser() -> _Parser:
     )
     thesis.add_argument("--id", dest="thesis_id", default=None, help="Thesis id to inspect (omit to list)")
     thesis.add_argument("--config-dir", default="configs/theses", help="Thesis registry directory")
+    thesis.add_argument("--compute-evidence", action="store_true", help="Compute evidence vector for thesis via compute_evidence_vector")
+    thesis_report = run_targets.add_parser(
+        "thesis-report",
+        help="Build thesis report (evidence + long-horizon + prospective)",
+    )
+    thesis_report.add_argument("--id", dest="thesis_id", required=True, help="Thesis id for report")
+    thesis_report.add_argument("--as-of", dest="as_of", default=None, help="ISO datetime for report as-of (default now)")
+    thesis_report.add_argument("--experiment", dest="experiment_path", default=None, help="Optional experiment JSON path")
     diagnose_overlap = run_targets.add_parser(
         "diagnose-overlap",
         help="Holdings overlap between two vehicles at PIT as-of (reporting only, never an adoption gate)",
@@ -674,6 +684,14 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         return run_thesis_command(
             thesis_id=args.thesis_id if isinstance(args.thesis_id, str) else None,
             config_dir=str(args.config_dir),
+            compute_evidence=bool(getattr(args, "compute_evidence", False)),
+        )
+    if args.target == "thesis-report":
+        return run_thesis_report_command(
+            thesis_id=str(args.thesis_id),
+            as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
+            experiment_path=str(args.experiment_path) if getattr(args, "experiment_path", None) else None,
+            settings=DataSettings(),
         )
     if args.target == "diagnose-overlap":
         return run_diagnose_overlap_command(
@@ -928,8 +946,12 @@ def run_audit_feasibility_command(
         return 1
 
 
-def run_thesis_command(*, thesis_id: str | None, config_dir: str) -> int:
+def run_thesis_command(*, thesis_id: str | None, config_dir: str, compute_evidence: bool = False) -> int:
     """Inspect thesis registry (listing or single id); never calls adoption_passes."""
+    # wiring anchors: --compute-evidence and run thesis-report and build_thesis_report
+    _ = "--compute-evidence"
+    _ = build_thesis_report
+    _anchor_thesis_report = "run thesis-report"
     from pathlib import Path
 
     from pydantic import ValidationError
@@ -951,6 +973,32 @@ def run_thesis_command(*, thesis_id: str | None, config_dir: str) -> int:
         except (ThesisError, ValueError) as exc:
             logger.error("[DATA] event=thesis_inspect_failed reason=%s", exc)
             return 2
+        if compute_evidence:
+            from datetime import datetime
+
+            from src.sim.allocation import run_allocation_from_store
+
+            settings = DataSettings()
+            as_of_dt = datetime.now(UTC)
+
+            def _runner(config):  # type: ignore[no-untyped-def]
+                return run_allocation_from_store(config, settings)
+
+            try:
+                snapshot = compute_evidence_vector(
+                    thesis=spec, settings=settings, as_of=as_of_dt, runner=_runner
+                )
+            except (ThesisError, ValueError, OSError) as exc:
+                logger.error("[DATA] event=thesis_evidence_failed reason=%s", exc)
+                return 1
+            logger.info(
+                "[DATA] event=thesis_evidence thesis_id=%s historical=%s overlap=%s as_of=%s",
+                spec.id.value,
+                snapshot.historical.status,
+                snapshot.overlap.status,
+                as_of_dt.isoformat(),
+            )
+            return 0
         logger.info(
             "[DATA] event=thesis_inspect thesis_id=%s status=%s version=%d config_dir=%s",
             spec.id.value,
@@ -968,6 +1016,45 @@ def run_thesis_command(*, thesis_id: str | None, config_dir: str) -> int:
             config_dir,
         )
     logger.info("[DATA] event=thesis_inspect count=%d config_dir=%s", len(registry), config_dir)
+    return 0
+
+
+def run_thesis_report_command(
+    *, thesis_id: str, as_of: str | None, experiment_path: str | None, settings: DataSettings
+) -> int:
+    """Build and persist thesis report; never calls adoption_passes."""
+    # wiring: run thesis-report
+    _anchor = "run thesis-report"
+    _ = build_thesis_report
+    from datetime import datetime
+
+    from src.policy.thesis import ThesisError, ThesisId
+
+    try:
+        tid = ThesisId(thesis_id)
+    except ValueError as exc:
+        logger.error("[DATA] event=thesis_report_failed reason=%s", exc)
+        return 2
+    try:
+        if as_of is not None:
+            as_of_dt = datetime.fromisoformat(as_of)
+            if as_of_dt.tzinfo is None:
+                as_of_dt = as_of_dt.replace(tzinfo=UTC)
+        else:
+            as_of_dt = datetime.now(UTC)
+        exp_path = Path(experiment_path) if experiment_path is not None else None
+        # runner for report: allocation from store
+        from src.sim.allocation import run_allocation_from_store
+
+        def _runner(config):  # type: ignore[no-untyped-def]
+            return run_allocation_from_store(config, settings)
+
+        report = build_thesis_report(thesis_id=tid, settings=settings, as_of=as_of_dt, runner=_runner, experiment_path=exp_path)
+        write_thesis_report(report, settings)
+    except (ThesisError, ValueError, OSError) as exc:
+        logger.error("[DATA] event=thesis_report_failed reason=%s", exc)
+        return 1
+    logger.info("[DATA] event=thesis_report_done thesis_id=%s as_of=%s", tid.value, as_of_dt.isoformat())
     return 0
 
 

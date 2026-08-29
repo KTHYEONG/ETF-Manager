@@ -20,7 +20,7 @@ from src.validation.experiment import (
     resolve_overlay,
     resolve_reserve,
 )
-from src.validation.gate import adoption_passes, certainty_equivalent
+from src.validation.gate import adoption_passes, certainty_equivalent, long_horizon_passes
 from src.validation.windows import rolling_cohorts
 
 if TYPE_CHECKING:
@@ -138,7 +138,22 @@ def _gated_row(
     wealths = _wealth_vector(spec, config, runner)
     ce = {gamma: certainty_equivalent(wealths, gamma=gamma) for gamma in _CE_GAMMAS}
     ce_ratio = {gamma: ce[gamma] / baseline_ce[gamma] for gamma in _CE_GAMMAS}
-    adopted = adoption_passes(ce, baseline_ce, delta0=spec.hurdle, modules=candidate.modules)
+    if spec.objective == "long_horizon":
+        from src.validation.accumulation_cohort import run_accumulation_cohort_report
+
+        # Per-candidate cohort isolation when multi-candidate spec
+        single_spec = spec
+        if len(spec.candidates) != 1 or spec.candidates[0].id != candidate.id:
+            single_spec = ExperimentSpec.model_validate({**spec.model_dump(), "candidates": [candidate.model_dump()]})
+        try:
+            horizon = spec.horizon_months if spec.horizon_months >= 1 else 120
+            cohort_report = run_accumulation_cohort_report(single_spec, runner, horizon_months=horizon, step_months=12, bootstrap_paths=4000, seed=7)
+            verdict = long_horizon_passes(cohort_report)
+            adopted = verdict.passes
+        except Exception:
+            adopted = False
+    else:
+        adopted = adoption_passes(ce, baseline_ce, delta0=spec.hurdle, modules=candidate.modules)
     return AblationRow(
         candidate_id=candidate.id,
         policy=candidate.policy,
