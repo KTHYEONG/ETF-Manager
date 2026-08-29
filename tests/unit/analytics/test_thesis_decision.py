@@ -110,3 +110,15 @@ def test_dec_d_no_adoption(scenario_id: str) -> None:
     assert "adoption_passes" not in text_decision
     text_wave = Path("src/analytics/thesis_wave.py").read_text(encoding="utf-8")
     assert "adoption_passes" not in text_wave
+
+
+def test_dec_e_botz_available_span_rejects() -> None:
+    report = _make_report(
+        prospective_eligible=False,
+        divergence={"median_ratio": 0.61, "ce_ratio_gamma_2": 0.56, "long_horizon_passes": False},
+        long_horizon_passes=False,
+        long_horizon_median=0.61,
+        historical_median=0.61,
+    )
+    rec = synthesize_thesis_decision(report)
+    assert rec.decision == ThesisDecision.REJECT
