@@ -1902,3 +1902,37 @@ def test_cli_ovl_diagnose_dispatch(scenario_id: str, monkeypatch: pytest.MonkeyP
     assert captured["baseline"] == "QQQ"
     assert main(["run", "diagnose-overlap", "--vehicle", "SOXX"]) == 2
 
+
+@pytest.mark.parametrize("scenario_id", ["CLI-THESIS-RPT-dispatch"])
+def test_cli_thesis_rpt_dispatch(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = {}
+    def fake_build(**kwargs):
+        captured.update(kwargs)
+        from src.analytics.thesis_report import ThesisReport
+        from src.analytics.thesis_evidence import EvidenceSnapshot, EvidenceSlot
+        from src.policy.thesis import ThesisId, ThesisStatus
+        from src.validation.prospective import ProspectiveEligibility
+        from datetime import datetime, UTC
+        slot = EvidenceSlot(status="computed", summary="ok", metrics={})
+        snap = EvidenceSnapshot(thesis_id=ThesisId.AI_COMPUTE, as_of=datetime.now(UTC), historical=slot, structural=slot, valuation=slot, overlap=slot, crowding=slot)
+        return ThesisReport(
+            thesis_id=ThesisId.AI_COMPUTE,
+            evidence=snap,
+            long_horizon=None,
+            prospective=ProspectiveEligibility(eligible=False, catalog_span_years=8.0, min_years_required=5, reason="test"),
+            suggested_status=ThesisStatus.RESEARCH,
+            next_falsifier="f1",
+            divergence=None,
+        )
+    def fake_write(report, settings):
+        return Path("/tmp/fake.json")  # noqa: S108
+    # Ensure adoption_passes not called
+    def forbidden(*args, **kwargs):
+        raise AssertionError("adoption_passes must not be called")
+    monkeypatch.setattr(cli, "build_thesis_report", fake_build)
+    monkeypatch.setattr(cli, "write_thesis_report", fake_write)
+    # Patch adoption_passes to detect calls if thesis_report imports it (should not)
+    monkeypatch.setattr(cli, "adoption_passes", forbidden, raising=False)
+    from src.policy.thesis import ThesisId as _Tid
+    assert main(["run", "thesis-report", "--id", "ai_compute"]) == 0
+    assert captured.get("thesis_id") == _Tid.AI_COMPUTE or captured.get("thesis_id") == "ai_compute"
