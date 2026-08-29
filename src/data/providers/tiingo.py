@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Final
 import polars as pl
 
 from src.data.providers.base import ProviderError, get_json
+from src.data.providers.quota import TIINGO_QUOTA, PacingGate
 from src.data.schema import Dataset, spec_for
 from src.data.storage import RawPayload
 
@@ -23,8 +24,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _BASE_URL: Final[str] = "https://api.tiingo.com/tiingo/daily"
-_INTER_TICKER_SLEEP_S: Final[float] = 2.0
-_TICKER_429_RETRIES: Final[int] = 4
 _REQUIRED_FIELDS: Final[frozenset[str]] = frozenset(
     {"date", "open", "high", "low", "close", "volume", "adjClose", "divCash", "splitFactor"}
 )
@@ -37,7 +36,9 @@ class TiingoClient:
         self._token = token
         self._client = client
 
-    def fetch_prices(self, tickers: tuple[str, ...], start: date, end: date) -> tuple[RawPayload, pl.DataFrame]:
+    def fetch_prices(
+        self, tickers: tuple[str, ...], start: date, end: date, *, gate: PacingGate | None = None
+    ) -> tuple[RawPayload, pl.DataFrame]:
         """GET /tiingo/daily/{ticker}/prices for each ticker; concatenate normalized rows."""
         if not tickers:
             raise ProviderError("tiingo fetch requires at least one ticker")
@@ -45,23 +46,25 @@ class TiingoClient:
         retrieved_at = datetime.now(UTC)
         bodies: list[bytes] = []
         records: list[dict[str, object]] = []
-        for index, ticker in enumerate(tickers):
-            if index > 0:
-                time.sleep(_INTER_TICKER_SLEEP_S)
+        for ticker in tickers:
             response: ProviderResponse | None = None
-            for burst in range(_TICKER_429_RETRIES):
+            for attempt in range(2):
+                if gate is not None:
+                    gate.acquire()
                 try:
                     response = get_json(
                         self._client,
                         f"{_BASE_URL}/{ticker}/prices",
                         params={"startDate": start.isoformat(), "endDate": end.isoformat(), "format": "json"},
                         headers={"Authorization": f"Token {self._token}"},
+                        retry_on_429=False,
                     )
                     break
                 except ProviderError as exc:
-                    if "429" not in str(exc) or burst + 1 >= _TICKER_429_RETRIES:
+                    if "429" not in str(exc) or attempt >= 1:
                         raise
-                    time.sleep(min(30.0, 2.0**burst))
+                    if gate is None:
+                        time.sleep(TIINGO_QUOTA.min_interval_s)
             if response is None:
                 raise ProviderError(f"tiingo rate limit persisted for ticker {ticker}")
             bodies.append(response.content)

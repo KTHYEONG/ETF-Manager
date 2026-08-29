@@ -171,3 +171,42 @@ def test_nport_ingest_writes_pointer_not_second_zip(tmp_path: Path) -> None:
     if pointer.exists():
         assert pointer.stat().st_size < 8192
         assert payload_sha in pointer.read_text(encoding="utf-8")
+
+
+def test_nport_reuses_pointer_zip_without_http(tmp_path: Path) -> None:
+    """test_nport_reuses_pointer_zip_without_http"""
+    import hashlib
+    import json
+
+    import httpx
+
+    from src.data.nport_ingest import _load_nport_zip_bytes
+
+    fixture = Path("tests/fixtures/nport/minimal_2019q4.zip")
+    assert fixture.is_file()
+    zip_bytes = fixture.read_bytes()
+    payload_sha = hashlib.sha256(zip_bytes).hexdigest()
+    settings = DataSettings(data_root=tmp_path / "data")
+    data_root = settings.resolved_data_root()
+    rel = f"raw/sec/etf_holdings/{payload_sha}/payload.zip"
+    target = data_root / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(zip_bytes)
+    pointer_path = data_root / "raw/sec/nport/2019q4.json"
+    pointer_path.parent.mkdir(parents=True, exist_ok=True)
+    pointer_path.write_text(
+        json.dumps({"sha256": payload_sha, "relative_path": rel, "filing_quarter": "2019q4"}),
+        encoding="utf-8",
+    )
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(500, content=b"boom")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        loaded, from_cache = _load_nport_zip_bytes("2019q4", settings, client)
+
+    assert from_cache is True
+    assert loaded == zip_bytes
+    assert len(requests) == 0

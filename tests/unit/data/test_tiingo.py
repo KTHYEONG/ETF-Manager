@@ -10,7 +10,9 @@ import httpx
 import polars as pl
 import pytest
 
-from src.data.providers.base import ProviderError
+import src.data.providers.tiingo as tiingo_module
+from src.data.providers.base import ProviderError, get_json
+from src.data.providers.quota import TIINGO_QUOTA, PacingGate
 from src.data.providers.tiingo import TiingoClient
 from src.data.schema import TS_DTYPE, Dataset, spec_for
 
@@ -88,6 +90,8 @@ def test_transient_429_retried_then_success() -> None:
     """TG-SUP01-retry-boundary-429-then-success"""
     body = _spy_body()
     attempts: list[int] = []
+    now = {"t": 0.0}
+    gate = PacingGate(TIINGO_QUOTA, clock=lambda: now["t"], sleeper=lambda s: now.__setitem__("t", now["t"] + s))
 
     def handler(request: httpx.Request) -> httpx.Response:
         attempts.append(1)
@@ -96,7 +100,7 @@ def test_transient_429_retried_then_success() -> None:
         return httpx.Response(200, content=body)
 
     with _client(handler) as http:
-        _, frame = TiingoClient(_TOKEN, http).fetch_prices(("SPY",), *_WINDOW)
+        _, frame = TiingoClient(_TOKEN, http).fetch_prices(("SPY",), *_WINDOW, gate=gate)
 
     assert frame.height == 1
     assert len(attempts) == 2
@@ -114,3 +118,44 @@ def test_persistent_500_exhausts_three_attempts() -> None:
         TiingoClient(_TOKEN, http).fetch_prices(("SPY",), *_WINDOW)
 
     assert len(attempts) == 5
+
+
+def test_tiingo_uses_pacing_gate_and_disables_429_retry() -> None:
+    """test_tiingo_uses_pacing_gate_and_disables_429_retry"""
+    assert "_INTER_TICKER_SLEEP_S" not in tiingo_module.__dict__
+    attempts: list[int] = []
+    acquires = 0
+    now = {"t": 0.0}
+    gate = PacingGate(TIINGO_QUOTA, clock=lambda: now["t"], sleeper=lambda s: now.__setitem__("t", now["t"] + s))
+    original_acquire = gate.acquire
+
+    def counting_acquire() -> None:
+        nonlocal acquires
+        acquires += 1
+        original_acquire()
+
+    gate.acquire = counting_acquire  # type: ignore[method-assign]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        return httpx.Response(429, content=b"rate limited")
+
+    with _client(handler) as http, pytest.raises(ProviderError, match="429"):
+        TiingoClient(_TOKEN, http).fetch_prices(("SPY",), *_WINDOW, gate=gate)
+
+    assert len(attempts) <= 2
+    assert acquires == len(attempts)
+
+
+def test_get_json_retry_on_429_false_raises_immediately() -> None:
+    """test_get_json_retry_on_429_false_raises_immediately"""
+    attempts: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        return httpx.Response(429, content=b"rate limited")
+
+    with _client(handler) as http, pytest.raises(ProviderError, match="429"):
+        get_json(http, "https://example.test/resource", retry_on_429=False)
+
+    assert len(attempts) == 1
