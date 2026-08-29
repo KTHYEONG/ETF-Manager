@@ -1955,3 +1955,89 @@ def test_cli_thesis_wave_dispatch(scenario_id: str, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(cli, "adoption_passes", forbidden, raising=False)
     assert main(["run", "thesis-wave"]) == 0
     assert main(["run", "thesis-wave", "--as-of", "2025-04-30T00:00:00+00:00"]) == 0
+
+
+@pytest.mark.parametrize("scenario_id", ["test_cli_thesis_wave_defaults_to_panel_as_of"])
+def test_cli_thesis_wave_defaults_to_panel_as_of(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import UTC, datetime, date
+    from src.data.panel_freshness import CatalogPanelReport, PanelFreshnessStatus
+    captured: dict[str, object] = {}
+    fake_panel = CatalogPanelReport(
+        panel_as_of=datetime(2026, 6, 30, 20, 0, tzinfo=UTC),
+        lag_days=15,
+        status=PanelFreshnessStatus.FRESH,
+        ticker_last_session={t: date(2026, 6, 30) for t in ("BOTZ", "GRID", "QQQ", "SOXX")},
+        cpi_last_observation=date(2026, 6, 30),
+        fx_last_observation=date(2026, 6, 30),
+        holdings_last_filing=None,
+        hard_stop_reason=None,
+    )
+    monkeypatch.setattr(cli, "resolve_catalog_panel_as_of", lambda settings, reference_now=None, tickers=None: fake_panel)
+    def fake_wave(*, settings, as_of, runner=None, include_regime=True, panel_report=None):
+        captured["as_of"] = as_of
+        captured["panel_report"] = panel_report
+        from src.analytics.thesis_wave import ThesisWaveReport, ThesisWaveEntry
+        from src.analytics.thesis_report import ThesisReport
+        from src.analytics.thesis_evidence import EvidenceSnapshot, EvidenceSlot
+        from src.analytics.thesis_decision import ThesisDecision, ThesisDecisionRecord
+        from src.policy.thesis import ThesisId, ThesisStatus
+        from src.validation.prospective import ProspectiveEligibility
+        slot = EvidenceSlot(status="computed", summary="ok", metrics={})
+        snap = EvidenceSnapshot(thesis_id=ThesisId.AI_COMPUTE, as_of=as_of, historical=slot, structural=slot, valuation=slot, overlap=slot, crowding=slot)
+        rep = ThesisReport(thesis_id=ThesisId.AI_COMPUTE, evidence=snap, long_horizon=None, prospective=ProspectiveEligibility(eligible=False, catalog_span_years=8.0, min_years_required=5, reason="test"), suggested_status=ThesisStatus.RESEARCH, next_falsifier="f1", divergence=None)
+        dec = ThesisDecisionRecord(decision=ThesisDecision.WATCH, rationale="test", metrics={})
+        entry = ThesisWaveEntry(thesis_id=ThesisId.AI_COMPUTE, report=rep, decision=dec, experiment_path=Path("configs/experiments/m_thesis_ai_compute_soxx_120m.json"))
+        return ThesisWaveReport(as_of=as_of, entries=(entry,), failures=())
+    monkeypatch.setattr(cli, "run_thesis_wave", fake_wave)
+    # also ensure write markdown not called? patch it
+    monkeypatch.setattr("src.analytics.thesis_wave.write_thesis_wave_markdown", lambda wave, path: path, raising=False)
+    # Mock DataSettings to avoid filesystem issues? still needed
+    assert main(["run", "thesis-wave"]) == 0
+    assert captured["as_of"] == datetime(2026, 6, 30, 20, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("scenario_id", ["test_cli_thesis_wave_rejects_stale"])
+def test_cli_thesis_wave_rejects_stale(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import UTC, datetime, date
+    from src.data.panel_freshness import CatalogPanelReport, PanelFreshnessStatus
+    stale = CatalogPanelReport(
+        panel_as_of=datetime(2025, 4, 30, 20, 0, tzinfo=UTC),
+        lag_days=200,
+        status=PanelFreshnessStatus.STALE,
+        ticker_last_session={t: date(2025, 4, 30) for t in ("BOTZ", "GRID", "QQQ", "SOXX")},
+        cpi_last_observation=date(2025, 4, 30),
+        fx_last_observation=date(2025, 4, 30),
+        holdings_last_filing=None,
+        hard_stop_reason=None,
+    )
+    monkeypatch.setattr(cli, "resolve_catalog_panel_as_of", lambda settings, reference_now=None, tickers=None: stale)
+    monkeypatch.setattr(cli, "load_panel_hard_stop", lambda path=None: None)
+    called = {"wave": False}
+    def fake_wave(*args, **kwargs):
+        called["wave"] = True
+        from src.analytics.thesis_wave import ThesisWaveReport
+        return ThesisWaveReport(as_of=datetime.now(UTC), entries=(), failures=())
+    monkeypatch.setattr(cli, "run_thesis_wave", fake_wave)
+    rc = main(["run", "thesis-wave"])
+    assert rc == 1
+    assert called["wave"] is False
+
+
+@pytest.mark.parametrize("scenario_id", ["test_cli_thesis_wave_gate_fails_on_panel_error"])
+def test_cli_thesis_wave_gate_fails_on_panel_error(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*args, **kwargs):
+        raise RuntimeError("catalog unavailable")
+
+    monkeypatch.setattr(cli, "resolve_catalog_panel_as_of", boom)
+    called = {"wave": False}
+
+    def fake_wave(*args, **kwargs):
+        called["wave"] = True
+        from src.analytics.thesis_wave import ThesisWaveReport
+        from datetime import UTC, datetime
+
+        return ThesisWaveReport(as_of=datetime.now(UTC), entries=(), failures=())
+
+    monkeypatch.setattr(cli, "run_thesis_wave", fake_wave)
+    assert main(["run", "thesis-wave"]) == 1
+    assert called["wave"] is False

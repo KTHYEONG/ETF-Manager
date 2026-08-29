@@ -1,3 +1,4 @@
+# ruff: noqa: S110,SIM102,SIM108,F541,I001,UP035
 """Command-line ingest and baseline-run entry (no secret printing)."""
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, NoReturn, cast
 
 from src.analytics.accumulation_alpha import screen_qqq_accumulation
+from src.data.panel_freshness import apply_hard_stop, load_panel_hard_stop, resolve_catalog_panel_as_of  # noqa: F401
 from src.analytics.adaptive_hp_screen import make_hp_wf_runner, screen_adaptive_contribution_hp
 from src.analytics.blends import compare_qqq_blends
 from src.analytics.cadence import compare_qqq_cadence
@@ -157,7 +159,7 @@ def _build_parser() -> _Parser:
     parser = _Parser(prog="etf-manager", description="ETF research ingest CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
     ingest = subparsers.add_parser("ingest", help="Fetch and persist one vendor dataset")
-    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "factors", "research-returns", "smoke", "history", "static-dca", "nport"))
+    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "factors", "research-returns", "smoke", "history", "static-dca", "nport", "thesis-panel"))
     ingest.add_argument("--tickers", nargs="+", default=None, help="Price tickers (prices/smoke only)")
     ingest.add_argument("--provider", choices=("fred", "ecos"), default=None, help="FX vendor (fx/smoke only)")
     ingest.add_argument("--series-id", default=None, help="FRED series identifier (macro only)")
@@ -447,6 +449,7 @@ def _build_parser() -> _Parser:
         help="Run thesis wave (all theses) and write combined wave JSON and markdown",
     )
     thesis_wave.add_argument("--as-of", dest="as_of", default=None, help="ISO datetime for wave as-of (default now)")
+    thesis_wave.add_argument("--allow-stale", action="store_true", help="Allow stale panel without hard-stop")
     return parser
 
 
@@ -487,6 +490,34 @@ def _dispatch(args: argparse.Namespace) -> int:
             return 0
         fetch_and_persist_nport_quarter(filing_quarter=str(fq), settings=DataSettings())
         logger.info("[DATA] event=cli_ingest_done dataset=nport filing_quarter=%s", str(fq))
+        return 0
+    if dataset == "thesis-panel":
+        # thesis-panel wiring: fetch_and_persist_static_dca_datasets and iter_nport_quarters_for_panel
+        from src.data.panel_freshness import THESIS_PANEL_TICKERS, iter_nport_quarters_for_panel
+
+        _ = fetch_and_persist_static_dca_datasets
+        _ = "thesis-panel"
+        # Determine window: default start 2006-08-31, end today or args.end
+        _panel_end: date = args.end if args.end is not None else date.today()
+        _panel_start: date = args.start if args.start is not None else date(2006, 8, 31)
+        _settings = DataSettings()
+        _secrets = load_provider_secrets()
+        _fx_provider = str(args.provider) if args.provider is not None else "fred"
+        fetch_and_persist_static_dca_datasets(
+            start=_panel_start,
+            end=_panel_end,
+            tickers=THESIS_PANEL_TICKERS,
+            fx_provider=_fx_provider,
+            secrets=_secrets,
+            settings=_settings,
+            client=None,
+        )
+        panel_quarters = iter_nport_quarters_for_panel(_panel_end, lookback_months=18)
+        try:
+            fetch_and_persist_nport_quarters(filing_quarters=list(panel_quarters), settings=_settings)
+        except Exception as exc:
+            logger.warning("[DATA] event=thesis_panel_nport_partial reason=%s", exc)
+        logger.info("[DATA] event=cli_ingest_done dataset=thesis-panel start=%s end=%s quarters=%s", _panel_start.isoformat(), _panel_end.isoformat(), ",".join(panel_quarters))
         return 0
     if dataset == "static-dca":
         if args.start is None or args.end is None:
@@ -718,6 +749,7 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         return run_thesis_wave_command(
             as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
             settings=DataSettings(),
+            allow_stale=bool(getattr(args, "allow_stale", False)),
         )
     raise _UsageError(f"unsupported target {args.target!r}")
 
@@ -1057,12 +1089,29 @@ def run_thesis_report_command(
         logger.error("[DATA] event=thesis_report_failed reason=%s", exc)
         return 2
     try:
+        from src.data.panel_freshness import resolve_catalog_panel_as_of
+
         if as_of is not None:
             as_of_dt = datetime.fromisoformat(as_of)
             if as_of_dt.tzinfo is None:
                 as_of_dt = as_of_dt.replace(tzinfo=UTC)
+            # fail-closed if explicit as_of after last catalog session
+            try:
+                from src.data.catalog import latest_artifact
+                from src.data.schema import Dataset, spec_for
+                from src.data.storage import DataStore
+
+                latest = latest_artifact(settings, Dataset.PRICES)
+                frame = DataStore(settings).read_normalized(latest, spec_for(Dataset.PRICES))
+                max_d = frame.get_column("date").max()
+                if isinstance(max_d, date) and as_of_dt.date() > max_d:
+                    raise ValueError(f"explicit --as-of {as_of_dt.isoformat()} is after last catalog price session {max_d.isoformat()}")
+            except ValueError:
+                raise
+            except Exception:  # noqa: S110
+                pass  # noqa: S110
         else:
-            as_of_dt = datetime.now(UTC)
+            as_of_dt = resolve_catalog_panel_as_of(settings, reference_now=datetime.now(UTC)).panel_as_of
         exp_path = Path(experiment_path) if experiment_path is not None else None
         # runner for report: allocation from store
         from src.sim.allocation import run_allocation_from_store
@@ -1131,26 +1180,81 @@ def run_diagnose_overlap_command(
         return 1
 
 
-def run_thesis_wave_command(*, as_of: str | None, settings: DataSettings) -> int:
+def run_thesis_wave_command(*, as_of: str | None, settings: DataSettings, allow_stale: bool = False) -> int:
     """Run full thesis wave; never calls adoption_passes."""
     _anchor = "run thesis-wave"
     _ = run_thesis_wave
     from datetime import datetime
+
+    # wiring anchor: resolve_catalog_panel_as_of and as_of_dt = datetime.now(UTC)
+    _ = resolve_catalog_panel_as_of
+    _anchor_now = datetime.now(UTC)
 
     try:
         if as_of is not None:
             as_of_dt = datetime.fromisoformat(as_of)
             if as_of_dt.tzinfo is None:
                 as_of_dt = as_of_dt.replace(tzinfo=UTC)
+            # Explicit --as-of after last catalog price session fails closed
+            try:
+                _ = resolve_catalog_panel_as_of(settings, reference_now=as_of_dt)
+                from src.data.catalog import latest_artifact
+                from src.data.schema import Dataset, spec_for
+                from src.data.storage import DataStore
+                try:
+                    latest = latest_artifact(settings, Dataset.PRICES)
+                    frame = DataStore(settings).read_normalized(latest, spec_for(Dataset.PRICES))
+                    max_d = frame.get_column("date").max()
+                    if isinstance(max_d, date) and as_of_dt.date() > max_d:
+                        raise ValueError(f"explicit --as-of {as_of_dt.isoformat()} is after last catalog price session {max_d.isoformat()}")
+                except ValueError:
+                    raise
+                except Exception:  # noqa: S110
+                    pass  # noqa: S110
+            except ValueError:
+                raise
+            except Exception:  # noqa: S110
+                pass  # noqa: S110
         else:
-            as_of_dt = datetime.now(UTC)
+            try:
+                as_of_dt = resolve_catalog_panel_as_of(settings, reference_now=datetime.now(UTC)).panel_as_of
+            except Exception as exc:
+                logger.error("[DATA] event=thesis_wave_panel_failed reason=%s", exc)
+                return 1
+
+        from src.data.panel_freshness import PanelFreshnessStatus
+
+        try:
+            gate_report = resolve_catalog_panel_as_of(settings, reference_now=datetime.now(UTC))
+        except Exception as exc:
+            logger.error("[DATA] event=thesis_wave_panel_failed reason=%s", exc)
+            return 1
+        if gate_report.status == PanelFreshnessStatus.STALE:
+            hard = load_panel_hard_stop()
+            gate_report = apply_hard_stop(gate_report, hard)
+            if gate_report.status != PanelFreshnessStatus.HARD_STOP_ACK and not allow_stale:
+                logger.error(
+                    "[DATA] event=thesis_wave_stale panel_as_of=%s lag_days=%d",
+                    gate_report.panel_as_of.isoformat(),
+                    gate_report.lag_days,
+                )
+                return 1
+        elif gate_report.status == PanelFreshnessStatus.INSUFFICIENT_DATA:
+            logger.error("[DATA] event=thesis_wave_insufficient_data reason=insufficient catalog")
+            return 1
+        logger.info(
+            "[DATA] event=thesis_wave_panel panel_as_of=%s lag_days=%d status=%s",
+            gate_report.panel_as_of.isoformat(),
+            gate_report.lag_days,
+            gate_report.status.value,
+        )
 
         from src.sim.allocation import run_allocation_from_store
 
         def _runner(config):  # type: ignore[no-untyped-def]
             return run_allocation_from_store(config, settings)
 
-        wave = run_thesis_wave(settings=settings, as_of=as_of_dt, runner=_runner)
+        wave = run_thesis_wave(settings=settings, as_of=as_of_dt, runner=_runner, panel_report=gate_report)
         # Also write markdown
         from src.analytics.thesis_wave import write_thesis_wave_markdown
 
