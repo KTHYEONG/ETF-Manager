@@ -87,15 +87,17 @@ def _historical_slot(
         from src.policy.targets import PolicyId
         from src.validation.accumulation_cohort import run_accumulation_cohort_report
         from src.validation.experiment import CandidateSpec, ExperimentSpec, load_experiment_config
+        from src.validation.prospective import resolve_evaluation_horizon, resolve_proxy_history_span
 
         proxy = thesis.historical_proxies[0].value if thesis.historical_proxies else "QQQ"
+        spec: ExperimentSpec
+        horizon = None
         if experiment_path is not None:
             spec = load_experiment_config(str(experiment_path))
+            horizon = resolve_evaluation_horizon(thesis=thesis, catalog_start=spec.start, catalog_end=spec.end)
         else:
-            # Default QQQ baseline vs proxy candidate
             start = date(2007, 8, 31)
             end = as_of.date()
-            # Ensure end > start + 120 months else adjust start
             if end <= start:
                 end = date(2025, 4, 30)
             spec = ExperimentSpec(
@@ -108,10 +110,35 @@ def _historical_slot(
                 baseline=CandidateSpec(id="qqq_baseline", policy=PolicyId.QQQ, modules=0, targets={"QQQ": 1.0}),
                 candidates=[CandidateSpec(id=f"{proxy.lower()}_100", policy=PolicyId.QQQ, modules=1, targets={proxy: 1.0})],
             )
-        report = run_accumulation_cohort_report(spec, runner, horizon_months=120, step_months=12, bootstrap_paths=400, seed=7)
+            horizon = None
+            try:
+                proxy_start, proxy_end = resolve_proxy_history_span(thesis=thesis, settings=settings, as_of=as_of)
+                horizon = resolve_evaluation_horizon(thesis=thesis, catalog_start=proxy_start, catalog_end=proxy_end)
+            except Exception:
+                horizon = None
+            if horizon is None:
+                alt = resolve_evaluation_horizon(thesis=thesis, catalog_start=spec.start, catalog_end=spec.end)
+                if alt is not None:
+                    horizon = alt
+        if horizon is None:
+            days = (spec.end - spec.start).days if experiment_path is not None else 0
+            span_years = days / 365.25 if experiment_path is not None else 0.0
+            # Prefer proxy span when available for message
+            try:
+                if experiment_path is None:
+                    ps, pe = resolve_proxy_history_span(thesis=thesis, settings=settings, as_of=as_of)
+                    span_years = (pe - ps).days / 365.25
+            except Exception:  # noqa: S110,BLE001
+                pass
+            return EvidenceSlot(
+                status="insufficient_data",
+                summary=f"no_feasible_cohort_horizon span {span_years:.2f}y min {thesis.horizon.min_years}",
+                metrics={"error": "no_feasible_cohort_horizon", "span_years": float(span_years), "min_years": int(thesis.horizon.min_years)},
+            )
+        report = run_accumulation_cohort_report(spec, runner, horizon_months=horizon.horizon_months, step_months=12, bootstrap_paths=400, seed=7)
         return EvidenceSlot(
             status="computed",
-            summary=f"120M cohorts n={len(report.rows)} median {report.median_ratio:.4f}",
+            summary=f"{horizon.horizon_months}M cohorts n={len(report.rows)} median {report.median_ratio:.4f}",
             metrics={
                 "median_ratio": float(report.median_ratio),
                 "cohort_count": len(report.rows),

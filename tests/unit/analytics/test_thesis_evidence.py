@@ -189,3 +189,76 @@ def test_ev_no_adoption_import(scenario_id: str) -> None:
     assert "adoption_passes" not in text_ev
     text_rpt = Path("src/analytics/thesis_report.py").read_text(encoding="utf-8")
     assert "adoption_passes" not in text_rpt
+
+
+def test_ev_adaptive_horizon_not_hardcoded_120(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.analytics.thesis_evidence import compute_evidence_vector
+    from src.validation.accumulation_cohort import AccumulationCohortReport, AccumulationCohortRow, CohortOverlapMetadata
+    from src.validation.prospective import EvaluationHorizon
+
+    thesis = ThesisSpec(
+        id=ThesisId.AI_COMPUTE,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["f1"],
+        candidate_sleeves=["ai_semiconductor"],
+        historical_proxies=["SOXX"],
+    )
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2025, 4, 30, tzinfo=UTC)
+
+    captured: dict[str, int] = {}
+
+    def fake_resolve(*args, **kwargs):
+        return EvaluationHorizon(horizon_months=96, target_months=120, min_months=60, span_years=8.6, span_capped=True, reason="ok")
+
+    def fake_proxy(*args, **kwargs):
+        return (date(2016, 9, 30), date(2025, 4, 30))
+
+    def fake_cohort(spec, runner, horizon_months=120, step_months=12, bootstrap_paths=400, seed=7):
+        captured["horizon_months"] = int(horizon_months)
+        # minimal report
+        overlap = CohortOverlapMetadata(horizon_months=horizon_months, step_months=step_months)
+        rows = (
+            AccumulationCohortRow(candidate_wealth=110.0, baseline_wealth=100.0, ratio=1.1, candidate_recovery_months=None, cohort_start=date(2016, 9, 30), cohort_end=date(2024, 9, 29)),
+        )
+        return AccumulationCohortReport(
+            name=spec.name,
+            overlap=overlap,
+            rows=rows,
+            median_ratio=1.1,
+            p10_ratio=1.1,
+            worst_ratio=1.1,
+            win_rate=1.0,
+            bootstrap_p05_ratio_mean=1.0,
+            unrecovered_cohort_count=0,
+        )
+
+    monkeypatch.setattr("src.validation.prospective.resolve_evaluation_horizon", fake_resolve)
+    monkeypatch.setattr("src.validation.prospective.resolve_proxy_history_span", fake_proxy)
+    monkeypatch.setattr("src.validation.accumulation_cohort.run_accumulation_cohort_report", fake_cohort)
+
+    def fake_load_visible(settings, dataset, decision_ts):
+        if dataset == Dataset.ETF_HOLDINGS:
+            raise ValueError("no holdings")
+        return pl.DataFrame()
+
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_load_visible)
+
+    def runner(config: AllocationConfig) -> AllocationResult:
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=100.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=100.0,
+            xirr_real=0.0,
+        )
+
+    snapshot = compute_evidence_vector(thesis=thesis, settings=settings, as_of=as_of, runner=runner)
+    assert captured.get("horizon_months") == 96
+    assert snapshot.historical.status == "computed"

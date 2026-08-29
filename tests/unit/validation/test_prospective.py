@@ -52,11 +52,90 @@ def test_prosp_a_botz_eligible(scenario_id: str) -> None:
     el5 = evaluate_prospective_eligibility(thesis=thesis5, catalog_start=catalog_start, catalog_end=catalog_end)
     assert el5.eligible is False
     assert el5.min_years_required == 5
+    assert "min_years" in el5.reason
 
-    thesis10 = _thesis_with_min_years(10)
+    thesis10 = ThesisSpec(
+        id=ThesisId.PHYSICAL_AUTOMATION,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=10, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["f1"],
+        candidate_sleeves=["physical_automation"],
+        historical_proxies=["BOTZ"],
+    )
     el10 = evaluate_prospective_eligibility(thesis=thesis10, catalog_start=catalog_start, catalog_end=catalog_end)
     assert el10.eligible is True
-    assert el10.min_years_required == 15
+    assert el10.min_years_required == 10
+
+
+def test_prosp_c_min_years_gate_not_target() -> None:
+    catalog_start = date(2016, 9, 30)
+    catalog_end = date(2025, 4, 30)
+    span_years = (catalog_end - catalog_start).days / 365.25
+    assert 8.0 < span_years < 9.0
+    # Horizon(min=5,target=10): span >=5 so not eligible
+    thesis5_10 = ThesisSpec(
+        id=ThesisId.PHYSICAL_AUTOMATION,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["f1"],
+        candidate_sleeves=["physical_automation"],
+        historical_proxies=["BOTZ"],
+    )
+    el = evaluate_prospective_eligibility(thesis=thesis5_10, catalog_start=catalog_start, catalog_end=catalog_end)
+    assert el.eligible is False
+    assert el.min_years_required == 5
+    assert "min_years" in el.reason
+    # Horizon(min=10,target=10): span <10 so eligible
+    thesis10_10 = ThesisSpec(
+        id=ThesisId.PHYSICAL_AUTOMATION,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=10, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["f1"],
+        candidate_sleeves=["physical_automation"],
+        historical_proxies=["BOTZ"],
+    )
+    el2 = evaluate_prospective_eligibility(thesis=thesis10_10, catalog_start=catalog_start, catalog_end=catalog_end)
+    assert el2.eligible is True
+    assert el2.min_years_required == 10
+
+
+def test_prosp_d_adaptive_horizon_botz_panel() -> None:
+    from datetime import timedelta
+
+    from src.validation.prospective import resolve_evaluation_horizon
+
+    thesis = ThesisSpec(
+        id=ThesisId.PHYSICAL_AUTOMATION,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["f1"],
+        candidate_sleeves=["physical_automation"],
+        historical_proxies=["BOTZ"],
+    )
+    start = date(2016, 9, 30)
+    end = date(2025, 4, 30)
+    horizon = resolve_evaluation_horizon(thesis=thesis, catalog_start=start, catalog_end=end)
+    assert horizon is not None
+    assert horizon.horizon_months == 96
+    assert horizon.target_months == 120
+    assert horizon.min_months == 60
+    assert horizon.span_capped is True
+    # short span <5y -> None
+    short_end = start + timedelta(days=int(4.5 * 365.25))
+    short_h = resolve_evaluation_horizon(thesis=thesis, catalog_start=start, catalog_end=short_end)
+    assert short_h is None
 
 
 @pytest.mark.parametrize("scenario_id", ["PROSP-B-paper-reconcile"])
