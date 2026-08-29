@@ -370,21 +370,36 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                 try:
                     tree = ast.parse(sf_content, filename=fh)
                     if kind == "constant":
-                        # 모듈 수준 상수(AnnAssign/Assign 타깃)를 인식한다.
-                        for node in ast.walk(tree):
-                            if (
-                                isinstance(node, ast.AnnAssign)
-                                and isinstance(node.target, ast.Name)
-                                and node.target.id == name
-                            ):
-                                found_impl = True
-                                break
-                            if isinstance(node, ast.Assign) and any(
-                                isinstance(t, ast.Name) and t.id == name
-                                for t in node.targets
-                            ):
-                                found_impl = True
-                                break
+                        leaf = name.rpartition(".")[2] if "." in name else name
+                        owner = name.rpartition(".")[0] if "." in name else ""
+                        if owner and leaf:
+                            for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == owner]:
+                                for stmt in cls.body:
+                                    if isinstance(stmt, ast.Assign):
+                                        for t in stmt.targets:
+                                            if isinstance(t, ast.Name) and t.id == leaf:
+                                                found_impl = True
+                                                break
+                                    if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name) and stmt.target.id == leaf:
+                                        found_impl = True
+                                        break
+                                if found_impl:
+                                    break
+                        if not found_impl:
+                            for node in ast.walk(tree):
+                                if (
+                                    isinstance(node, ast.AnnAssign)
+                                    and isinstance(node.target, ast.Name)
+                                    and node.target.id == name
+                                ):
+                                    found_impl = True
+                                    break
+                                if isinstance(node, ast.Assign) and any(
+                                    isinstance(t, ast.Name) and t.id == name
+                                    for t in node.targets
+                                ):
+                                    found_impl = True
+                                    break
                     elif kind == "reexport":
                         imported = any(
                             isinstance(node, ast.ImportFrom)
