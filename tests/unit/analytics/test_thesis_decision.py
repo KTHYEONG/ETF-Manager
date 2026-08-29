@@ -81,7 +81,7 @@ def test_dec_b_watch_divergence(scenario_id: str) -> None:
     """DEC-B-watch-divergence"""
     report = _make_report(
         prospective_eligible=False,
-        divergence={"median_ratio": 1.027, "ce_ratio_gamma_2": 0.997, "long_horizon_passes": False},
+        divergence={"median_ratio": 1.027, "cohort_ce_ratio_gamma_2": 0.997, "long_horizon_passes": False},
         long_horizon_passes=False,
         long_horizon_median=1.027,
     )
@@ -94,7 +94,7 @@ def test_dec_c_reject_weak(scenario_id: str) -> None:
     """DEC-C-reject-weak"""
     report = _make_report(
         prospective_eligible=False,
-        divergence={"median_ratio": 0.98, "ce_ratio_gamma_2": 0.975, "long_horizon_passes": False},
+        divergence={"median_ratio": 0.98, "cohort_ce_ratio_gamma_2": 0.975, "long_horizon_passes": False},
         long_horizon_passes=False,
         long_horizon_median=0.98,
         historical_median=0.98,
@@ -115,10 +115,83 @@ def test_dec_d_no_adoption(scenario_id: str) -> None:
 def test_dec_e_botz_available_span_rejects() -> None:
     report = _make_report(
         prospective_eligible=False,
-        divergence={"median_ratio": 0.61, "ce_ratio_gamma_2": 0.56, "long_horizon_passes": False},
+        divergence={"median_ratio": 0.61, "cohort_ce_ratio_gamma_2": 0.56, "long_horizon_passes": False},
         long_horizon_passes=False,
         long_horizon_median=0.61,
         historical_median=0.61,
     )
     rec = synthesize_thesis_decision(report)
     assert rec.decision == ThesisDecision.REJECT
+
+
+@pytest.mark.parametrize("scenario_id", ["test_dec_f_soxx_like_continue_no_hurdle_fail_language"])
+def test_dec_f_soxx_like_continue_no_hurdle_fail_language(scenario_id: str) -> None:
+    report = _make_report(
+        prospective_eligible=False,
+        divergence={"median_ratio": 1.278, "cohort_ce_ratio_gamma_2": 1.20, "long_horizon_passes": False, "terminal_wealth_ratio": 1.20},
+        long_horizon_passes=False,
+        long_horizon_median=1.278,
+    )
+    rec = synthesize_thesis_decision(report)
+    assert rec.decision == ThesisDecision.CONTINUE_RESEARCH
+    lowered = rec.rationale.lower()
+    for banned in ["hurdle fail", "below adoption", "hurdle not met", "ce adoption hurdle"]:
+        assert banned not in lowered, f"rationale contains banned phrase {banned!r}: {rec.rationale!r}"
+
+
+@pytest.mark.parametrize("scenario_id", ["test_dec_g_boundary_ce_1_02_not_watch"])
+def test_dec_g_boundary_ce_1_02_not_watch(scenario_id: str) -> None:
+    report = _make_report(
+        prospective_eligible=False,
+        divergence={"median_ratio": 1.0, "cohort_ce_ratio_gamma_2": 1.02, "long_horizon_passes": False},
+        long_horizon_passes=False,
+        long_horizon_median=1.0,
+    )
+    rec = synthesize_thesis_decision(report)
+    assert rec.decision == ThesisDecision.CONTINUE_RESEARCH
+    assert rec.decision != ThesisDecision.WATCH
+
+
+@pytest.mark.parametrize("scenario_id", ["test_dec_h_boundary_ce_0_98_not_reject"])
+def test_dec_h_boundary_ce_0_98_not_reject(scenario_id: str) -> None:
+    report = _make_report(
+        prospective_eligible=False,
+        divergence={"median_ratio": 0.99, "cohort_ce_ratio_gamma_2": 0.98, "long_horizon_passes": False},
+        long_horizon_passes=False,
+        long_horizon_median=0.99,
+    )
+    rec = synthesize_thesis_decision(report)
+    assert rec.decision == ThesisDecision.CONTINUE_RESEARCH
+    assert rec.decision != ThesisDecision.REJECT
+
+
+@pytest.mark.parametrize("scenario_id", ["test_dec_i_reject_median_only_when_no_cohort_ce"])
+def test_dec_i_reject_median_only_when_no_cohort_ce(scenario_id: str) -> None:
+    report_reject = _make_report(
+        prospective_eligible=False,
+        divergence={"median_ratio": 0.97, "long_horizon_passes": False},
+        long_horizon_passes=False,
+        long_horizon_median=0.97,
+    )
+    rec = synthesize_thesis_decision(report_reject)
+    assert rec.decision == ThesisDecision.REJECT
+    report_continue = _make_report(
+        prospective_eligible=False,
+        divergence={"median_ratio": 0.99, "long_horizon_passes": False},
+        long_horizon_passes=False,
+        long_horizon_median=0.99,
+    )
+    rec2 = synthesize_thesis_decision(report_continue)
+    assert rec2.decision == ThesisDecision.CONTINUE_RESEARCH
+
+
+@pytest.mark.parametrize("scenario_id", ["test_dec_j_watch_uses_cohort_ce_not_terminal_wealth"])
+def test_dec_j_watch_uses_cohort_ce_not_terminal_wealth(scenario_id: str) -> None:
+    report = _make_report(
+        prospective_eligible=False,
+        divergence={"median_ratio": 1.05, "terminal_wealth_ratio": 0.90, "cohort_ce_ratio_gamma_2": 0.99, "long_horizon_passes": False},
+        long_horizon_passes=False,
+        long_horizon_median=1.05,
+    )
+    rec = synthesize_thesis_decision(report)
+    assert rec.decision == ThesisDecision.WATCH

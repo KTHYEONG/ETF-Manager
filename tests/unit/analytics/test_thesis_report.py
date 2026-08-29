@@ -116,3 +116,67 @@ def test_rpt_b_divergence_block(scenario_id: str, tmp_path: Path, monkeypatch: p
     # Also long_horizon should be not passing due to cohort count <10
     assert report.long_horizon is not None
     assert report.long_horizon.passes is False
+
+
+@pytest.mark.parametrize("scenario_id", ["test_rpt_c_cohort_ce_not_singleton"])
+def test_rpt_c_cohort_ce_not_singleton(scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.analytics.thesis_report import build_thesis_report
+    from src.validation.accumulation_cohort import AccumulationCohortReport, AccumulationCohortRow, CohortOverlapMetadata
+    from src.validation.gate import certainty_equivalent
+
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2025, 4, 30, tzinfo=UTC)
+
+    # Prepare cohort rows where candidate wealths vary and not constant ratio
+    c_wealths = [120.0, 130.0, 110.0, 125.0]
+    b_wealths = [100.0, 100.0, 100.0, 100.0]
+
+    def runner(config: AllocationConfig) -> AllocationResult:
+        # terminal ratio = 1.2 if SOXX else 1.0 -> 1.2 singleton
+        wealth = 120.0 if config.targets_override == {"SOXX": 1.0} else 100.0
+        return AllocationResult(
+            config=config,
+            snapshots=(AllocationSnapshot(session=date(2024, 1, 31), cash_krw=0, cash_usd=0, shares={}, mark_krw=wealth, contribution_krw=0, fees_krw=0),),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+    def fake_cohort_report(spec, runner, horizon_months=120, step_months=12, bootstrap_paths=400, seed=7):
+        overlap = CohortOverlapMetadata(horizon_months=horizon_months, step_months=step_months)
+        rows = tuple(AccumulationCohortRow(candidate_wealth=c, baseline_wealth=b, ratio=c / b, candidate_recovery_months=0) for c, b in zip(c_wealths, b_wealths, strict=True))
+        ratios = [c / b for c, b in zip(c_wealths, b_wealths, strict=True)]
+        # compute median quickly via sorted
+        ratios_sorted = sorted(ratios)
+        median = ratios_sorted[len(ratios_sorted) // 2]
+        return AccumulationCohortReport(
+            name=spec.name,
+            overlap=overlap,
+            rows=rows,
+            median_ratio=float(median),
+            p10_ratio=float(min(ratios)),
+            worst_ratio=float(min(ratios)),
+            win_rate=1.0,
+            bootstrap_p05_ratio_mean=float(min(ratios)),
+            unrecovered_cohort_count=0,
+        )
+
+    monkeypatch.setattr("src.validation.accumulation_cohort.run_accumulation_cohort_report", fake_cohort_report)
+
+    def fake_load_visible(settings, dataset, decision_ts):
+        raise ValueError("no holdings")
+
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_load_visible)
+
+    report = build_thesis_report(thesis_id=ThesisId.AI_COMPUTE, settings=settings, as_of=as_of, runner=runner)
+    assert report.divergence is not None
+    assert "terminal_wealth_ratio" in report.divergence
+    assert "cohort_ce_ratio_gamma_2" in report.divergence
+    terminal = float(report.divergence["terminal_wealth_ratio"])  # type: ignore[arg-type]
+    cohort_ce = float(report.divergence["cohort_ce_ratio_gamma_2"])  # type: ignore[arg-type]
+    assert terminal != cohort_ce
+    expected_ce = certainty_equivalent(c_wealths, gamma=2.0) / certainty_equivalent(b_wealths, gamma=2.0)
+    assert abs(cohort_ce - expected_ce) < 1e-9
+    assert abs(terminal - 1.2) < 1e-9

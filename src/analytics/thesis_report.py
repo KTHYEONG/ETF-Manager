@@ -88,10 +88,25 @@ def _ce_ratio_gamma_2(
     try:
         baseline_wealth = float(runner(baseline_config).terminal_wealth_real_krw)
         candidate_wealth = float(runner(candidate_config).terminal_wealth_real_krw)
-        baseline_ce = certainty_equivalent((baseline_wealth,), gamma=2.0)
-        candidate_ce = certainty_equivalent((candidate_wealth,), gamma=2.0)
-        return candidate_ce / baseline_ce
+        if baseline_wealth == 0:
+            return None
+        return candidate_wealth / baseline_wealth
     except ValueError:
+        return None
+
+
+def _cohort_ce_ratio_gamma_2(report) -> float | None:  # type: ignore[no-untyped-def]  # noqa: F821
+    try:
+        if not report.rows:
+            return None
+        cands = [float(r.candidate_wealth) for r in report.rows]
+        bases = [float(r.baseline_wealth) for r in report.rows]
+        c_ce = certainty_equivalent(cands, gamma=2.0)
+        b_ce = certainty_equivalent(bases, gamma=2.0)
+        if b_ce == 0:
+            return None
+        return float(c_ce / b_ce)
+    except Exception:
         return None
 
 
@@ -114,6 +129,7 @@ def build_thesis_report(
 
     evidence_spec = _resolve_evidence_spec(thesis, as_of, experiment_path)
     ce_ratio = _ce_ratio_gamma_2(evidence_spec, runner)
+    terminal_wealth_ratio = ce_ratio
 
     # Adaptive evaluation horizon: from experiment window or proxy span
     evaluation_horizon = None
@@ -138,6 +154,7 @@ def build_thesis_report(
 
     # Long horizon verdict from accumulation cohort (adaptive horizon)
     long_horizon: LongHorizonVerdict | None = None
+    cohort_ce_ratio: float | None = None
     try:
         from src.validation.accumulation_cohort import run_accumulation_cohort_report
 
@@ -146,11 +163,12 @@ def build_thesis_report(
                 evidence_spec, runner, horizon_months=evaluation_horizon.horizon_months, step_months=12, bootstrap_paths=400, seed=7
             )
             long_horizon = long_horizon_passes(report)
+            cohort_ce_ratio = _cohort_ce_ratio_gamma_2(report)
         else:
-            # No feasible cohort horizon: treat as insufficient_data via evaluation_horizon None
             long_horizon = None
     except Exception:  # noqa: BLE001
         long_horizon = None
+        cohort_ce_ratio = None
 
     # Prospective eligibility from primary proxy listing span (not full catalog)
     prospective: ProspectiveEligibility
@@ -185,7 +203,7 @@ def build_thesis_report(
 
     # Divergence when CE and long horizon metrics coexist
     divergence: Mapping[str, object] | None = None
-    if long_horizon is not None and ce_ratio is not None:
+    if long_horizon is not None and terminal_wealth_ratio is not None:
         median = (
             float(evidence.historical.metrics.get("median_ratio", long_horizon.median_ratio))
             if evidence.historical.status == "computed"
@@ -194,11 +212,15 @@ def build_thesis_report(
         div: dict[str, object] = {
             "long_horizon_passes": bool(long_horizon.passes),
             "median_ratio": float(median),
-            "ce_ratio_gamma_2": float(ce_ratio),
+            "terminal_wealth_ratio": float(terminal_wealth_ratio),
             "long_horizon_median": float(long_horizon.median_ratio),
             "cohort_count": int(long_horizon.cohort_count),
             "overlap_dependence_disclosed": bool(long_horizon.overlap_dependence_disclosed),
         }
+        if cohort_ce_ratio is not None:
+            div["cohort_ce_ratio_gamma_2"] = float(cohort_ce_ratio)
+            # transitional alias only to cohort CE
+            div["ce_ratio_gamma_2"] = float(cohort_ce_ratio)
         if evidence.historical.status == "computed":
             div["historical_median_ratio"] = float(evidence.historical.metrics.get("median_ratio", median))
         if evaluation_horizon is not None:
