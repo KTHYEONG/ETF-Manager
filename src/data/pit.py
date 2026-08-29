@@ -127,8 +127,17 @@ def as_of(frame: pl.DataFrame, spec: DatasetSpec, as_of_ts: datetime) -> pl.Data
     visible = frame.filter(pl.col(AVAILABLE_AT) <= pl.lit(cutoff, dtype=TS_DTYPE))
     if not spec.revisable or visible.is_empty():
         return visible
-    ordered = visible.sort([*spec.key, AVAILABLE_AT], maintain_order=True)
-    return ordered.filter(pl.struct(list(spec.key)).is_last_distinct())
+    # Holdings amendment consolidation: within (etf_ticker, report_date, holding_id) keep max filing_date
+    dedup_keys = list(spec.key)
+    try:
+        from src.data.schema import Dataset as _Dataset
+
+        if spec.dataset == _Dataset.ETF_HOLDINGS:
+            dedup_keys = ["etf_ticker", "report_date", "holding_id"]
+    except Exception:  # noqa: S110
+        pass
+    ordered = visible.sort([*dedup_keys, AVAILABLE_AT], maintain_order=True)
+    return ordered.filter(pl.struct(dedup_keys).is_last_distinct())
 
 
 def assert_no_lookahead(frame: pl.DataFrame, decision_ts: datetime) -> None:

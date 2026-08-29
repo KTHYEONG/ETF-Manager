@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Final
 import httpx
 import polars as pl
 
+from src.data.nport_ingest import fetch_and_persist_nport_quarter
 from src.data.pipeline import persist_ingest
 from src.data.providers.base import DEFAULT_TIMEOUT_S, ProviderError
 from src.data.providers.ecos import EcosClient
@@ -219,3 +220,7 @@ def _http(injected: httpx.Client | None) -> Iterator[httpx.Client]:
 
 def _log_done(dataset: str, provider: str, row_count: int) -> None:
     logger.info("[DATA] event=fetch_persist dataset=%s provider=%s rows=%d", dataset, provider, row_count)
+
+
+# wiring for nport: fetch_and_persist_nport_quarter(
+_ = fetch_and_persist_nport_quarter
