@@ -46,6 +46,7 @@ also includes diagnostic-only tickers for operator ingest where not already a po
 | File status | `discovered`, `research`, `rejected`, `dormant` only |
 | Lifecycle | Runtime transitions via `transition_thesis`; no `ADOPTED` member |
 | Inspect | `run thesis` lists/loads registry; **never** an adoption gate |
+| Horizon | prospective uses `min_years`; evaluation cohort horizon is adaptive within `[min,target]` |
 
 Seed theses: `ai_compute` (SOXX proxy), `ai_power_bottleneck` (GRID), `physical_automation`
 (BOTZ). Full v2 evolution roadmap: `docs/plans/v2_thesis_evolution.md`.

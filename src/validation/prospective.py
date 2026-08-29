@@ -13,9 +13,11 @@ from src.sim.allocation import AllocationConfig, AllocationResult
 from src.validation.experiment import ExperimentSpec
 
 __all__ = [
+    "EvaluationHorizon",
     "ProspectiveEligibility",
     "ProspectiveFreezeRecord",
     "evaluate_prospective_eligibility",
+    "resolve_evaluation_horizon",
     "resolve_proxy_history_span",
     "run_prospective_paper_forward",
 ]
@@ -26,6 +28,16 @@ class ProspectiveEligibility:
     eligible: bool
     catalog_span_years: float
     min_years_required: int
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationHorizon:
+    horizon_months: int
+    target_months: int
+    min_months: int
+    span_years: float
+    span_capped: bool
     reason: str
 
 
@@ -43,15 +55,54 @@ def evaluate_prospective_eligibility(
     """Eligible when history span is shorter than thesis horizon min_years."""
     days = (catalog_end - catalog_start).days
     span_years = days / 365.25
-    required_years = int(thesis.horizon.target_years)
+    required_years = int(thesis.horizon.min_years)
     eligible = span_years < float(required_years)
-    reason = f"proxy_span {span_years:.2f}y {'<' if eligible else '>='} target_years {required_years}"
+    reason = f"proxy_span {span_years:.2f}y {'<' if eligible else '>='} min_years {required_years}"
     return ProspectiveEligibility(
         eligible=eligible,
         catalog_span_years=float(span_years),
         min_years_required=required_years,
         reason=reason,
     )
+
+
+def resolve_evaluation_horizon(
+    *, thesis: ThesisSpec, catalog_start: date, catalog_end: date
+) -> EvaluationHorizon | None:
+    """Resolve largest whole-year horizon in [min,target] with >=1 cohort.
+
+    Returns ``None`` when ``span_years < min_years`` or no yearly horizon
+    yields at least one rolling cohort (step 12m).
+    """
+    from src.validation.windows import rolling_cohorts
+
+    days = (catalog_end - catalog_start).days
+    span_years = days / 365.25
+    min_years = int(thesis.horizon.min_years)
+    target_years = int(thesis.horizon.target_years)
+    min_months = min_years * 12
+    target_months = target_years * 12
+    if span_years < float(min_years):
+        return None
+    for horizon_months in range(target_months, min_months - 1, -12):
+        cohorts = rolling_cohorts(
+            catalog_start, catalog_end, horizon_months=horizon_months, step_months=12
+        )
+        if len(cohorts) >= 1:
+            span_capped = horizon_months < target_months
+            reason = (
+                f"evaluated_horizon {horizon_months} target {target_months} "
+                f"span_capped {span_capped} span {span_years:.2f}y"
+            )
+            return EvaluationHorizon(
+                horizon_months=int(horizon_months),
+                target_months=int(target_months),
+                min_months=int(min_months),
+                span_years=float(span_years),
+                span_capped=bool(span_capped),
+                reason=reason,
+            )
+    return None
 
 
 def resolve_proxy_history_span(
@@ -61,10 +112,10 @@ def resolve_proxy_history_span(
     as_of: datetime,
 ) -> tuple[date, date]:
     """Return first/last price session for the thesis primary proxy at ``as_of``."""
+    import polars as pl
+
     from src.data.catalog import load_visible
     from src.data.schema import Dataset
-
-    import polars as pl
 
     if not thesis.historical_proxies:
         raise ValueError("thesis has no historical_proxies")

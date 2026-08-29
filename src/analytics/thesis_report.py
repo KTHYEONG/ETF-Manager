@@ -14,7 +14,12 @@ from src.policy.thesis import ThesisId, ThesisSpec, ThesisStatus, get_thesis, lo
 from src.sim.allocation import AllocationConfig, AllocationResult
 from src.validation.experiment import CandidateSpec, ExperimentSpec, load_experiment_config, resolve_arm_targets
 from src.validation.gate import LongHorizonVerdict, certainty_equivalent, long_horizon_passes
-from src.validation.prospective import ProspectiveEligibility, evaluate_prospective_eligibility, resolve_proxy_history_span
+from src.validation.prospective import (
+    ProspectiveEligibility,
+    evaluate_prospective_eligibility,
+    resolve_evaluation_horizon,
+    resolve_proxy_history_span,
+)
 
 __all__ = ["ThesisReport", "build_thesis_report", "write_thesis_report"]
 
@@ -110,15 +115,40 @@ def build_thesis_report(
     evidence_spec = _resolve_evidence_spec(thesis, as_of, experiment_path)
     ce_ratio = _ce_ratio_gamma_2(evidence_spec, runner)
 
-    # Long horizon verdict from accumulation cohort
+    # Adaptive evaluation horizon: from experiment window or proxy span
+    evaluation_horizon = None
+    try:
+        if experiment_path is not None:
+            evaluation_horizon = resolve_evaluation_horizon(thesis=thesis, catalog_start=evidence_spec.start, catalog_end=evidence_spec.end)
+        else:
+            try:
+                ps, pe = resolve_proxy_history_span(thesis=thesis, settings=settings, as_of=as_of)
+                evaluation_horizon = resolve_evaluation_horizon(thesis=thesis, catalog_start=ps, catalog_end=pe)
+            except Exception:
+                evaluation_horizon = None
+            if evaluation_horizon is None:
+                try:
+                    evaluation_horizon = resolve_evaluation_horizon(
+                        thesis=thesis, catalog_start=evidence_spec.start, catalog_end=evidence_spec.end
+                    )
+                except Exception:
+                    evaluation_horizon = None
+    except Exception:
+        evaluation_horizon = None
+
+    # Long horizon verdict from accumulation cohort (adaptive horizon)
     long_horizon: LongHorizonVerdict | None = None
     try:
         from src.validation.accumulation_cohort import run_accumulation_cohort_report
 
-        report = run_accumulation_cohort_report(
-            evidence_spec, runner, horizon_months=120, step_months=12, bootstrap_paths=400, seed=7
-        )
-        long_horizon = long_horizon_passes(report)
+        if evaluation_horizon is not None:
+            report = run_accumulation_cohort_report(
+                evidence_spec, runner, horizon_months=evaluation_horizon.horizon_months, step_months=12, bootstrap_paths=400, seed=7
+            )
+            long_horizon = long_horizon_passes(report)
+        else:
+            # No feasible cohort horizon: treat as insufficient_data via evaluation_horizon None
+            long_horizon = None
     except Exception:  # noqa: BLE001
         long_horizon = None
 
@@ -129,6 +159,19 @@ def build_thesis_report(
         prospective = evaluate_prospective_eligibility(
             thesis=thesis, catalog_start=proxy_start, catalog_end=proxy_end
         )
+        # When span >= min_years but no feasible cohort horizon, keep prospective False (history attempted as insufficient_data)
+        if evaluation_horizon is None:
+            try:
+                span_years_check = (proxy_end - proxy_start).days / 365.25
+                if span_years_check >= float(thesis.horizon.min_years) and prospective.eligible:
+                    prospective = ProspectiveEligibility(
+                        eligible=False,
+                        catalog_span_years=prospective.catalog_span_years,
+                        min_years_required=prospective.min_years_required,
+                        reason="no_feasible_cohort_horizon " + prospective.reason,
+                    )
+            except Exception:  # noqa: S110,BLE001
+                pass
     except Exception as exc:  # noqa: BLE001
         prospective = ProspectiveEligibility(
             eligible=False,
@@ -158,6 +201,15 @@ def build_thesis_report(
         }
         if evidence.historical.status == "computed":
             div["historical_median_ratio"] = float(evidence.historical.metrics.get("median_ratio", median))
+        if evaluation_horizon is not None:
+            div["evaluated_horizon_months"] = int(evaluation_horizon.horizon_months)
+            div["target_years"] = int(thesis.horizon.target_years)
+            div["span_capped"] = bool(evaluation_horizon.span_capped)
+        else:
+            # Fallback still include horizon fields for compliance when no feasible horizon but long_horizon missing won't be here
+            div["evaluated_horizon_months"] = 0
+            div["target_years"] = int(thesis.horizon.target_years)
+            div["span_capped"] = False
         divergence = div
 
     return ThesisReport(

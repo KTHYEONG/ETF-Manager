@@ -14,14 +14,14 @@ import httpx
 import polars as pl
 
 from src.data.catalog import latest_artifact
-from src.data.pit import AVAILABLE_AT
 from src.data.pipeline import persist_ingest
+from src.data.pit import AVAILABLE_AT
 from src.data.providers.base import ProviderError
 from src.data.providers.sec_nport import SecNportClient, normalize_nport_holdings
 from src.data.providers.sec_nport import _parse_raw_tables as _sec_parse_raw_tables
 from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
-from src.data.storage import DataStore, DatasetArtifact, RawPayload, UntrustedDatasetError
+from src.data.storage import DatasetArtifact, DataStore, RawPayload, UntrustedDatasetError
 
 logger = logging.getLogger(__name__)
 
@@ -117,8 +117,8 @@ def fetch_and_persist_nport_quarter(
         raw_nport_path.write_bytes(content)
     else:
         # ensure hash matches if existing
-        existing = raw_nport_path.read_bytes()
-        if hashlib.sha256(existing).hexdigest() != hashlib.sha256(content).hexdigest():
+        prior_raw = raw_nport_path.read_bytes()
+        if hashlib.sha256(prior_raw).hexdigest() != hashlib.sha256(content).hexdigest():
             # overwrite with new content (amendment) - keep latest
             raw_nport_path.write_bytes(content)
 
@@ -129,8 +129,8 @@ def fetch_and_persist_nport_quarter(
 
     try:
         store = DataStore(settings)
-        existing = store.read_normalized(latest_artifact(settings, Dataset.ETF_HOLDINGS), spec_for(Dataset.ETF_HOLDINGS))
-        frame = _merge_holdings_frame(existing, frame)
+        prior_holdings = store.read_normalized(latest_artifact(settings, Dataset.ETF_HOLDINGS), spec_for(Dataset.ETF_HOLDINGS))
+        frame = _merge_holdings_frame(prior_holdings, frame)
     except UntrustedDatasetError:
         pass
 
