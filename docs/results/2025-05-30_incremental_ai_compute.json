@@ -19,10 +19,10 @@
       "ce_gamma_10": 1.0006743416875017,
       "attribution": {
         "target_soxx_weight": 0.05,
-        "mean_realized_soxx_weight": 2.7357129129967657e-05,
-        "terminal_realized_soxx_weight": 2.3435932114427752e-05,
-        "mean_abs_weight_drift": 0.049972642870870033,
-        "terminal_weight_drift": -0.04997656406788557,
+        "mean_realized_soxx_weight": 0.03219816112076124,
+        "terminal_realized_soxx_weight": 0.031217130295060052,
+        "mean_abs_weight_drift": 0.01780183887923877,
+        "terminal_weight_drift": -0.01878286970493995,
         "incremental_wealth_ratio": 1.0114868586503833
       },
       "path_bootstrap": {
@@ -45,10 +45,10 @@
       "ce_gamma_10": 1.0022123775396072,
       "attribution": {
         "target_soxx_weight": 0.1,
-        "mean_realized_soxx_weight": 8.571019561992788e-05,
-        "terminal_realized_soxx_weight": 7.868821673808908e-05,
-        "mean_abs_weight_drift": 0.09991428980438008,
-        "terminal_weight_drift": -0.09992131178326191,
+        "mean_realized_soxx_weight": 0.10121686692590257,
+        "terminal_realized_soxx_weight": 0.10481427845946942,
+        "mean_abs_weight_drift": 0.006425554876325105,
+        "terminal_weight_drift": 0.004814278459469412,
         "incremental_wealth_ratio": 1.039326182005041
       },
       "path_bootstrap": {
@@ -71,10 +71,10 @@
       "ce_gamma_10": 1.0030652765192547,
       "attribution": {
         "target_soxx_weight": 0.15,
-        "mean_realized_soxx_weight": 0.00013906705119816234,
-        "terminal_realized_soxx_weight": 0.00013741881246737917,
-        "mean_abs_weight_drift": 0.14986093294880182,
-        "terminal_weight_drift": -0.14986258118753262,
+        "mean_realized_soxx_weight": 0.1646667871835924,
+        "terminal_realized_soxx_weight": 0.18304460658279836,
+        "mean_abs_weight_drift": 0.01875335496264768,
+        "terminal_weight_drift": 0.03304460658279837,
         "incremental_wealth_ratio": 1.0652051239017144
       },
       "path_bootstrap": {
