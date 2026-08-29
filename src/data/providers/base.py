@@ -57,6 +57,7 @@ def get_json(
     *,
     params: QueryParam | None = None,
     headers: Mapping[str, str] | None = None,
+    retry_on_429: bool = True,
 ) -> ProviderResponse:
     """GET one JSON document with the vendor retry policy.
 
@@ -65,9 +66,19 @@ def get_json(
     the status code or failure kind, never the raw body or the request URL.
     """
 
+    def _is_retryable_for_policy(exc: BaseException) -> bool:
+        if not isinstance(exc, httpx.HTTPStatusError):
+            return False
+        code = exc.response.status_code
+        if code == 429:
+            return retry_on_429
+        return code >= 500
+
     def _attempt() -> ProviderResponse:
         response = client.get(url, params=params, headers=headers)
         if _is_retryable_status(response.status_code):
+            if response.status_code == 429 and not retry_on_429:
+                raise ProviderError(f"provider returned HTTP {response.status_code}")
             # Raised so the surrounding tenacity policy can retry it.
             response.raise_for_status()
         if response.status_code >= 400:
@@ -89,7 +100,7 @@ def get_json(
         retrier = Retrying(
             stop=stop_after_attempt(MAX_ATTEMPTS),
             wait=wait_exponential(multiplier=1, min=2, max=30),
-            retry=retry_if_exception(_is_retryable),
+            retry=retry_if_exception(_is_retryable_for_policy),
             reraise=True,
         )
         return retrier(_attempt)

@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_DATA_API_RATE_QUOTA_EFFICIENCY",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_DATA_API_RATE_QUOTA_EFFICIENCY",
+      "domain": "data",
+      "title": "API rate/quota efficiency: Tiingo pacing, catalog watermarks, N-PORT pointer reuse",
+      "why": "Ingest history and thesis-panel re-requested full Tiingo windows despite catalog coverage; _INTER_TICKER_SLEEP_S (~1800 req/h) violated documented 50 req/h; nested 429 retries amplified quota burn; N-PORT quarters always re-downloaded bulk ZIPs.",
+      "resolution": "Added providers/quota.py (VendorQuota, PacingGate, TIINGO_QUOTA 50/h 1000/d); TiingoClient uses gate.acquire + retry_on_429=False with single paced 429 recovery; fetch.resolve_price_http_window + incremental PRICES watermark merge; static-dca uses incremental=True; get_json retry_on_429 flag; nport _load_nport_zip_bytes pointer-first cache; contract tests quota/fetch/tiingo/nport (8 scenarios).",
+      "impact": "ingest history/static-dca skip HTTP when catalog covers end; Tiingo pacing aligns with architecture matrix; N-PORT re-ingest avoids redundant SEC bulk download when pointer valid; QQQ operational lock and adoption_passes unchanged; specs purged on sync."
+    },
+    {
       "task_id": "TASK_DATA_STORAGE_OPS",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_DATA_STORAGE_OPS",

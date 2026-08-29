@@ -15,6 +15,7 @@ from src.data.fetch import (
     fetch_and_persist_macro,
     fetch_and_persist_prices,
     fetch_and_persist_static_dca_datasets,
+    resolve_price_http_window,
 )
 from src.data.pit import AVAILABLE_AT
 from src.data.schema import Dataset, MissingPolicy, spec_for
@@ -191,3 +192,104 @@ def test_WAV2_ING_static_dca(scenario_id: str, monkeypatch: pytest.MonkeyPatch, 
     # No new MACRO partition
     macro_manifests = list((tmp_path / "data" / "manifests" / "macro").glob("*.json")) if (tmp_path / "data" / "manifests" / "macro").exists() else []
     assert len(macro_manifests) == 0
+
+
+def test_resolve_price_http_window_skips_when_catalog_covers_end() -> None:
+    """test_resolve_price_http_window_skips_when_catalog_covers_end"""
+    import polars as pl
+
+    from src.data.schema import TS_DTYPE
+
+    start = date(2024, 1, 15)
+    end = date(2024, 1, 31)
+    retrieved = datetime(2024, 2, 1, tzinfo=UTC)
+    covered = pl.DataFrame(
+        {
+            "ticker": ["SPY"],
+            "date": [end],
+            "open": [1.0],
+            "high": [1.0],
+            "low": [1.0],
+            "close": [1.0],
+            "volume": [1],
+            "adjusted_close": [1.0],
+            "dividend": [0.0],
+            "split_factor": [1.0],
+            "source": ["tiingo"],
+            "retrieved_at": [retrieved],
+        }
+    ).cast({"retrieved_at": TS_DTYPE})
+    assert resolve_price_http_window("SPY", covered, start, end) is None
+
+    partial = covered.with_columns(pl.lit(date(2024, 1, 20)).alias("date"))
+    window = resolve_price_http_window("SPY", partial, start, end)
+    assert window is not None
+    effective_start, window_end = window
+    assert effective_start > start
+    assert effective_start <= end
+    assert window_end == end
+
+
+def test_incremental_prices_skips_http_for_covered_ticker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """test_incremental_prices_skips_http_for_covered_ticker"""
+    settings = _fresh_settings(monkeypatch, tmp_path)
+    body = (FIXTURES / "tiingo_spy_one_bar.json").read_bytes()
+    start = date(2024, 1, 30)
+    end = date(2024, 1, 31)
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, content=body)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        first = fetch_and_persist_prices(
+            ("SPY",), start, end, secrets=_SECRETS, settings=settings, client=http
+        )
+        prior_rows = first.manifest.row_count
+        requests.clear()
+        second = fetch_and_persist_prices(
+            ("SPY",), start, end, secrets=_SECRETS, settings=settings, client=http, incremental=True
+        )
+
+    assert len(requests) == 0
+    assert second.manifest.row_count == prior_rows
+
+
+def test_static_dca_prices_path_uses_incremental(monkeypatch: pytest.MonkeyPatch) -> None:
+    """test_static_dca_prices_path_uses_incremental"""
+    import src.data.fetch as fetch_module
+
+    prices_kwargs: dict[str, object] = {}
+
+    def prices_spy(*args: object, **kwargs: object) -> object:
+        prices_kwargs.update(kwargs)
+
+        class _Art:
+            manifest = type("M", (), {"row_count": 1})()
+
+        return _Art()
+
+    monkeypatch.setattr(fetch_module, "fetch_and_persist_prices", prices_spy)
+    monkeypatch.setattr(
+        fetch_module,
+        "fetch_and_persist_fx",
+        lambda *args, **kwargs: type("A", (), {"manifest": type("M", (), {"row_count": 1})()})(),
+    )
+    monkeypatch.setattr(
+        fetch_module,
+        "fetch_and_persist_cpi",
+        lambda *args, **kwargs: type("A", (), {"manifest": type("M", (), {"row_count": 1})()})(),
+    )
+
+    fetch_and_persist_static_dca_datasets(
+        start=date(2024, 1, 15),
+        end=date(2024, 1, 19),
+        tickers=("SPY",),
+        fx_provider="fred",
+        secrets=_SECRETS,
+        settings=DataSettings(data_root=Path("data")),
+    )
+    assert prices_kwargs.get("incremental") is True
