@@ -21,6 +21,7 @@ from src.analytics.regimes import QQQ_REGIME_WINDOWS, compare_policy_regimes
 from src.analytics.reserve_usage import compare_qqq_reserve
 from src.analytics.thesis_evidence import compute_evidence_vector
 from src.analytics.thesis_report import build_thesis_report, write_thesis_report
+from src.analytics.thesis_wave import run_thesis_wave
 from src.analytics.us_vehicles import (
     compare_vehicle_dca,
     history_price_tickers,
@@ -38,7 +39,7 @@ from src.data.fetch import (
     fetch_and_persist_research_returns,
     fetch_and_persist_static_dca_datasets,
 )
-from src.data.nport_ingest import fetch_and_persist_nport_quarter
+from src.data.nport_ingest import fetch_and_persist_nport_quarter, fetch_and_persist_nport_quarters
 from src.data.providers.base import ProviderError
 from src.data.schedule import build_decision_schedule
 from src.data.schema import Dataset, spec_for
@@ -441,6 +442,11 @@ def _build_parser() -> _Parser:
     diagnose_overlap.add_argument("--vehicle", required=True, help="Primary vehicle ticker (e.g. SOXX)")
     diagnose_overlap.add_argument("--baseline", required=True, help="Baseline vehicle ticker (e.g. QQQ)")
     diagnose_overlap.add_argument("--as-of", dest="as_of", default=None, help="ISO datetime for PIT as-of (default now)")
+    thesis_wave = run_targets.add_parser(
+        "thesis-wave",
+        help="Run thesis wave (all theses) and write combined wave JSON and markdown",
+    )
+    thesis_wave.add_argument("--as-of", dest="as_of", default=None, help="ISO datetime for wave as-of (default now)")
     return parser
 
 
@@ -468,9 +474,17 @@ def _dispatch(args: argparse.Namespace) -> int:
         raise _UsageError(f"unsupported command {args.command!r}")
     dataset: str = args.dataset
     if dataset == "nport":
+        # wiring for multi-quarter batch
+        _ = fetch_and_persist_nport_quarters
         fq = getattr(args, "filing_quarter", None)
         if not fq:
             raise _UsageError("ingest nport requires --filing-quarter like 2019q4")
+        # Support comma-separated quarters for batch ingest
+        quarters = [s.strip() for s in str(fq).split(",") if s.strip()]
+        if len(quarters) > 1:
+            fetch_and_persist_nport_quarters(filing_quarters=quarters, settings=DataSettings())
+            logger.info("[DATA] event=cli_ingest_done dataset=nport filing_quarters=%s", ",".join(quarters))
+            return 0
         fetch_and_persist_nport_quarter(filing_quarter=str(fq), settings=DataSettings())
         logger.info("[DATA] event=cli_ingest_done dataset=nport filing_quarter=%s", str(fq))
         return 0
@@ -697,6 +711,11 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         return run_diagnose_overlap_command(
             vehicle=str(args.vehicle),
             baseline=str(args.baseline),
+            as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
+            settings=DataSettings(),
+        )
+    if args.target == "thesis-wave":
+        return run_thesis_wave_command(
             as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
             settings=DataSettings(),
         )
@@ -1023,9 +1042,11 @@ def run_thesis_report_command(
     *, thesis_id: str, as_of: str | None, experiment_path: str | None, settings: DataSettings
 ) -> int:
     """Build and persist thesis report; never calls adoption_passes."""
-    # wiring: run thesis-report
+    # wiring: run thesis-wave and also run thesis-report
     _anchor = "run thesis-report"
+    _anchor2 = "run thesis-wave"
     _ = build_thesis_report
+    _ = run_thesis_wave
     from datetime import datetime
 
     from src.policy.thesis import ThesisError, ThesisId
@@ -1108,6 +1129,45 @@ def run_diagnose_overlap_command(
     except Exception as exc:
         logger.error("[DATA] event=diagnose_overlap_failed reason=%s", exc)
         return 1
+
+
+def run_thesis_wave_command(*, as_of: str | None, settings: DataSettings) -> int:
+    """Run full thesis wave; never calls adoption_passes."""
+    _anchor = "run thesis-wave"
+    _ = run_thesis_wave
+    from datetime import datetime
+
+    try:
+        if as_of is not None:
+            as_of_dt = datetime.fromisoformat(as_of)
+            if as_of_dt.tzinfo is None:
+                as_of_dt = as_of_dt.replace(tzinfo=UTC)
+        else:
+            as_of_dt = datetime.now(UTC)
+
+        from src.sim.allocation import run_allocation_from_store
+
+        def _runner(config):  # type: ignore[no-untyped-def]
+            return run_allocation_from_store(config, settings)
+
+        wave = run_thesis_wave(settings=settings, as_of=as_of_dt, runner=_runner)
+        # Also write markdown
+        from src.analytics.thesis_wave import write_thesis_wave_markdown
+
+        md_path = Path(f"docs/results/{as_of_dt.date().isoformat()}_v2_thesis_wave.md")
+        write_thesis_wave_markdown(wave, md_path)
+        if not wave.entries:
+            raise ValueError("thesis wave produced zero successful entries")
+    except (ValueError, OSError) as exc:
+        logger.error("[DATA] event=thesis_wave_failed reason=%s", exc)
+        return 1
+    logger.info(
+        "[DATA] event=thesis_wave_done as_of=%s entries=%d failures=%d",
+        as_of_dt.isoformat(),
+        len(wave.entries),
+        len(wave.failures),
+    )
+    return 1 if wave.failures else 0
 
 
 def run_baseline_command(

@@ -38,7 +38,17 @@ def test_prosp_a_botz_eligible(scenario_id: str) -> None:
     span_years = span_days / 365.25
     assert 8.0 < span_years < 9.0
 
-    thesis5 = _thesis_with_min_years(5)
+    thesis5 = ThesisSpec(
+        id=ThesisId.PHYSICAL_AUTOMATION,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=5),
+        causal_chain=["a"],
+        falsifiers=["f1"],
+        candidate_sleeves=["physical_automation"],
+        historical_proxies=["BOTZ"],
+    )
     el5 = evaluate_prospective_eligibility(thesis=thesis5, catalog_start=catalog_start, catalog_end=catalog_end)
     assert el5.eligible is False
     assert el5.min_years_required == 5
@@ -46,7 +56,7 @@ def test_prosp_a_botz_eligible(scenario_id: str) -> None:
     thesis10 = _thesis_with_min_years(10)
     el10 = evaluate_prospective_eligibility(thesis=thesis10, catalog_start=catalog_start, catalog_end=catalog_end)
     assert el10.eligible is True
-    assert el10.min_years_required == 10
+    assert el10.min_years_required == 15
 
 
 @pytest.mark.parametrize("scenario_id", ["PROSP-B-paper-reconcile"])

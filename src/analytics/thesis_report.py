@@ -14,7 +14,7 @@ from src.policy.thesis import ThesisId, ThesisSpec, ThesisStatus, get_thesis, lo
 from src.sim.allocation import AllocationConfig, AllocationResult
 from src.validation.experiment import CandidateSpec, ExperimentSpec, load_experiment_config, resolve_arm_targets
 from src.validation.gate import LongHorizonVerdict, certainty_equivalent, long_horizon_passes
-from src.validation.prospective import ProspectiveEligibility, evaluate_prospective_eligibility
+from src.validation.prospective import ProspectiveEligibility, evaluate_prospective_eligibility, resolve_proxy_history_span
 
 __all__ = ["ThesisReport", "build_thesis_report", "write_thesis_report"]
 
@@ -97,13 +97,14 @@ def build_thesis_report(
     as_of: datetime,
     runner: Callable[[AllocationConfig], AllocationResult],
     experiment_path: Path | None = None,
+    include_regime: bool = False,
 ) -> ThesisReport:
     """Compose evidence, long-horizon gate, prospective, and divergence."""
     registry = load_thesis_registry(Path("configs/theses"))
     thesis = get_thesis(registry, thesis_id)
 
     evidence = compute_evidence_vector(
-        thesis=thesis, settings=settings, as_of=as_of, runner=runner, experiment_path=experiment_path
+        thesis=thesis, settings=settings, as_of=as_of, runner=runner, experiment_path=experiment_path, include_regime=include_regime
     )
 
     evidence_spec = _resolve_evidence_spec(thesis, as_of, experiment_path)
@@ -121,29 +122,20 @@ def build_thesis_report(
     except Exception:  # noqa: BLE001
         long_horizon = None
 
-    # Prospective eligibility from catalog span
+    # Prospective eligibility from primary proxy listing span (not full catalog)
     prospective: ProspectiveEligibility
     try:
-        from src.data.catalog import load_visible
-        from src.data.schema import Dataset
-
-        # Use PRICES dataset span as proxy for catalog span
-        try:
-            prices = load_visible(settings, Dataset.PRICES, as_of)
-            if not prices.is_empty():
-                start_raw = prices.get_column("date").min()
-                end_raw = prices.get_column("date").max()
-                catalog_start = start_raw if isinstance(start_raw, date) else date(2006, 8, 31)
-                catalog_end = end_raw if isinstance(end_raw, date) else as_of.date()
-            else:
-                raise ValueError("empty prices")
-        except Exception:
-            # fallback to thesis horizon window
-            catalog_start = date(2016, 9, 30)
-            catalog_end = as_of.date()
-        prospective = evaluate_prospective_eligibility(thesis=thesis, catalog_start=catalog_start, catalog_end=catalog_end)
+        proxy_start, proxy_end = resolve_proxy_history_span(thesis=thesis, settings=settings, as_of=as_of)
+        prospective = evaluate_prospective_eligibility(
+            thesis=thesis, catalog_start=proxy_start, catalog_end=proxy_end
+        )
     except Exception as exc:  # noqa: BLE001
-        prospective = ProspectiveEligibility(eligible=False, catalog_span_years=0.0, min_years_required=int(thesis.horizon.min_years), reason=str(exc)[:200])
+        prospective = ProspectiveEligibility(
+            eligible=False,
+            catalog_span_years=0.0,
+            min_years_required=int(thesis.horizon.min_years),
+            reason=str(exc)[:200],
+        )
 
     suggested_status = ThesisStatus.PROSPECTIVE_CHALLENGER if prospective.eligible else thesis.status
     next_falsifier = thesis.falsifiers[0] if thesis.falsifiers else ""
