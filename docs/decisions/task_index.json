@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_WAVE345_THESIS_RESEARCH",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_V2_WAVE345_THESIS_RESEARCH",
+      "domain": "quant",
+      "title": "Wave 3–5 (v2): computed evidence + long-horizon gate + prospective OOS + thesis report",
+      "why": "v2 roadmap Waves 3–5: thesis registry evidence slots were declared-only; SOXX 120M median vs 36M CE divergence invisible; BOTZ short history needs prospective path; operator lacked integrated research view.",
+      "resolution": "Added analytics/thesis_evidence.py (five-slot EvidenceSnapshot via 120M cohort + holdings overlap), validation/gate.py long_horizon_passes + ExperimentSpec objective long_horizon, validation/prospective.py eligibility + paper-forward with freeze hash, analytics/thesis_report.py with runner-computed CE divergence, CLI run thesis --compute-evidence and run thesis-report, seed m_thesis_ai_compute_soxx_120m.json and m_thesis_physical_automation_botz_prospective.json; contract tests EV-/LH-/EXP-/ABL-/PROSP-/RPT-/CLI-THESIS-RPT.",
+      "impact": "QQQ 100% operational and default 36M CE>1.02 gate unchanged; thesis_evidence/thesis_report/prospective never call adoption_passes; long_horizon is research-only gate; prospective eligible when catalog span < thesis.horizon.min_years; enables Wave 7 E2E thesis-report shape."
+    },
+    {
       "task_id": "TASK_V2_WAVE2_NPORT_HOLDINGS",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_V2_WAVE2_NPORT_HOLDINGS",
