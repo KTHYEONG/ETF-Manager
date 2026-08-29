@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
@@ -11,9 +12,12 @@ from src.validation.bootstrap import moving_block_bootstrap
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from src.validation.accumulation_cohort import AccumulationCohortReport
+
 _ALLOWED_GAMMAS = (2.0, 5.0, 10.0)
 
 __all__ = [
+    "LongHorizonVerdict",
     "adoption_passes",
     "bootstrap_tail_passes",
     "certainty_equivalent",
@@ -23,10 +27,43 @@ __all__ = [
     "contribution_growth_train_passes",
     "growth_first_process_passes",
     "growth_first_train_passes",
+    "long_horizon_passes",
     "select_plateau",
     "wealth_quantile",
     "worst_cohort_passes",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class LongHorizonVerdict:
+    """Long-horizon gate verdict with cohort disclosure."""
+
+    passes: bool
+    cohort_count: int
+    median_ratio: float
+    overlap_dependence_disclosed: bool
+    reason: str
+
+
+def long_horizon_passes(report: AccumulationCohortReport, *, min_cohorts: int = 10, min_median_ratio: float = 1.0) -> LongHorizonVerdict:
+    """Evaluate long-horizon gate on accumulation cohorts."""
+    cohort_count = len(report.rows)
+    median_ratio = float(report.median_ratio)
+    overlap_dependence_disclosed = report.overlap.step_months < report.overlap.horizon_months
+    passes = cohort_count >= min_cohorts and median_ratio >= min_median_ratio
+    if passes:
+        reason = f"cohort_count {cohort_count} >= {min_cohorts} and median_ratio {median_ratio:.4f} >= {min_median_ratio:.4f}"
+    elif cohort_count < min_cohorts:
+        reason = f"cohort_count {cohort_count} < min_cohorts {min_cohorts}"
+    else:
+        reason = f"median_ratio {median_ratio:.4f} < min_median_ratio {min_median_ratio:.4f}"
+    return LongHorizonVerdict(
+        passes=passes,
+        cohort_count=cohort_count,
+        median_ratio=median_ratio,
+        overlap_dependence_disclosed=overlap_dependence_disclosed,
+        reason=reason,
+    )
 
 
 def certainty_equivalent(wealths: Sequence[float], *, gamma: float) -> float:
