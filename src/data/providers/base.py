@@ -8,14 +8,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, TypeAlias
 
 import httpx
-from tenacity import Retrying, retry_if_exception, stop_after_attempt
+from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 if TYPE_CHECKING:
     from src.data.storage import JSONValue
 
 logger = logging.getLogger(__name__)
 
-MAX_ATTEMPTS: Final[int] = 3
+MAX_ATTEMPTS: Final[int] = 5
 DEFAULT_TIMEOUT_S: Final[float] = 30.0
 QueryParam: TypeAlias = Mapping[str, str | int | float | bool | None]
 
@@ -88,6 +88,7 @@ def get_json(
     try:
         retrier = Retrying(
             stop=stop_after_attempt(MAX_ATTEMPTS),
+            wait=wait_exponential(multiplier=1, min=2, max=30),
             retry=retry_if_exception(_is_retryable),
             reraise=True,
         )

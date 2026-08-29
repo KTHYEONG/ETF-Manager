@@ -15,7 +15,7 @@ from src.validation.prospective import resolve_proxy_history_span
 
 __all__ = ["compute_regime_proxy_slot"]
 
-_SELECTED_WINDOWS = ("bear_2022", "pre_ai", "recent_2023_2026")
+_SELECTED_WINDOWS = ("bear_2022", "pre_ai", "recent_2023_2024")
 
 
 def _catalog_last_session(settings: DataSettings, as_of: datetime) -> date:

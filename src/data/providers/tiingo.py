@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Final
 
@@ -16,11 +17,14 @@ from src.data.storage import RawPayload
 if TYPE_CHECKING:
     import httpx
 
+    from src.data.providers.base import ProviderResponse
     from src.data.storage import JSONValue
 
 logger = logging.getLogger(__name__)
 
 _BASE_URL: Final[str] = "https://api.tiingo.com/tiingo/daily"
+_INTER_TICKER_SLEEP_S: Final[float] = 2.0
+_TICKER_429_RETRIES: Final[int] = 4
 _REQUIRED_FIELDS: Final[frozenset[str]] = frozenset(
     {"date", "open", "high", "low", "close", "volume", "adjClose", "divCash", "splitFactor"}
 )
@@ -41,13 +45,25 @@ class TiingoClient:
         retrieved_at = datetime.now(UTC)
         bodies: list[bytes] = []
         records: list[dict[str, object]] = []
-        for ticker in tickers:
-            response = get_json(
-                self._client,
-                f"{_BASE_URL}/{ticker}/prices",
-                params={"startDate": start.isoformat(), "endDate": end.isoformat(), "format": "json"},
-                headers={"Authorization": f"Token {self._token}"},
-            )
+        for index, ticker in enumerate(tickers):
+            if index > 0:
+                time.sleep(_INTER_TICKER_SLEEP_S)
+            response: ProviderResponse | None = None
+            for burst in range(_TICKER_429_RETRIES):
+                try:
+                    response = get_json(
+                        self._client,
+                        f"{_BASE_URL}/{ticker}/prices",
+                        params={"startDate": start.isoformat(), "endDate": end.isoformat(), "format": "json"},
+                        headers={"Authorization": f"Token {self._token}"},
+                    )
+                    break
+                except ProviderError as exc:
+                    if "429" not in str(exc) or burst + 1 >= _TICKER_429_RETRIES:
+                        raise
+                    time.sleep(min(30.0, 2.0**burst))
+            if response is None:
+                raise ProviderError(f"tiingo rate limit persisted for ticker {ticker}")
             bodies.append(response.content)
             if not isinstance(response.body, list):
                 raise ProviderError(f"tiingo payload for {ticker} is not a price array")

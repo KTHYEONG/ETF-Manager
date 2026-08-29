@@ -7,6 +7,8 @@ import logging
 import polars as pl
 
 from src.data.calendar import DEFAULT_CALENDAR_NAME, TradingCalendar, load_calendar
+from src.data.catalog import clear_catalog_frame_cache
+from src.data.ingest_guard import assert_safe_partition_replacement
 from src.data.pit import stamp_availability
 from src.data.quality import enforce, validate_frame
 from src.data.schema import AvailabilityKind, Dataset, spec_for
@@ -52,6 +54,7 @@ def persist_ingest(
     *,
     calendar_name: str = DEFAULT_CALENDAR_NAME,
     normalization_version: str = "1",
+    allow_shrink: bool = False,
 ) -> DatasetArtifact:
     """Archive the raw payload, run :func:`ingest`, then persist the partition.
 
@@ -70,6 +73,7 @@ def persist_ingest(
     spec = spec_for(dataset)
     calendar = load_calendar(calendar_name) if spec.availability.kind is AvailabilityKind.SESSION_CLOSE else None
     report = validate_frame(stamped, spec, calendar)
+    assert_safe_partition_replacement(dataset, stamped.height, settings, allow_shrink=allow_shrink)
     artifact = store.write_normalized(stamped, spec, raw_artifact, payload, report, normalization_version)
     logger.info(
         "[DATA] event=persist_ingest dataset=%s rows=%d frame_sha256=%s",
@@ -77,4 +81,5 @@ def persist_ingest(
         stamped.height,
         artifact.manifest.normalized_sha256,
     )
+    clear_catalog_frame_cache()
     return artifact

@@ -470,9 +470,11 @@ def audit_static_dca_window(spec: ExperimentSpec, settings: DataSettings) -> Sta
 def write_feasibility_audit_report(
     report: StaticDcaWindowReport, settings: DataSettings, audit_id: str
 ) -> Path:
-    audits_dir = settings.resolved_data_root() / "audits"
-    audits_dir.mkdir(parents=True, exist_ok=True)
-    out_path = audits_dir / f"{report.name}_feasibility_{audit_id}.json"
+    from src.data.paths import audits_dir
+
+    out_dir = audits_dir(settings)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{report.name}_feasibility_{audit_id}.json"
     payload = {
         "name": report.name,
         "requested_start": report.requested_start.isoformat(),
