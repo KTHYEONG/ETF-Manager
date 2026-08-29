@@ -53,7 +53,7 @@ def _parse_raw_tables(content: bytes) -> dict[str, pl.DataFrame]:
                         io.StringIO(text),
                         separator=sep,
                         try_parse_dates=True,
-                        **read_kwargs,
+                        **read_kwargs,  # type: ignore[arg-type]
                     )
                     if candidate.width >= 2:
                         df = candidate
@@ -62,7 +62,7 @@ def _parse_raw_tables(content: bytes) -> dict[str, pl.DataFrame]:
                     continue
             if df is None:
                 try:
-                    df = pl.read_csv(io.StringIO(text), try_parse_dates=True, **read_kwargs)
+                    df = pl.read_csv(io.StringIO(text), try_parse_dates=True, **read_kwargs)  # type: ignore[arg-type]
                 except Exception:  # noqa: S112
                     continue
             tables[key] = df
