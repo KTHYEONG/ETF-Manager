@@ -154,7 +154,7 @@ flowchart LR
 - Primary cohorts `120M` step `12M` ending at `effective_thesis_end(panel_as_of)`; CE `γ∈{2,5,10}` on cohort wealth vectors; `portfolio_status` from `classify_portfolio_status`
 - `PortfolioEvidenceStatus`: `unverified` (before Track H), `historically_promising` if any arm `median_ratio≥1` and `path_bootstrap.ok`, else `historically_weak`
 - Path bootstrap: paired monthly returns joint circular block (`block 12`, `PATH_BOOTSTRAP_WIN_FLOOR=0.55`, `ok iff win_rate≥0.55`)
-- Buy-only attribution: realized SOXX weight `shares*price/mark` vs target; `mean_abs_weight_drift`, `terminal_weight_drift`, `incremental_wealth_ratio`; CLI `run thesis-incremental` shares STALE gate with thesis-wave
+- Buy-only attribution: realized SOXX weight `shares * px_usd * usdkrw / mark_krw` (KRW-consistent) vs target; `mean_abs_weight_drift`, `terminal_weight_drift`, `incremental_wealth_ratio`; CLI `run thesis-incremental` shares STALE gate with thesis-wave
 
 ## 5. Completed Experiment Matrix
 
