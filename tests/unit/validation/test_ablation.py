@@ -391,3 +391,51 @@ def test_abl_thesis_prereg_wired(scenario_id: str) -> None:
     report = run_ablation(spec, runner)
     assert len(report.rows) == 1
     assert report.rows[0].candidate_id == "soxx_100"
+
+@pytest.mark.parametrize("scenario_id", ["ABL-LH-adopted-from-cohort"])
+def test_abl_lh_adopted_from_cohort(scenario_id: str) -> None:
+    from src.validation.accumulation_cohort import AccumulationCohortReport, AccumulationCohortRow, CohortOverlapMetadata
+    # Mock runners for ablation with long_horizon objective
+    # Need experiment spec with objective long_horizon
+    spec = ExperimentSpec(
+        name="abl_lh",
+        start=_WINDOW[0],
+        end=_WINDOW[1],
+        contribution_krw=1_000_000.0,
+        hurdle=0.02,
+        horizon_months=120,
+        objective="long_horizon",
+        baseline=CandidateSpec(id="qqq_baseline", policy="s0_global", modules=0, targets={"QQQ": 1.0}),
+        candidates=[CandidateSpec(id="soxx_100", policy="qqq", modules=1, targets={"SOXX": 1.0})],
+    )
+    # Patch cohort report to control median and count
+    from unittest.mock import patch
+
+    # Case 1: should adopt when passes True (cohort 10 median 1.03) regardless of CE ratio below 1.02
+    def fake_pass_report(spec, runner, horizon_months=120, step_months=12, bootstrap_paths=4000, seed=7):
+        overlap = CohortOverlapMetadata(horizon_months=120, step_months=12)
+        rows = tuple(AccumulationCohortRow(candidate_wealth=103, baseline_wealth=100, ratio=1.03, candidate_recovery_months=0) for _ in range(10))
+        return AccumulationCohortReport(name=spec.name, overlap=overlap, rows=rows, median_ratio=1.03, p10_ratio=1.0, worst_ratio=0.99, win_rate=1.0, bootstrap_p05_ratio_mean=1.0, unrecovered_cohort_count=0)
+
+    def runner_low_ce(config):
+        # CE ratio will be ~0.99 (below 1.02) but long horizon passes
+        # ablation still computes CE ratios; we set wealths to give low ce
+        # baseline wealth 100, candidate 99.5 => ce ratio 0.995
+        wealth = 99.5 if config.targets_override == {"SOXX": 1.0} else 100.0
+        return AllocationResult(config=config, snapshots=(), terminal_wealth_krw=wealth, xirr=0.0, max_drawdown=0.0, terminal_wealth_real_krw=wealth, xirr_real=0.0)
+
+    with patch("src.validation.accumulation_cohort.run_accumulation_cohort_report", side_effect=fake_pass_report):
+        report = run_ablation(spec, runner_low_ce)
+        assert report.rows[0].adopted is True
+        # CE ratios still stored
+        assert report.rows[0].ce_ratio[2.0] == pytest.approx(0.995)
+
+    # Case 2: fail when cohort count below threshold
+    def fake_fail_report(spec, runner, horizon_months=120, step_months=12, bootstrap_paths=4000, seed=7):
+        overlap = CohortOverlapMetadata(horizon_months=120, step_months=12)
+        rows = tuple(AccumulationCohortRow(candidate_wealth=103, baseline_wealth=100, ratio=1.03, candidate_recovery_months=0) for _ in range(9))
+        return AccumulationCohortReport(name=spec.name, overlap=overlap, rows=rows, median_ratio=1.03, p10_ratio=1.0, worst_ratio=0.99, win_rate=1.0, bootstrap_p05_ratio_mean=1.0, unrecovered_cohort_count=0)
+
+    with patch("src.validation.accumulation_cohort.run_accumulation_cohort_report", side_effect=fake_fail_report):
+        report2 = run_ablation(spec, runner_low_ce)
+        assert report2.rows[0].adopted is False
