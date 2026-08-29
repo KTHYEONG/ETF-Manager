@@ -16,6 +16,7 @@ __all__ = [
     "ProspectiveEligibility",
     "ProspectiveFreezeRecord",
     "evaluate_prospective_eligibility",
+    "resolve_proxy_history_span",
     "run_prospective_paper_forward",
 ]
 
@@ -39,18 +40,44 @@ class ProspectiveFreezeRecord:
 def evaluate_prospective_eligibility(
     *, thesis: ThesisSpec, catalog_start: date, catalog_end: date
 ) -> ProspectiveEligibility:
-    """Eligible when catalog span is shorter than thesis horizon."""
+    """Eligible when history span is shorter than thesis horizon min_years."""
     days = (catalog_end - catalog_start).days
     span_years = days / 365.25
-    min_years = int(thesis.horizon.min_years)
-    eligible = span_years < float(min_years)
-    reason = f"catalog_span {span_years:.2f}y {'<' if eligible else '>='} min_years {min_years}"
+    required_years = int(thesis.horizon.target_years)
+    eligible = span_years < float(required_years)
+    reason = f"proxy_span {span_years:.2f}y {'<' if eligible else '>='} target_years {required_years}"
     return ProspectiveEligibility(
         eligible=eligible,
         catalog_span_years=float(span_years),
-        min_years_required=int(min_years),
+        min_years_required=required_years,
         reason=reason,
     )
+
+
+def resolve_proxy_history_span(
+    *,
+    settings: DataSettings,
+    thesis: ThesisSpec,
+    as_of: datetime,
+) -> tuple[date, date]:
+    """Return first/last price session for the thesis primary proxy at ``as_of``."""
+    from src.data.catalog import load_visible
+    from src.data.schema import Dataset
+
+    import polars as pl
+
+    if not thesis.historical_proxies:
+        raise ValueError("thesis has no historical_proxies")
+    proxy = thesis.historical_proxies[0].value
+    prices = load_visible(settings, Dataset.PRICES, as_of)
+    ticker_prices = prices.filter(pl.col("ticker") == proxy)
+    if ticker_prices.is_empty():
+        raise ValueError(f"no price history for proxy {proxy!r}")
+    start_raw = ticker_prices.get_column("date").min()
+    end_raw = ticker_prices.get_column("date").max()
+    if not isinstance(start_raw, date) or not isinstance(end_raw, date):
+        raise ValueError(f"invalid price dates for proxy {proxy!r}")
+    return start_raw, end_raw
 
 
 def run_prospective_paper_forward(

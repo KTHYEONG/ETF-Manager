@@ -20,17 +20,26 @@
   "src/analytics/overlap.py": {
     "testing": "tests/unit/analytics/test_overlap.py"
   },
+  "src/analytics/regime_proxy.py": {
+    "testing": "tests/unit/analytics/test_regime_proxy.py"
+  },
   "src/analytics/regimes.py": {
     "testing": "tests/unit/analytics/test_regimes.py"
   },
   "src/analytics/reserve_usage.py": {
     "testing": "tests/unit/analytics/test_reserve_usage.py"
   },
+  "src/analytics/thesis_decision.py": {
+    "testing": "tests/unit/analytics/test_thesis_decision.py"
+  },
   "src/analytics/thesis_evidence.py": {
     "testing": "tests/unit/analytics/test_thesis_evidence.py"
   },
   "src/analytics/thesis_report.py": {
     "testing": "tests/unit/analytics/test_thesis_report.py"
+  },
+  "src/analytics/thesis_wave.py": {
+    "testing": "tests/unit/analytics/test_thesis_wave.py"
   },
   "src/analytics/us_vehicles.py": {
     "testing": "tests/unit/analytics/test_us_vehicles.py"
