@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_WAVE2_NPORT_HOLDINGS",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_V2_WAVE2_NPORT_HOLDINGS",
+      "domain": "data",
+      "title": "Wave 2 (v2): SEC N-PORT holdings ingest + overlap diagnostics",
+      "why": "v2 roadmap Wave 2: holdings look-through and SOXX-vs-QQQ overlap require PIT N-PORT ingest from 2019Q4; no prior etf_holdings dataset or overlap analytics.",
+      "resolution": "Added Dataset.ETF_HOLDINGS (RELEASE_COLUMN filing_date, revisable), sec_nport bulk normalize (ACCESSION/SUBMISSION join, amendment-safe INFO, PERCENTAGE mapping), nport_ingest with SEC DERA 2019q4_nport.zip URL, overlap.py pairwise_overlap + thesis_overlap_vs_incumbent, CLI ingest nport and run diagnose-overlap; empirically ingested 2019Q4 bulk (SOXX 116 + QQQ 103 rows) with finite overlap_pct≈11.51% at PIT 2019-12-01.",
+      "impact": "QQQ operational PolicyId lock and 36M CE>1.02 gate unchanged; diagnose-overlap is reporting-only (never adoption_passes); enables thesis purity/overlap diagnostics; nport_series_map seeded with real SOXX S000004354 and QQQ accession 0001752724-19-184787."
+    },
+    {
       "task_id": "TASK_V2_WAVE1_EXPERIMENTS_THESIS_PREREG",
       "date": "2026-08-28",
       "adr_id": "ADR_20260828_V2_WAVE1_EXPERIMENTS_THESIS_PREREG",
