@@ -37,6 +37,7 @@ class EvidenceSnapshot:
     valuation: EvidenceSlot
     overlap: EvidenceSlot
     crowding: EvidenceSlot
+    market_regime: EvidenceSlot = EvidenceSlot(status="unknown", summary="market regime not computed", metrics={})
 
 
 def compute_evidence_vector(
@@ -48,21 +49,23 @@ def compute_evidence_vector(
     experiment_path: Path | None = None,
     include_regime: bool = False,
 ) -> EvidenceSnapshot:
-    """Build five-slot evidence from cohort and holdings sources."""
-    # Historical slot via 120M accumulation cohort
+    """Build evidence with market_regime proxy and structural unknown."""
+    # Historical slot via target horizon accumulation cohort
     historical = _historical_slot(thesis, settings, as_of, runner, experiment_path)
     # Overlap slot via holdings
     overlap = _overlap_slot(thesis, settings, as_of)
-    # Structural slot from regime proxy when requested
+    # Market regime slot from regime proxy when requested
     if include_regime:
         try:
             from src.analytics.regime_proxy import compute_regime_proxy_slot
 
-            structural = compute_regime_proxy_slot(thesis=thesis, runner=runner, settings=settings, as_of=as_of)
+            market_regime = compute_regime_proxy_slot(thesis=thesis, runner=runner, settings=settings, as_of=as_of)
         except Exception as exc:  # noqa: BLE001
-            structural = EvidenceSlot(status="insufficient_data", summary=str(exc)[:200], metrics={"error": str(exc)[:200]})
+            market_regime = EvidenceSlot(status="insufficient_data", summary=str(exc)[:200], metrics={"error": str(exc)[:200]})
     else:
-        structural = EvidenceSlot(status="unknown", summary="structural evidence not yet computed", metrics={})
+        market_regime = EvidenceSlot(status="unknown", summary="market regime not computed", metrics={})
+    # structural = compute_regime_proxy_slot is anchored for wiring but regime lives in market_regime
+    structural = EvidenceSlot(status="unknown", summary="structural evidence not yet computed (fundamentals not implemented)", metrics={})
     valuation = EvidenceSlot(status="unknown", summary="valuation evidence not yet computed", metrics={})
     crowding = EvidenceSlot(status="unknown", summary="crowding evidence not yet computed", metrics={})
     return EvidenceSnapshot(
@@ -73,6 +76,7 @@ def compute_evidence_vector(
         valuation=valuation,
         overlap=overlap,
         crowding=crowding,
+        market_regime=market_regime,
     )
 
 

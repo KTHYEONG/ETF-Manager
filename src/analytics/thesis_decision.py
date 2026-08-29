@@ -5,7 +5,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
+from src.analytics.thesis_meaning import (
+    HistoricalQuality,
+    ThesisMeaningSnapshot,
+    VehicleEvidenceStatus,
+    classify_thesis_meaning,
+)
 from src.analytics.thesis_report import ThesisReport
 
 __all__ = ["ThesisDecision", "ThesisDecisionRecord", "synthesize_thesis_decision"]
@@ -23,21 +30,68 @@ class ThesisDecisionRecord:
     decision: ThesisDecision
     rationale: str
     metrics: Mapping[str, float | int | str | bool]
+    meaning: ThesisMeaningSnapshot | None = None
+
+
+def _build_meaning(report: ThesisReport, median: float | None, cohort_ce: float | None) -> ThesisMeaningSnapshot:
+    # span and horizon bounds
+    span_years = float(report.prospective.catalog_span_years)
+    min_years = int(report.prospective.min_years_required)
+    target_years = 10
+    try:
+        if report.divergence is not None and report.divergence.get("target_years") is not None:
+            target_years = int(str(report.divergence["target_years"]))
+        else:
+            from src.policy.thesis import get_thesis, load_thesis_registry
+
+            reg = load_thesis_registry(Path("configs/theses"))
+            thesis = get_thesis(reg, report.thesis_id)
+            min_years = int(thesis.horizon.min_years)
+            target_years = int(thesis.horizon.target_years)
+    except Exception:  # noqa: BLE001,S110
+        pass
+
+    # primary cohort count: present only when evaluated_horizon exists
+    primary_cohort_count: int | None = None
+    try:
+        evaluated = None
+        if report.divergence is not None:
+            evaluated = report.divergence.get("evaluated_horizon_months")
+        if evaluated is not None and int(str(evaluated)) > 0:
+            if report.divergence is not None and report.divergence.get("cohort_count") is not None:
+                primary_cohort_count = int(str(report.divergence["cohort_count"]))
+            elif report.long_horizon is not None:
+                primary_cohort_count = int(report.long_horizon.cohort_count)
+            else:
+                primary_cohort_count = None
+        else:
+            primary_cohort_count = None
+    except Exception:  # noqa: BLE001
+        primary_cohort_count = None
+
+    overlap_disclosed = False
+    try:
+        if report.long_horizon is not None:
+            overlap_disclosed = bool(report.long_horizon.overlap_dependence_disclosed)
+        elif report.divergence is not None and report.divergence.get("overlap_dependence_disclosed") is not None:
+            overlap_disclosed = bool(report.divergence.get("overlap_dependence_disclosed"))
+    except Exception:  # noqa: BLE001
+        overlap_disclosed = False
+
+    meaning = classify_thesis_meaning(
+        span_years=span_years,
+        min_years=min_years,
+        target_years=target_years,
+        primary_cohort_count=primary_cohort_count,
+        median_ratio=median,
+        cohort_ce_ratio=cohort_ce,
+        overlap_dependence_disclosed=overlap_disclosed,
+    )
+    return meaning
 
 
 def synthesize_thesis_decision(report: ThesisReport) -> ThesisDecisionRecord:
     """Synthesize decision from report without calling adoption gate."""
-    if report.prospective.eligible:
-        return ThesisDecisionRecord(
-            decision=ThesisDecision.PROSPECTIVE,
-            rationale=f"prospective eligible: {report.prospective.reason}",
-            metrics={
-                "prospective_eligible": True,
-                "catalog_span_years": float(report.prospective.catalog_span_years),
-                "min_years_required": int(report.prospective.min_years_required),
-            },
-        )
-
     median: float | None = None
     cohort_ce: float | None = None
     lh_passes: bool | None = None
@@ -73,37 +127,56 @@ def synthesize_thesis_decision(report: ThesisReport) -> ThesisDecisionRecord:
     if lh_passes is None and report.long_horizon is not None:
         lh_passes = bool(report.long_horizon.passes)
 
-    if median is not None and cohort_ce is not None and lh_passes is not None and median >= 1.0 and cohort_ce < 1.02 and not lh_passes:
+    meaning = _build_meaning(report, median, cohort_ce)
+
+    if report.prospective.eligible or meaning.historical_quality == HistoricalQuality.PROSPECTIVE_ONLY:
+        return ThesisDecisionRecord(
+            decision=ThesisDecision.PROSPECTIVE,
+            rationale=f"prospective eligible: {report.prospective.reason}",
+            metrics={
+                "prospective_eligible": True,
+                "catalog_span_years": float(report.prospective.catalog_span_years),
+                "min_years_required": int(report.prospective.min_years_required),
+            },
+            meaning=meaning,
+        )
+
+    # Vehicle reject takes precedence over watch
+    if meaning.vehicle_status == VehicleEvidenceStatus.REJECTED_PROXY:
+        return ThesisDecisionRecord(
+            decision=ThesisDecision.REJECT,
+            rationale=f"reject weak median {median:.4f} cohort_ce {cohort_ce:.4f}" if median is not None and cohort_ce is not None else f"reject vehicle {meaning.vehicle_status.value}",
+            metrics={
+                "median_ratio": float(median) if median is not None else 0.0,
+                "cohort_ce_ratio_gamma_2": float(cohort_ce) if cohort_ce is not None else 0.0,
+                "vehicle_status": meaning.vehicle_status.value,
+            } if median is not None else {"vehicle_status": meaning.vehicle_status.value},
+            meaning=meaning,
+        )
+
+    # Watch ignores long_horizon_passes (M-11)
+    if median is not None and cohort_ce is not None and median >= 1.0 and cohort_ce < 1.02:
         return ThesisDecisionRecord(
             decision=ThesisDecision.WATCH,
             rationale=f"watch median {median:.4f} cohort_ce {cohort_ce:.4f} lh_passes {lh_passes}",
             metrics={
                 "median_ratio": float(median),
                 "cohort_ce_ratio_gamma_2": float(cohort_ce),
-                "long_horizon_passes": bool(lh_passes),
+                "long_horizon_passes": bool(lh_passes) if lh_passes is not None else False,
             },
+            meaning=meaning,
         )
 
-    if median is not None:
-        if cohort_ce is not None:
-            if cohort_ce < 0.98 and median < 1.0:
-                return ThesisDecisionRecord(
-                    decision=ThesisDecision.REJECT,
-                    rationale=f"reject weak median {median:.4f} cohort_ce {cohort_ce:.4f}",
-                    metrics={
-                        "median_ratio": float(median),
-                        "cohort_ce_ratio_gamma_2": float(cohort_ce),
-                    },
-                )
-        else:
-            if median < 0.98:
-                return ThesisDecisionRecord(
-                    decision=ThesisDecision.REJECT,
-                    rationale=f"reject weak median {median:.4f} median-only",
-                    metrics={
-                        "median_ratio": float(median),
-                    },
-                )
+    # Fallback median-only reject when cohort_ce missing
+    if median is not None and cohort_ce is None and median < 0.98:  # noqa: SIM102
+        return ThesisDecisionRecord(
+            decision=ThesisDecision.REJECT,
+            rationale=f"reject weak median {median:.4f} median-only",
+            metrics={
+                "median_ratio": float(median),
+            },
+            meaning=meaning,
+        )
 
     if cohort_ce is not None and cohort_ce >= 1.02:
         rationale = f"continue_research median {median:.4f} cohort_ce {cohort_ce:.4f}" if median is not None else "continue_research"
@@ -126,4 +199,5 @@ def synthesize_thesis_decision(report: ThesisReport) -> ThesisDecisionRecord:
         decision=ThesisDecision.CONTINUE_RESEARCH,
         rationale=rationale,
         metrics=metrics,
+        meaning=meaning,
     )
