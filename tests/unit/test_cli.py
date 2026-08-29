@@ -1862,3 +1862,43 @@ def test_cli_audit_feasibility(scenario_id: str, tmp_path: Path, monkeypatch: py
     assert captured["write_report"] is False
     assert main(["run", "audit-feasibility", "--config", str(p), "--write-report"]) == 0
     assert captured["write_report"] is True
+
+@pytest.mark.parametrize("scenario_id", ["CLI-NPORT-ingest-dispatch"])
+def test_cli_nport_ingest_dispatch(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-NPORT-ingest-dispatch"""
+    called: dict[str, object] = {}
+
+    def fake_nport(*, filing_quarter: str, settings: object, **kwargs: object):
+        called["filing_quarter"] = filing_quarter
+        class Fake:
+            manifest = type("M", (), {"row_count": 1})()
+        return Fake()
+
+    monkeypatch.setattr(cli, "fetch_and_persist_nport_quarter", fake_nport)
+    assert main(["ingest", "nport", "--filing-quarter", "2019q4"]) == 0
+    assert called["filing_quarter"] == "2019q4"
+    assert main(["ingest", "nport"]) == 2
+
+
+@pytest.mark.parametrize("scenario_id", ["CLI-OVL-diagnose-dispatch"])
+def test_cli_ovl_diagnose_dispatch(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CLI-OVL-diagnose-dispatch"""
+    captured: dict[str, object] = {}
+
+    def fake_overlap(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    def forbidden_adoption(*args: object, **kwargs: object):
+        raise AssertionError("diagnose-overlap must never call adoption_passes")
+
+    monkeypatch.setattr(cli, "run_diagnose_overlap_command", fake_overlap)
+    monkeypatch.setattr(cli, "adoption_passes", forbidden_adoption, raising=False)
+    # also ensure if alias exists
+    if hasattr(cli, "run_ablation"):
+        monkeypatch.setattr(cli, "run_ablation", forbidden_adoption, raising=False)
+    assert main(["run", "diagnose-overlap", "--vehicle", "SOXX", "--baseline", "QQQ"]) == 0
+    assert captured["vehicle"] == "SOXX"
+    assert captured["baseline"] == "QQQ"
+    assert main(["run", "diagnose-overlap", "--vehicle", "SOXX"]) == 2
+
