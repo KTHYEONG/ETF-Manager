@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_THESIS_INTEGRITY",
+      "date": "2026-08-29",
+      "adr_id": "ADR_20260829_V2_THESIS_INTEGRITY",
+      "domain": "quant",
+      "title": "Wave A (v2): thesis integrity — PIT snapshot + cohort CE gates",
+      "why": "Wave A / thesis_integrity: PIT overlap double-counted multi report_date (~195 a_only); singleton W_c/W_b was misnamed CE and fed decision prose; SOXX-like rationale could say hurdle fail while enum chose continue_research.",
+      "resolution": "overlap.py: _latest_report_snapshot per vehicle, Σweight_pct [95,105] fail-closed, a_only/b_only [0,100]; thesis_report.py: terminal_wealth_ratio (reporting) + cohort_ce_ratio_gamma_2 from accumulation cohort rows; thesis_decision.py: watch/reject on median+cohort_ce strict boundaries, median-only reject when CE absent, rationale from same branch; tests OVL-C/D, DEC-F–J, RPT-C, DEC-D.",
+      "impact": "QQQ 100% operational and 36M CE>1.02 adoption_passes unchanged; thesis modules never call adoption_passes; overlap/divergence metrics trustworthy; ai_compute SOXX-like path stays continue_research without hurdle-fail language; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_HORIZON_ELIGIBILITY",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_V2_HORIZON_ELIGIBILITY",

@@ -34,24 +34,33 @@ def _ensure_tz(dt: datetime) -> datetime:
 
 
 def _resolve_pit_holdings(holdings: pl.DataFrame, as_of: datetime) -> pl.DataFrame:
-    # If holdings already stamped with available_at, use load_as_of; else fallback to filing_date filtering
+    as_of_utc = _ensure_tz(as_of)
     if "available_at" in holdings.columns:
-        return load_as_of(holdings, Dataset.ETF_HOLDINGS, as_of)
-    # Fallback: filter filing_date <= as_of and keep max filing_date per (etf_ticker, report_date, holding_id)
-    cutoff = _ensure_tz(as_of)
-    # Ensure filing_date tz-aware
+        return load_as_of(holdings, Dataset.ETF_HOLDINGS, as_of_utc)
+    cutoff = as_of_utc
     filtered = holdings.filter(pl.col("filing_date") <= pl.lit(cutoff, dtype=pl.Datetime("us", "UTC")))
-    if filtered.is_empty():
-        return filtered
-    # Within (etf_ticker, report_date, holding_id) retain row with max filing_date
-    # spec.key includes filing_date, so grouping should be without filing_date
-    group_keys = ["etf_ticker", "report_date", "holding_id"]
-    # Check existence
-    if not set(group_keys).issubset(set(filtered.columns)):
-        return filtered
-    ordered = filtered.sort([*group_keys, "filing_date"])
-    # Keep last per group
-    return ordered.filter(pl.struct(group_keys).is_last_distinct())
+    return filtered
+
+
+def _latest_report_snapshot(frame: pl.DataFrame, *, etf_ticker: str) -> pl.DataFrame:
+    ticker_frame = frame.filter(pl.col("etf_ticker") == etf_ticker)
+    if ticker_frame.is_empty():
+        return ticker_frame
+    max_report = ticker_frame.select(pl.col("report_date").max()).item()
+    snap = ticker_frame.filter(pl.col("report_date") == max_report)
+    if snap.is_empty():
+        return snap
+    # keep max filing_date per holding_id within this snapshot
+    # group by holding_id, pick row with max filing_date
+    snap_sorted = snap.sort(["holding_id", "filing_date"])
+    deduped = snap_sorted.filter(pl.struct("holding_id").is_last_distinct())
+    # weight sum validation per snapshot band [95,105]
+    total = float(deduped.select(pl.col("weight_pct").sum()).item() or 0.0)
+    if total < 95.0 or total > 105.0:
+        raise ValueError(f"weight sum {total:.2f} outside band [95, 105] for {etf_ticker} report_date {max_report}")
+    if not (0 <= total <= 200):
+        raise ValueError(f"weight sum {total:.2f} outside band [95, 105] for {etf_ticker}")
+    return deduped
 
 
 def _identifier_key(frame: pl.DataFrame) -> pl.DataFrame:
@@ -78,12 +87,12 @@ def pairwise_overlap(
     pit = _resolve_pit_holdings(holdings, as_of_utc)
     if pit.is_empty():
         raise ValueError(f"no PIT row exists for as_of {as_of_utc.isoformat()}")
+    if pit.filter(pl.col("etf_ticker") == vehicle_a).is_empty() or pit.filter(pl.col("etf_ticker") == vehicle_b).is_empty():
+        missing = vehicle_a if pit.filter(pl.col("etf_ticker") == vehicle_a).is_empty() else vehicle_b
+        raise ValueError(f"no PIT row exists for as_of {as_of_utc.isoformat()} for vehicle {missing}")
 
-    # Filter to each vehicle and keep latest filing per holding (already deduped globally)
-    # But need per-vehicle dedup again if multiple report dates? Use max filing already.
-    # Now select rows for each vehicle
-    a_rows = pit.filter(pl.col("etf_ticker") == vehicle_a)
-    b_rows = pit.filter(pl.col("etf_ticker") == vehicle_b)
+    a_rows = _latest_report_snapshot(pit, etf_ticker=vehicle_a)
+    b_rows = _latest_report_snapshot(pit, etf_ticker=vehicle_b)
     if a_rows.is_empty() or b_rows.is_empty():
         raise ValueError(f"no PIT row exists for as_of {as_of_utc.isoformat()} for vehicle {vehicle_a if a_rows.is_empty() else vehicle_b}")
 
@@ -115,10 +124,12 @@ def pairwise_overlap(
 
     total_a = float(a_agg.select(pl.col("w_a").sum()).item() or 0.0)
     total_b = float(b_agg.select(pl.col("w_b").sum()).item() or 0.0)
-    # a_only = total_a - shared_overlap? But spec says a_only_weight_pct, b_only. Use total minus overlap? Or total minus sum min that belongs to a?
-    # For A, shared portion counted as min, but a_only weight is total_a - shared_overlap? Let's compute total_a - overlap
     a_only = total_a - overlap_pct
     b_only = total_b - overlap_pct
+    if not (0.0 <= a_only <= 100.0):
+        raise ValueError(f"a_only_weight_pct {a_only:.2f} outside [0,100]")
+    if not (0.0 <= b_only <= 100.0):
+        raise ValueError(f"b_only_weight_pct {b_only:.2f} outside [0,100]")
 
     return HoldingsOverlapReport(
         vehicle_a=vehicle_a,
