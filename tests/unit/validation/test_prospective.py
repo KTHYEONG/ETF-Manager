@@ -127,15 +127,58 @@ def test_prosp_d_adaptive_horizon_botz_panel() -> None:
     start = date(2016, 9, 30)
     end = date(2025, 4, 30)
     horizon = resolve_evaluation_horizon(thesis=thesis, catalog_start=start, catalog_end=end)
-    assert horizon is not None
-    assert horizon.horizon_months == 96
-    assert horizon.target_months == 120
-    assert horizon.min_months == 60
-    assert horizon.span_capped is True
+    assert horizon is None
     # short span <5y -> None
     short_end = start + timedelta(days=int(4.5 * 365.25))
     short_h = resolve_evaluation_horizon(thesis=thesis, catalog_start=start, catalog_end=short_end)
     assert short_h is None
+
+
+def test_prosp_e_horizon_surface_preregistered() -> None:
+    from src.validation.prospective import resolve_horizon_surface
+
+    thesis = ThesisSpec(
+        id=ThesisId.PHYSICAL_AUTOMATION,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["f1"],
+        candidate_sleeves=["physical_automation"],
+        historical_proxies=["BOTZ"],
+    )
+    start = date(2016, 9, 30)
+    end = date(2025, 4, 30)
+    surface = resolve_horizon_surface(thesis=thesis, catalog_start=start, catalog_end=end)
+    assert len(surface) == 4
+    by_month = {p.horizon_months: p.cohort_count for p in surface}
+    assert set(by_month.keys()) == {60, 84, 96, 120}
+    assert by_month[120] == 0
+    assert by_month[96] >= 1
+    assert by_month[60] >= by_month[96]
+
+
+def test_prosp_f_primary_target_when_feasible() -> None:
+    from src.validation.prospective import resolve_evaluation_horizon
+
+    thesis = ThesisSpec(
+        id=ThesisId.PHYSICAL_AUTOMATION,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["f1"],
+        candidate_sleeves=["physical_automation"],
+        historical_proxies=["BOTZ"],
+    )
+    start = date(2007, 8, 31)
+    end = date(2025, 4, 30)
+    horizon = resolve_evaluation_horizon(thesis=thesis, catalog_start=start, catalog_end=end)
+    assert horizon is not None
+    assert horizon.horizon_months == 120
+    assert horizon.span_capped is False
 
 
 @pytest.mark.parametrize("scenario_id", ["PROSP-B-paper-reconcile"])

@@ -118,6 +118,85 @@ def test_rpt_b_divergence_block(scenario_id: str, tmp_path: Path, monkeypatch: p
     assert report.long_horizon.passes is False
 
 
+def test_rpt_d_surface_and_primary_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.analytics.thesis_report import build_thesis_report
+    from src.validation.accumulation_cohort import AccumulationCohortReport, AccumulationCohortRow, CohortOverlapMetadata
+
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2025, 4, 30, tzinfo=UTC)
+
+    def fake_horizon_surface(*, thesis, catalog_start, catalog_end):
+        from src.validation.prospective import HorizonSurfacePoint
+
+        return (
+            HorizonSurfacePoint(horizon_months=60, cohort_count=5),
+            HorizonSurfacePoint(horizon_months=84, cohort_count=3),
+            HorizonSurfacePoint(horizon_months=96, cohort_count=1),
+            HorizonSurfacePoint(horizon_months=120, cohort_count=0),
+        )
+
+    def fake_eval_horizon(*, thesis, catalog_start, catalog_end):
+        return None
+
+    def fake_proxy(*args, **kwargs):
+        return (date(2016, 9, 30), date(2025, 4, 30))
+
+    def fake_cohort(spec, runner, horizon_months=120, step_months=12, bootstrap_paths=400, seed=7):
+        # limit to the fallback horizon 96
+        assert horizon_months == 96
+        overlap = CohortOverlapMetadata(horizon_months=horizon_months, step_months=step_months)
+        rows = tuple(AccumulationCohortRow(candidate_wealth=61.0, baseline_wealth=100.0, ratio=0.61, candidate_recovery_months=None) for _ in range(1))
+        return AccumulationCohortReport(
+            name=spec.name,
+            overlap=overlap,
+            rows=rows,
+            median_ratio=0.61,
+            p10_ratio=0.61,
+            worst_ratio=0.61,
+            win_rate=0.0,
+            bootstrap_p05_ratio_mean=0.61,
+            unrecovered_cohort_count=0,
+        )
+
+    monkeypatch.setattr("src.validation.prospective.resolve_horizon_surface", fake_horizon_surface)
+    monkeypatch.setattr("src.validation.prospective.resolve_evaluation_horizon", fake_eval_horizon)
+    monkeypatch.setattr("src.validation.prospective.resolve_proxy_history_span", fake_proxy)
+    monkeypatch.setattr("src.analytics.thesis_report.resolve_horizon_surface", fake_horizon_surface)
+    monkeypatch.setattr("src.analytics.thesis_report.resolve_evaluation_horizon", fake_eval_horizon)
+    monkeypatch.setattr("src.analytics.thesis_report.resolve_proxy_history_span", fake_proxy)
+    monkeypatch.setattr("src.validation.accumulation_cohort.run_accumulation_cohort_report", fake_cohort)
+
+    def fake_load_visible(settings, dataset, decision_ts):
+        raise ValueError("no holdings")
+
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_load_visible)
+
+    def runner(config: AllocationConfig) -> AllocationResult:
+        wealth = 61.0 if config.targets_override == {"BOTZ": 1.0} else 100.0
+        return AllocationResult(
+            config=config,
+            snapshots=(AllocationSnapshot(session=date(2024, 1, 31), cash_krw=0, cash_usd=0, shares={}, mark_krw=wealth, contribution_krw=0, fees_krw=0),),
+            terminal_wealth_krw=wealth,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=wealth,
+            xirr_real=0.0,
+        )
+
+    report = build_thesis_report(thesis_id=ThesisId.PHYSICAL_AUTOMATION, settings=settings, as_of=as_of, runner=runner)
+    assert report.divergence is not None
+    hs = report.divergence.get("horizon_surface")
+    assert hs is not None
+    # contains 60/84/96/120
+    months = {entry["horizon_months"] if isinstance(entry, dict) else getattr(entry, "horizon_months", None) for entry in hs}  # type: ignore[arg-type]
+    assert {60, 84, 96, 120}.issubset(months) or {60, 84, 96, 120} == months
+    # when primary missing, evaluated_horizon_months absent or 0
+    eval_h = report.divergence.get("evaluated_horizon_months")
+    assert eval_h is None or eval_h == 0
+    fb = report.divergence.get("fallback_horizon_months")
+    assert fb == 96
+
+
 @pytest.mark.parametrize("scenario_id", ["test_rpt_c_cohort_ce_not_singleton"])
 def test_rpt_c_cohort_ce_not_singleton(scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from src.analytics.thesis_report import build_thesis_report
