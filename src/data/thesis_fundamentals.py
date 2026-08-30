@@ -1,5 +1,5 @@
 """Thesis fundamental registry: PIT series, falsifier, and ingest wiring."""
-# mypy: disable-error-code="no-untyped-def,no-untyped-call,unused-ignore"
+# mypy: disable-error-code="no-untyped-def,no-untyped-call,unused-ignore,type-arg"
 
 from __future__ import annotations
 
@@ -75,6 +75,26 @@ class ThesisFundamentalsSpec:
     falsifiers: FalsifierCollection
     min_history_periods: int
     lookback_periods: int
+
+
+@dataclass(frozen=True, slots=True)
+class ValuationSpec:
+    vehicle_ticker: str
+    benchmark_ticker: str
+    trailing_sessions: int
+    rich_percentile: float
+    cheap_percentile: float
+    min_sessions: int
+    return_lookback_sessions: int
+    collapse_return_pct: float
+
+
+@dataclass(frozen=True, slots=True)
+class CrowdingSpec:
+    vehicle_ticker: str
+    top_n: int
+    concentrated_hhi_threshold: float
+    concentrated_top5_pct: float
 
 
 def _default_registry_path(thesis_id: ThesisId) -> Path:
@@ -171,6 +191,59 @@ def load_thesis_fundamentals(*, thesis_id: ThesisId, path: Path | None = None) -
         min_history_periods=min_history_periods,
         lookback_periods=lookback_periods,
     )
+
+
+def _load_json_payload(path: Path) -> dict | None:
+    try:
+        text = path.read_text(encoding="utf-8")
+        payload = json.loads(text)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def load_valuation_spec(*, thesis_id: ThesisId, path: Path | None = None) -> ValuationSpec | None:
+    file_path = Path(path) if path is not None else _default_registry_path(thesis_id)
+    payload = _load_json_payload(file_path)
+    if payload is None:
+        return None
+    raw = payload.get("valuation")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return ValuationSpec(
+            vehicle_ticker=str(raw["vehicle_ticker"]),
+            benchmark_ticker=str(raw["benchmark_ticker"]),
+            trailing_sessions=int(raw["trailing_sessions"]),
+            rich_percentile=float(raw["rich_percentile"]),
+            cheap_percentile=float(raw["cheap_percentile"]),
+            min_sessions=int(raw["min_sessions"]),
+            return_lookback_sessions=int(raw["return_lookback_sessions"]),
+            collapse_return_pct=float(raw["collapse_return_pct"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def load_crowding_spec(*, thesis_id: ThesisId, path: Path | None = None) -> CrowdingSpec | None:
+    file_path = Path(path) if path is not None else _default_registry_path(thesis_id)
+    payload = _load_json_payload(file_path)
+    if payload is None:
+        return None
+    raw = payload.get("crowding")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return CrowdingSpec(
+            vehicle_ticker=str(raw["vehicle_ticker"]),
+            top_n=int(raw["top_n"]),
+            concentrated_hhi_threshold=float(raw["concentrated_hhi_threshold"]),
+            concentrated_top5_pct=float(raw["concentrated_top5_pct"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def fundamental_series_ids(spec: ThesisFundamentalsSpec) -> tuple[str, ...]:
