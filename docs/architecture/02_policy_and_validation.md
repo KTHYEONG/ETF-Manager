@@ -163,7 +163,19 @@ flowchart LR
 - PIT `pit_macro_series_levels` filters `series_id` + `available_at ≤ as_of` and keeps latest vintage per `observation_date`, sorted ascending.
 - YoY `% = (x_t/x_{t-lag}-1)*100` with lag 4 (Q) /12 (M) inferred from spacing or `primary_frequency`; `evaluate_falsifier_slowdown` checks last 2 YoY `<0`.
 - `detect_yoy_regime_change` scans trailing 20 for first `≥0→<0` after 4 consecutive `≥0`; otherwise `regime` from latest YoY sign; `compute_structural_slot` fails closed to `insufficient_data` if registry/macro absent.
-- `structural` slot summary prefixed `fundamental:` when `computed`; metrics `primary_series_id`, `primary_yoy_pct`, `falsifier_capex_structural_slowdown_active`, `change_point_date`, `regime`; valuation/crowding stay `unknown`.
+- `structural` slot summary prefixed `fundamental:` when `computed`; metrics `primary_series_id`, `primary_yoy_pct`, `falsifier_capex_structural_slowdown_active`, `change_point_date`, `regime`; valuation/crowding stay `unknown` when registry absent.
+
+### 4.11 Valuation & crowding (Track F)
+
+- Registry `valuation` block locks `vehicle SOXX / benchmark QQQ`, `trailing 1260`, `rich 80 / cheap 20`, `min_sessions 252`, `return_lookback 252`, `collapse -15%`; `crowding` locks `vehicle SOXX`, `top_n 5`, `hhi 0.18`, `top5 60%`.
+- `load_valuation_spec` / `load_crowding_spec` return `None` when block absent; `compute_*_slot` returns `unknown` (`not configured`) without raising; non-ai theses stay `unknown`.
+- Valuation uses `load_visible(Dataset.PRICES, as_of)`; `pit_price_series` filters `ticker` + `available_at ≤ as_of`; align vehicle/benchmark on `date` inner-join; fails closed to `insufficient_data` when `aligned < min_sessions`.
+- `relative_richness_percentile` computes `ratio = v/b` per session, trailing window; `percentile = fraction ≤ latest *100`; label `rich ≥80`, `cheap ≤20` else `fair`; summary prefix `valuation:`.
+- `trailing_total_return_pct` uses `adjusted_close` over `return_lookback` sessions; falsifier `semiconductor_pricing_collapse` active when `return < collapse_return_pct`.
+- Metrics when `computed`: `vehicle_ticker`, `benchmark_ticker`, `relative_ratio`, `richness_percentile`, `richness_label`, `trailing_return_pct`, `falsifier_semiconductor_pricing_collapse_active`.
+- Crowding uses `load_visible(Dataset.ETF_HOLDINGS)` + `overlap._latest_report_snapshot` for `vehicle_ticker`; fails closed when snapshot empty or `weight_sum ∉ [95,110]`.
+- `holdings_concentration_metrics(snapshot, top_n)` returns `hhi = Σ(w/100)²`, `top5_weight_pct`, `effective_n = 1/hhi`, `holdings_count`; label `concentrated` if `hhi > 0.18` or `top5 > 60` else `dispersed`; summary prefix `crowding:`.
+- Wiring `compute_evidence_vector` wraps both slots in fail-soft `try/except` matching structural pattern; never calls `adoption_passes`; QQQ operational lock unchanged.
 
 ## 5. Completed Experiment Matrix
 
