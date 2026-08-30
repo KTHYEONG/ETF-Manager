@@ -160,11 +160,13 @@ flowchart LR
 ### 4.10 Track F structural fundamentals
 
 - Registry `configs/data/thesis_fundamentals/ai_compute.json` locks `PNFI` (Q, primary); `IPG3344S` deferred (FRED-only, not ALFRED). Falsifier `capex_structural_slowdown` (`threshold 0.0%`, `consecutive 2`); `min_history 8`, `lookback 20`.
+- Registry `configs/data/thesis_fundamentals/ai_power_bottleneck.json` locks `A35SNO` (M, primary) with secondary `PNFI`; falsifier `backlog_normalization` (`threshold 0.0%`, `consecutive 2`); `min_history 8`, `lookback 20`.
+- Registry `configs/data/thesis_fundamentals/physical_automation.json` locks `NEWORDER` (M, primary) with secondary `PNFI`; falsifier `commercialization_lag` (`threshold 0.0%`, `consecutive 2`); `min_history 8`, `lookback 20`, `yoy_lag Q=4 M=12`; no `valuation`/`crowding`/`purity` blocks so `load_valuation_spec`/`load_crowding_spec`/`load_purity_spec` return `None` and those slots stay `unknown`.
 - Reuses `Dataset.MACRO` only; `ingest thesis-fundamentals` merges all registry ids via `fetch_and_persist_macro` into one PIT partition (`RELEASE_COLUMN`).
 - PIT `pit_macro_series_levels` filters `series_id` + `available_at ≤ as_of` and keeps latest vintage per `observation_date`, sorted ascending.
 - YoY `% = (x_t/x_{t-lag}-1)*100` with lag 4 (Q) /12 (M) inferred from spacing or `primary_frequency`; `evaluate_falsifier_slowdown` checks last 2 YoY `<0`.
 - `detect_yoy_regime_change` scans trailing 20 for first `≥0→<0` after 4 consecutive `≥0`; otherwise `regime` from latest YoY sign; `compute_structural_slot` fails closed to `insufficient_data` if registry/macro absent.
-- `structural` slot summary prefixed `fundamental:` when `computed`; metrics `primary_series_id`, `primary_yoy_pct`, `falsifier_capex_structural_slowdown_active`, `change_point_date`, `regime`; valuation/crowding stay `unknown` when registry absent.
+- `structural` slot summary prefixed `fundamental:` when `computed`; metrics `primary_series_id`, `primary_yoy_pct`, `falsifier_capex_structural_slowdown_active` (or `falsifier_commercialization_lag_active` / `falsifier_backlog_normalization_active` per thesis), `change_point_date`, `regime`; valuation/crowding stay `unknown` when registry block absent.
 
 ### 4.11 Valuation & crowding (Track F)
 
