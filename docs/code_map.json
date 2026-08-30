@@ -23,6 +23,10 @@
   "src/analytics/regime_proxy.py": {
     "testing": "tests/unit/analytics/test_regime_proxy.py"
   },
+  "src/analytics/structural_evidence.py": {
+    "testing": "tests/unit/analytics/test_structural_evidence.py",
+    "architecture": "docs/architecture/02_policy_and_validation.md"
+  },
   "src/analytics/regimes.py": {
     "testing": "tests/unit/analytics/test_regimes.py"
   },
@@ -62,6 +66,9 @@
   },
   "src/data/nport_ingest.py": {
     "testing": "tests/unit/data/test_nport_ingest.py"
+  },
+  "src/data/thesis_fundamentals.py": {
+    "testing": "tests/unit/data/test_thesis_fundamentals.py"
   },
   "src/data/pipeline.py": {
     "testing": "tests/unit/data/test_pipeline.py"
