@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_WAVE_F_PHYSICAL_AUTOMATION_VALUATION_CROWDING",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_V2_WAVE_F_PHYSICAL_AUTOMATION_VALUATION_CROWDING",
+      "domain": "quant",
+      "title": "Wave F Track F slice 2: physical_automation BOTZ valuation/crowding diagnostic registry",
+      "why": "Slice 1 closed NEWORDER structural but valuation/crowding stayed unknown; Wave F slice 2 requires BOTZ/QQQ diagnostic slots before purity and industrial/humanoid vehicle split.",
+      "resolution": "Added valuation/crowding blocks to physical_automation.json (BOTZ/QQQ, Wave D thresholds); contract tests PHY-VAL/CRD/EV; architecture §4.10/§4.11 BOTZ lock; fixed PAVE crowding fixture; operator FRESH 2026-08-28 thesis-wave valuation=cheap 0.8% return +7.44%, crowding=dispersed hhi 0.049 top5 40.4%; physical_automation decision reject unchanged (BOTZ REJECTED_PROXY, median 0.618).",
+      "impact": "QQQ 100% operational and adoption_passes unchanged; physical_automation evidence vector complete on FRESH panel (valuation/crowding no longer unknown); purity remains unknown (Wave F slice 3); no Track H or new ticker; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_WAVE_F_PHYSICAL_AUTOMATION_FUNDAMENTALS",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_V2_WAVE_F_PHYSICAL_AUTOMATION_FUNDAMENTALS",

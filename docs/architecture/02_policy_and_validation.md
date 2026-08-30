@@ -161,7 +161,7 @@ flowchart LR
 
 - Registry `configs/data/thesis_fundamentals/ai_compute.json` locks `PNFI` (Q, primary); `IPG3344S` deferred (FRED-only, not ALFRED). Falsifier `capex_structural_slowdown` (`threshold 0.0%`, `consecutive 2`); `min_history 8`, `lookback 20`.
 - Registry `configs/data/thesis_fundamentals/ai_power_bottleneck.json` locks `A35SNO` (M, primary) with secondary `PNFI`; falsifier `backlog_normalization` (`threshold 0.0%`, `consecutive 2`); `min_history 8`, `lookback 20`.
-- Registry `configs/data/thesis_fundamentals/physical_automation.json` locks `NEWORDER` (M, primary) with secondary `PNFI`; falsifier `commercialization_lag` (`threshold 0.0%`, `consecutive 2`); `min_history 8`, `lookback 20`, `yoy_lag Q=4 M=12`; no `valuation`/`crowding`/`purity` blocks so `load_valuation_spec`/`load_crowding_spec`/`load_purity_spec` return `None` and those slots stay `unknown`.
+- Registry `configs/data/thesis_fundamentals/physical_automation.json` locks `NEWORDER` (M, primary) with secondary `PNFI`; falsifier `commercialization_lag` (`threshold 0.0%`, `consecutive 2`); `min_history 8`, `lookback 20`, `yoy_lag Q=4 M=12`; `valuation`/`crowding` lock `vehicle BOTZ / benchmark QQQ` with Wave D thresholds (`trailing 1260`, `rich 80 / cheap 20`, `min_sessions 252`, `return_lookback 252`, `collapse -15%`; `top_n 5`, `hhi 0.18`, `top5 60%`); no `purity` block so `load_purity_spec` returns `None`.
 - Reuses `Dataset.MACRO` only; `ingest thesis-fundamentals` merges all registry ids via `fetch_and_persist_macro` into one PIT partition (`RELEASE_COLUMN`).
 - PIT `pit_macro_series_levels` filters `series_id` + `available_at ≤ as_of` and keeps latest vintage per `observation_date`, sorted ascending.
 - YoY `% = (x_t/x_{t-lag}-1)*100` with lag 4 (Q) /12 (M) inferred from spacing or `primary_frequency`; `evaluate_falsifier_slowdown` checks last 2 YoY `<0`.
@@ -170,8 +170,8 @@ flowchart LR
 
 ### 4.11 Valuation & crowding (Track F)
 
-- Registry `valuation` block locks `vehicle SOXX / benchmark QQQ`, `trailing 1260`, `rich 80 / cheap 20`, `min_sessions 252`, `return_lookback 252`, `collapse -15%`; `crowding` locks `vehicle SOXX`, `top_n 5`, `hhi 0.18`, `top5 60%`.
-- `load_valuation_spec` / `load_crowding_spec` return `None` when block absent; `compute_*_slot` returns `unknown` (`not configured`) without raising; non-ai theses stay `unknown`.
+- Registry `valuation` blocks lock `vehicle SOXX / PAVE / BOTZ` vs `benchmark QQQ`, `trailing 1260`, `rich 80 / cheap 20`, `min_sessions 252`, `return_lookback 252`, `collapse -15%`; `crowding` locks `vehicle SOXX / PAVE / BOTZ`, `top_n 5`, `hhi 0.18`, `top5 60%`.
+- `load_valuation_spec` / `load_crowding_spec` return `None` when block absent; `compute_*_slot` returns `unknown` (`not configured`) without raising.
 - Valuation uses `load_visible(Dataset.PRICES, as_of)`; `pit_price_series` filters `ticker` + `available_at ≤ as_of`; align vehicle/benchmark on `date` inner-join; fails closed to `insufficient_data` when `aligned < min_sessions`.
 - `relative_richness_percentile` computes `ratio = v/b` per session, trailing window; `percentile = fraction ≤ latest *100`; label `rich ≥80`, `cheap ≤20` else `fair`; summary prefix `valuation:`.
 - `trailing_total_return_pct` uses `adjusted_close` over `return_lookback` sessions; falsifier `semiconductor_pricing_collapse` active when `return < collapse_return_pct`.
