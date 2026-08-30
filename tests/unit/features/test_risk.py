@@ -72,3 +72,37 @@ def test_trailing_vol_two_point_window() -> None:
     )
     assert sigma == pytest.approx(statistics.stdev(values))
     assert sigma > 0.0
+
+
+def test_trailing_corr_matches_sample_and_pit() -> None:
+    import statistics
+    from datetime import date, datetime
+    import polars as pl
+    import pytest
+    from src.data.calendar import load_calendar
+    from src.features.risk import trailing_simple_corr
+
+    cal = load_calendar('XNYS')
+    a_vals = [0.01, -0.02, 0.03, 0.00, 0.04]
+    b_vals = [0.02, -0.01, 0.01, 0.02, 0.01]
+    days = cal.sessions(date(2024, 1, 2), date(2024, 1, 31))[1 : len(a_vals) + 1]
+    schema = {'date': pl.Date, 'ticker': pl.String, 'simple_return': pl.Float64, 'available_at': pl.Datetime('us', 'UTC')}
+
+    def frame(ticker: str, values: list[float], last_available: datetime | None = None) -> pl.DataFrame:
+        stamps = [cal.close_ts(day) for day in days]
+        if last_available is not None:
+            stamps[-1] = last_available
+        return pl.DataFrame({'date': list(days), 'ticker': [ticker] * len(values), 'simple_return': values, 'available_at': stamps}, schema=schema)
+
+    as_of = cal.close_ts(days[-1])
+    fa = frame('A', a_vals)
+    fb = frame('B', b_vals)
+    got = trailing_simple_corr(fa, fb, as_of_ts=as_of, window=5)
+    assert got == pytest.approx(statistics.correlation(a_vals, b_vals))
+    hidden = frame('B', b_vals, last_available=datetime(2099, 1, 1, tzinfo=as_of.tzinfo))
+    censored = trailing_simple_corr(fa, hidden, as_of_ts=as_of, window=4)
+    assert censored == pytest.approx(statistics.correlation(a_vals[:4], b_vals[:4]))
+    with pytest.raises(ValueError, match='timezone-aware'):
+        trailing_simple_corr(fa, fb, as_of_ts=datetime(2024, 1, 31), window=5)
+    with pytest.raises(ValueError, match='window'):
+        trailing_simple_corr(fa, fb, as_of_ts=as_of, window=1)

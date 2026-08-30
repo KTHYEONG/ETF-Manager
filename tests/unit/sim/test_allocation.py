@@ -1009,3 +1009,25 @@ def test_sim_v3_macro_reserve(scenario_id: str) -> None:
 
     with pytest.raises(PolicyError):
         run_allocation(config, prices, fx, cpi)
+
+
+def test_sim_mrb_exclusive_and_lock_skip() -> None:
+    from dataclasses import replace
+    import pytest
+    from src.policy.mix_risk_budget import OPERATIONAL_MIX_RISK_BUDGET
+    from src.policy.targets import OPERATIONAL_TARGETS_OVERRIDE, PolicyId
+    from src.sim.allocation import apply_operational_contribution_lock, run_allocation
+
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, ('QQQ', 'SOXX')), Dataset.PRICES)
+    fx = ingest(_fx_panel(window), Dataset.FX)
+    cpi = _constant_cpi()
+    mixed = replace(_allocation_config(PolicyId.QQQ), targets_override={'QQQ': 0.9, 'SOXX': 0.1}, mix_risk_budget=OPERATIONAL_MIX_RISK_BUDGET)
+    with pytest.raises(ValueError, match='mix_risk_budget'):
+        run_allocation(mixed, prices, fx, cpi)
+    skipped = apply_operational_contribution_lock(
+        replace(_allocation_config(PolicyId.QQQ), mix_risk_budget=OPERATIONAL_MIX_RISK_BUDGET)
+    )
+    assert skipped.targets_override is None
+    assert skipped.mix_risk_budget is OPERATIONAL_MIX_RISK_BUDGET
+    assert OPERATIONAL_TARGETS_OVERRIDE == {'QQQ': 0.9, 'SOXX': 0.1}
