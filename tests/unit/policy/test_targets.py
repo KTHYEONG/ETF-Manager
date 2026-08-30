@@ -76,8 +76,11 @@ def test_pol_d_s7_large_cap_ivv(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["POL-O-operational-qqq"])
 def test_pol_o_operational_qqq(scenario_id: str) -> None:
     """POL-O-operational-qqq"""
+    from src.policy.targets import OPERATIONAL_TARGETS_OVERRIDE
+
     assert OPERATIONAL_POLICY_ID is PolicyId.QQQ
     assert resolve_targets(OPERATIONAL_POLICY_ID, pl.DataFrame(), _SIGNAL_AT) == {"QQQ": 1.0}
+    assert OPERATIONAL_TARGETS_OVERRIDE == {"QQQ": 0.9, "SOXX": 0.1}
 
 
 @pytest.mark.parametrize("scenario_id", ["POL-AF-operational-adaptive"])

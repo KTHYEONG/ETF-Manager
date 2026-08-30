@@ -113,3 +113,13 @@ def test_taxonomy_readme_statuses_match_index() -> None:
         for name, meta in data["files"].items():
             if name in table_rows:
                 assert table_rows[name] == meta["status"], f"README status mismatch for {name}"
+
+
+def test_taxonomy_soxx10_adaptive_v5_indexed() -> None:
+    import json
+    from pathlib import Path
+    data = json.loads(Path('configs/experiments/INDEX.json').read_text(encoding='utf-8'))
+    name = 'wf_qqq_soxx10_adaptive_v5.json'
+    assert data['files'][name]['status'] == 'active'
+    assert (Path('configs/experiments') / name).is_file()
+    assert not (Path('configs/experiments/archive') / name).is_file()
