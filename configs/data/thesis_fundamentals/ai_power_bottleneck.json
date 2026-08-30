@@ -35,5 +35,25 @@
     "top_n": 5,
     "concentrated_hhi_threshold": 0.18,
     "concentrated_top5_pct": 60.0
+  },
+  "purity": {
+    "vehicle_ticker": "GRID",
+    "incumbent_ticker": "QQQ",
+    "pure_min_pct": 70,
+    "impure_max_pct": 40,
+    "exposure_notes": [
+      {"isin": "IE00B8KQN827", "role": "grid_equipment", "note": "Eaton - power management and grid components"},
+      {"isin": "CH0012221716", "role": "grid_equipment", "note": "ABB - electrification and grid automation"},
+      {"isin": "FR0000121972", "role": "grid_equipment", "note": "Schneider Electric - energy management and grid solutions"},
+      {"isin": "IT0004176001", "role": "cable_manufacturer", "note": "Prysmian - power and telecom cables for grid"},
+      {"isin": "US74762E1029", "role": "grid_contractor", "note": "Quanta Services - grid construction and maintenance"},
+      {"isin": "GB00BDR05C01", "role": "transmission_operator", "note": "National Grid - UK/US transmission owner"},
+      {"isin": "IT0003242622", "role": "transmission_operator", "note": "TERNA - Italian transmission system operator"},
+      {"isin": "BE0003822393", "role": "transmission_operator", "note": "Elia Group - Belgian transmission operator"},
+      {"isin": "US4435106079", "role": "grid_equipment", "note": "Hubbell - electrical and utility solutions"},
+      {"isin": "IE00BDVJJQ56", "role": "grid_equipment", "note": "nVent Electric - electrical connection and protection"},
+      {"isin": "US36828A1016", "role": "grid_equipment", "note": "GE Vernova - grid and electrification equipment"},
+      {"isin": "FR0000044448", "role": "cable_manufacturer", "note": "Nexans - advanced cabling for power transmission"}
+    ]
   }
 }

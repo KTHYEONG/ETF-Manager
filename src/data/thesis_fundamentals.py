@@ -97,6 +97,78 @@ class CrowdingSpec:
     concentrated_top5_pct: float
 
 
+@dataclass(frozen=True, slots=True)
+class ExposureNote:
+    isin: str | None = None
+    cusip: str | None = None
+    role: str = ""
+    note: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PuritySpec:
+    vehicle_ticker: str
+    incumbent_ticker: str
+    pure_min_pct: float
+    impure_max_pct: float
+    exposure_notes: tuple[ExposureNote, ...]
+
+
+def load_purity_spec(*, thesis_id: ThesisId, path: Path | None = None) -> PuritySpec | None:
+    file_path = Path(path) if path is not None else _default_registry_path(thesis_id)
+    payload = _load_json_payload(file_path)
+    if payload is None:
+        return None
+    raw = payload.get("purity")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        vehicle_ticker = str(raw["vehicle_ticker"]).strip()
+        incumbent_ticker = str(raw["incumbent_ticker"]).strip()
+        pure_min_pct = float(raw["pure_min_pct"])
+        impure_max_pct = float(raw["impure_max_pct"])
+        raw_notes = raw.get("exposure_notes")
+        if not isinstance(raw_notes, list):
+            return None
+        if not vehicle_ticker or not incumbent_ticker:
+            return None
+    except (KeyError, TypeError, ValueError):
+        return None
+    notes: list[ExposureNote] = []
+    for entry in raw_notes:
+        if not isinstance(entry, dict):
+            continue
+        raw_isin = entry.get("isin")
+        raw_cusip = entry.get("cusip")
+        isin: str | None = None
+        cusip: str | None = None
+        if raw_isin is not None:
+            s = str(raw_isin).strip()
+            if s:
+                isin = s
+        if raw_cusip is not None:
+            s = str(raw_cusip).strip()
+            if s:
+                cusip = s
+        role = str(entry.get("role", "")).strip()
+        note = str(entry.get("note", "")).strip()
+        if not role or not note:
+            continue
+        if isin is None and cusip is None:
+            continue
+        notes.append(ExposureNote(isin=isin, cusip=cusip, role=role, note=note))
+    try:
+        return PuritySpec(
+            vehicle_ticker=vehicle_ticker,
+            incumbent_ticker=incumbent_ticker,
+            pure_min_pct=float(pure_min_pct),
+            impure_max_pct=float(impure_max_pct),
+            exposure_notes=tuple(notes),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
 def _default_registry_path(thesis_id: ThesisId) -> Path:
     return Path("configs/data/thesis_fundamentals") / f"{thesis_id.value}.json"
 
