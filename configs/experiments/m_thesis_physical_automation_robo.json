@@ -1,0 +1,33 @@
+{
+  "name": "m_thesis_physical_automation_robo",
+  "start": "2013-10-31",
+  "end": "2024-08-31",
+  "contribution_krw": 1000000,
+  "hurdle": 0.02,
+  "objective": "long_horizon",
+  "horizon_months": 120,
+  "thesis_id": "physical_automation",
+  "preregistration": {
+    "weights_locked": true,
+    "universe_locked": true,
+    "baseline_frozen": true
+  },
+  "baseline": {
+    "id": "qqq_baseline",
+    "policy": "qqq",
+    "modules": 0,
+    "targets": {
+      "QQQ": 1.0
+    }
+  },
+  "candidates": [
+    {
+      "id": "robo_100",
+      "policy": "qqq",
+      "modules": 1,
+      "targets": {
+        "ROBO": 1.0
+      }
+    }
+  ]
+}
