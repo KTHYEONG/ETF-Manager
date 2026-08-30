@@ -52,6 +52,7 @@ Task-oriented file lists for bounded AI context. See also `docs/code_map.json`.
 - `src/analytics/cadence.py`
 - `src/analytics/reserve_usage.py`
 - `src/analytics/adaptive_hp_screen.py`
+- `src/analytics/compound_dca.py`
 - `src/features/kafi.py`
 
 ## experiment-config

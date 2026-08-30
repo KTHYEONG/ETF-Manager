@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_COMPOUND_SOXX10_ADAPTIVE_OPS_LOCK",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_COMPOUND_SOXX10_ADAPTIVE_OPS_LOCK",
+      "domain": "quant",
+      "title": "Compound DCA: QQQ90/SOXX10 + adaptive v5 operational lock",
+      "why": "Compound DCA tournament and WF cost grid showed QQQ90/SOXX10 + adaptive v5 beats QQQ100 flat/adaptive; prior lock was QQQ100-only and diagnose/WF failed on missing BAA10Y/FX catalog gaps.",
+      "resolution": "Added compound_dca diagnostic (4-arm tournament), OPERATIONAL_TARGETS_OVERRIDE QQQ90/SOXX10, apply_operational_contribution_lock wires targets+adaptive v5, wf_qqq_soxx10_adaptive_v5.json start 2016-07-01, cost grid all_scenarios_adopted on ideal/low/base/stress.",
+      "impact": "PolicyId.QQQ CLI/paper now runs QQQ90/SOXX10 + OPERATIONAL_ADAPTIVE_CONTRIBUTION; run diagnose-compound-dca reporting-only; WF JSON is adoption evidence (1-fold caveat); specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_WAVE_F_PHYSICAL_AUTOMATION_VEHICLE_REOPEN",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_V2_WAVE_F_PHYSICAL_AUTOMATION_VEHICLE_REOPEN",

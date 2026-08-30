@@ -17,7 +17,7 @@ are implementation vehicles, not the strategy.
 | --- | --- | --- | --- |
 | `s0_global` | VT 100% | Baseline | Global equity DCA reference |
 | `s1_us` | VTI 100% | CE baseline | US total market; prior operational lock |
-| **`qqq`** | **QQQ 100%** | **Operational lock** | Nasdaq-100; WF + cost grid + ablation adopted 2026-08-24 |
+| **`qqq`** | **QQQ 90% / SOXX 10%** | **Operational lock** | Nasdaq-100 + SOXX; adaptive v5 WF adopted 2026-08-30 |
 | `s2_regional` | VTI 50 / VEA 30 / VWO 20 | Rejected (M1) | Regional diversification |
 | `s3_global_bond` | VT 70 / BND 30 | Rejected (M1) | Equity + bonds |
 | `s4_defensive` | VT 60 / IEF 20 / TLT 20 | Rejected (M1) | Defensive mix |
@@ -228,3 +228,9 @@ Default `delta0 = 0.02`. A one-module challenger needs **> 2%** CE improvement a
 Strategic sleeve or satellite changes require a **registered thesis** (or explicit `PolicyId`
 hypothesis) and a fresh ablation; closed waves (M1/M2/D, static mix v1, Wave 3 matrix) do not
 justify weight retuning without new structural evidence.
+
+### 4.12 Compound-DCA tournament (reporting-only)
+
+- `src/analytics/compound_dca.py:compare_compound_dca` runs four arms `qqq_flat`, `qqq_adaptive_v5`, `qqq90_soxx10_flat`, `qqq90_soxx10_adaptive_v5` on window `2015-06-01`–`2026-06-30` with `PolicyId.QQQ` and `OPERATIONAL_ADAPTIVE_CONTRIBUTION` only on adaptive arms; mix arms use `targets_override {"QQQ": 0.9, "SOXX": 0.1}`.
+- Reporting-only; `run diagnose-compound-dca` logs `[DATA] event=compound_dca_arm` per arm and `event=compound_dca_done champion=... operational_unlock=false`.
+- WF JSON `configs/experiments/wf_qqq_soxx10_adaptive_v5.json` validated the operational QQQ90/SOXX10 + adaptive v5 lock (`start=2016-07-01`).

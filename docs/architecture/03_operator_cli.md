@@ -51,6 +51,7 @@ Optional policy flags: `--tilt-factor`, `--overlay-max-shift`, `--vix-threshold`
 | Command | Purpose |
 | --- | --- |
 | `run diagnose-us-vehicles --start --end --contribution-krw` | VTI/IVV/QQQ factor profile + identical DCA (no gate) |
+| `run diagnose-compound-dca --contribution-krw` | QQQ vs QQQ90/SOXX10 flat vs adaptive tournament (no gate) |
 | `run thesis [--id THESIS] [--config-dir configs/theses]` | List or inspect thesis registry (no gate) |
 
 ## 3. Experiment JSON (`configs/experiments/`)
