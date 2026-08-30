@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Final
 
 import polars as pl
 
@@ -11,6 +12,9 @@ from src.data.thesis_fundamentals import ExposureNote, load_purity_spec
 from src.policy.thesis import ThesisSpec
 
 _PLACEHOLDER_CUSIPS = frozenset({"000000000", "00000000", "999999999"})
+
+INDUSTRIAL_AUTOMATION_ROLES: Final[frozenset[str]] = frozenset({"industrial_automation"})
+HUMANOID_OPTIONALITY_ROLES: Final[frozenset[str]] = frozenset({"humanoid_optionality"})
 
 
 def thesis_aligned_weight_pct(
@@ -75,6 +79,50 @@ def thesis_aligned_weight_pct(
         "non_aligned_weight_pct": float(non_aligned),
         "matched_notes_count": len(matched_indices),
     }
+
+
+def role_aligned_weight_pct(
+    *, snapshot: pl.DataFrame, notes: tuple[ExposureNote, ...]
+) -> dict[str, float]:
+    if snapshot.is_empty():
+        return {}
+    isin_set: set[str] = {n.isin for n in notes if n.isin}
+    cusip_set: set[str] = {n.cusip for n in notes if n.cusip}
+    isin_to_roles: dict[str, list[str]] = {}
+    cusip_to_roles: dict[str, list[str]] = {}
+    for n in notes:
+        if n.isin:
+            isin_to_roles.setdefault(n.isin, []).append(n.role)
+        if n.cusip:
+            cusip_to_roles.setdefault(n.cusip, []).append(n.role)
+    role_sums: dict[str, float] = {}
+    for row in snapshot.to_dicts():
+        w = row.get("weight_pct")
+        try:
+            wf = float(w) if w is not None else 0.0
+        except (TypeError, ValueError):
+            wf = 0.0
+        isin_val = row.get("isin")
+        isin_str: str | None = None
+        if isin_val is not None:
+            s = str(isin_val).strip()
+            if s:
+                isin_str = s
+        if isin_str is not None:
+            if isin_str in isin_set:
+                for role in isin_to_roles.get(isin_str, []):
+                    role_sums[role] = role_sums.get(role, 0.0) + wf
+            continue
+        cusip_val = row.get("cusip")
+        if cusip_val is None:
+            continue
+        cusip_s = str(cusip_val).strip()
+        if not cusip_s or cusip_s in _PLACEHOLDER_CUSIPS:
+            continue
+        if cusip_s in cusip_set:
+            for role in cusip_to_roles.get(cusip_s, []):
+                role_sums[role] = role_sums.get(role, 0.0) + wf
+    return {k: float(v) for k, v in role_sums.items()}
 
 
 def compute_purity_slot(
@@ -157,5 +205,17 @@ def compute_purity_slot(
         "vehicle_ticker": str(spec.vehicle_ticker),
         "incumbent_ticker": str(spec.incumbent_ticker),
     }
+    # role split diagnostic: emit only when at least one note uses the review roles
+    has_review_roles = any(
+        n.role in INDUSTRIAL_AUTOMATION_ROLES or n.role in HUMANOID_OPTIONALITY_ROLES
+        for n in spec.exposure_notes
+    )
+    if has_review_roles:
+        try:
+            role_weights = role_aligned_weight_pct(snapshot=snapshot, notes=spec.exposure_notes)
+        except Exception:
+            role_weights = {}
+        metrics["industrial_weight_pct"] = float(role_weights.get("industrial_automation", 0.0))
+        metrics["humanoid_weight_pct"] = float(role_weights.get("humanoid_optionality", 0.0))
     summary = f"purity: {label} aligned {thesis_aligned:.1f}% incremental {incremental:.1f}% overlap {overlap_pct:.1f}%"
     return EvidenceSlot(status="computed", summary=summary, metrics=metrics)
