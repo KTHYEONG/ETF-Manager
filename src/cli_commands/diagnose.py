@@ -382,6 +382,38 @@ def run_diagnose_qqq_kafi_command(*, contribution_krw: float, settings: DataSett
     return 0
 
 
+def run_diagnose_compound_dca_command(*, contribution_krw: float, settings: DataSettings) -> int:
+    """Run compound DCA tournament (QQQ vs QQQ90/SOXX10 flat vs adaptive); reporting only."""
+    try:
+        if not math.isfinite(float(contribution_krw)) or float(contribution_krw) <= 0.0:
+            raise ValueError(f"contribution_krw must be positive, got {contribution_krw!r}")
+        from src.analytics.compound_dca import compare_compound_dca
+
+        report = compare_compound_dca(
+            runner=lambda config: run_allocation_from_store(config, settings),
+            contribution_krw=float(contribution_krw),
+        )
+        for row in report.rows:
+            logger.info(
+                "[DATA] event=compound_dca_arm arm=%s terminal_real_krw=%.2f total_contribution_real_krw=%.2f real_gain=%.2f xirr=%.6f mdd=%.4f",
+                row.arm_id,
+                row.terminal_wealth_real_krw,
+                row.total_contribution_real_krw,
+                row.real_gain,
+                row.xirr,
+                row.max_drawdown,
+            )
+        logger.info(
+            "[DATA] event=compound_dca_done champion=%s operational_unlock=false rows=%d",
+            report.champion_arm_id,
+            len(report.rows),
+        )
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError) as exc:
+        logger.error("[DATA] event=diagnose_compound_dca_failed reason_type=%s", type(exc).__name__)
+        return 1
+    return 0
+
+
 def run_diagnose_qqq_adaptive_hp_command(*, contribution_krw: float, settings: DataSettings) -> int:
     """Run the adaptive HP neighbourhood screen versus operational v5; reporting only."""
     try:

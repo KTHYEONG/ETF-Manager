@@ -286,6 +286,11 @@ def _build_parser() -> _Parser:
         help="Adaptive contribution HP neighbourhood screen versus operational v5; reporting only, never an adoption gate",
     )
     diagnose_qqq_adaptive_hp.add_argument("--contribution-krw", required=True, type=float)
+    diagnose_compound_dca = run_targets.add_parser(
+        "diagnose-compound-dca",
+        help="Compound DCA tournament QQQ vs QQQ90/SOXX10 flat vs adaptive; reporting only, never an adoption gate",
+    )
+    diagnose_compound_dca.add_argument("--contribution-krw", required=True, type=float)
     accumulation_cohort = run_targets.add_parser(
         "accumulation-cohort",
         help="Rolling 120M accumulation cohort report (reporting-only, never an adoption gate)",

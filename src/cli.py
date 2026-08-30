@@ -18,6 +18,7 @@ from src.cli_commands.campaign import (
     run_walk_forward_proxy_command,
 )
 from src.cli_commands.diagnose import (
+    run_diagnose_compound_dca_command,
     run_diagnose_qqq_accumulation_alpha_command,
     run_diagnose_qqq_adaptive_hp_command,
     run_diagnose_qqq_blends_command,
@@ -69,13 +70,6 @@ from src.data.settings import DataSettings
 
 # Re-export for test monkeypatch compatibility
 __all__ = ["main"]
-
-# wiring anchor: from src.analytics.thesis_evidence import compute_evidence_vector
-_ = "compute_evidence_vector"  # noqa: F401
-
-# wiring anchor for validation_test_split contract
-# from src.validation.campaign import run_walk_forward_adoption
-_run_walk_forward_adoption = "run_walk_forward_adoption"  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -375,6 +369,11 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         )
     if args.target == "diagnose-qqq-adaptive-hp":
         return run_diagnose_qqq_adaptive_hp_command(
+            contribution_krw=float(args.contribution_krw),
+            settings=DataSettings(),
+        )
+    if args.target == "diagnose-compound-dca":
+        return run_diagnose_compound_dca_command(
             contribution_krw=float(args.contribution_krw),
             settings=DataSettings(),
         )

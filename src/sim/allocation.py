@@ -31,7 +31,7 @@ from src.policy.currency import conversion_fraction
 from src.policy.kafi_deployment import KafiDeploymentConfig, apply_kafi_deployment
 from src.policy.overlay import apply_bounded_overlay
 from src.policy.reserve import apply_reserve_schedule
-from src.policy.targets import OPERATIONAL_POLICY_ID, PolicyError, PolicyId, policy_sleeves, resolve_targets
+from src.policy.targets import OPERATIONAL_POLICY_ID, OPERATIONAL_TARGETS_OVERRIDE, PolicyError, PolicyId, policy_sleeves, resolve_targets
 from src.policy.tilt import resolve_tilted_targets
 from src.sim.contribution import allocate_contribution
 from src.sim.lots import fill_integer_buys
@@ -95,16 +95,17 @@ class AllocationConfig:
 
 
 def apply_operational_contribution_lock(config: AllocationConfig) -> AllocationConfig:
-    """Attach the locked adaptive-contribution module on the bare operational QQQ path.
+    """Attach locked QQQ90/SOXX10 targets and adaptive v5 on the bare operational QQQ path.
 
     Skips when the policy is not ``OPERATIONAL_POLICY_ID``, cadence is not monthly,
-    or any other contribution, overlay, reserve, mapping, or currency module is set.
+    a non-operational ``targets_override`` is set, or any other contribution,
+    overlay, reserve, mapping, or currency module is set.
     """
-    if config.targets_override is not None:
-        return config
     if config.policy is not OPERATIONAL_POLICY_ID:
         return config
     if config.cadence != "monthly":
+        return config
+    if config.targets_override is not None and dict(config.targets_override) != OPERATIONAL_TARGETS_OVERRIDE:
         return config
     if (
         config.adaptive_contribution is not None
@@ -116,7 +117,11 @@ def apply_operational_contribution_lock(config: AllocationConfig) -> AllocationC
         or config.currency is not None
     ):
         return config
-    return replace(config, adaptive_contribution=OPERATIONAL_ADAPTIVE_CONTRIBUTION)
+    return replace(
+        config,
+        targets_override=dict(OPERATIONAL_TARGETS_OVERRIDE),
+        adaptive_contribution=OPERATIONAL_ADAPTIVE_CONTRIBUTION,
+    )
 
 
 @dataclass(frozen=True, slots=True)
