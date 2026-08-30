@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from collections.abc import Mapping
 from datetime import date
@@ -20,6 +21,8 @@ from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
 from src.policy.targets import PolicyId
 from src.policy.thesis import ThesisId, ThesisSpec
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "AdaptiveContributionSpec",
@@ -42,6 +45,7 @@ __all__ = [
     "resolve_cadence",
     "resolve_contribution_shape",
     "resolve_currency",
+    "resolve_experiment_config_path",
     "resolve_kafi_deployment",
     "resolve_mapping",
     "resolve_overlay",
@@ -596,6 +600,37 @@ def assert_experiment_preregistration(
                             raise ValueError(f"ticker {ticker!r} not in allowed universe {sorted(allowed)!r}")
 
 
+def resolve_experiment_config_path(path: str | Path) -> Path:
+    """Resolve an experiment config path with archive fallback.
+
+    If ``path`` exists as a file, return its resolved absolute path.
+    Else if the basename exists under ``configs/experiments/archive/``, return that
+    archive path (resolved). Else raise ``FileNotFoundError``.
+    """
+    candidate = Path(path)
+    if candidate.is_file():
+        return candidate.resolve()
+    # Fallback only for historical configs/experiments/ paths.
+    path_str = str(path)
+    is_experiments_path = "configs/experiments" in path_str
+    if is_experiments_path:
+        archive_candidate = Path("configs/experiments/archive") / candidate.name
+        if archive_candidate.is_file():
+            logger.info("resolve_experiment_config_path fallback to archive: %s -> %s", path, archive_candidate)
+            return archive_candidate.resolve()
+        # Also try resolving relative to repo root via Path(__file__) parents if cwd differs
+        # Attempt absolute archive path based on this file's repo root
+        try:
+            repo_root = Path(__file__).resolve().parents[2]
+            alt_archive = repo_root / "configs" / "experiments" / "archive" / candidate.name
+            if alt_archive.is_file():
+                logger.info("resolve_experiment_config_path fallback to archive: %s -> %s", path, alt_archive)
+                return alt_archive.resolve()
+        except Exception:  # noqa: S110
+            pass
+    raise FileNotFoundError(f"experiment config not found: {path}")
+
+
 def load_experiment_config(path: str | Path) -> ExperimentSpec:
     """Parse an experiment JSON file into a validated spec.
 
@@ -603,7 +638,8 @@ def load_experiment_config(path: str | Path) -> ExperimentSpec:
         OSError: When the file cannot be read.
         ValueError: When the payload is not valid JSON or violates the schema.
     """
-    text = Path(path).read_text(encoding="utf-8")
+    resolved = resolve_experiment_config_path(path)
+    text = resolved.read_text(encoding="utf-8")
     # Strip // line and trailing comments to allow placeholder comments in JSON.
     import re
 
