@@ -198,6 +198,7 @@ def test_sim_acg_operational_lock(scenario_id: str) -> None:
     )
     locked = apply_operational_contribution_lock(bare_qqq)
     assert locked.adaptive_contribution is OPERATIONAL_ADAPTIVE_CONTRIBUTION
+    assert locked.targets_override == {"QQQ": 0.9, "SOXX": 0.1}
     assert locked.adaptive_contribution.rank_window == 126
     assert locked.adaptive_contribution.downside_power == pytest.approx(4.0)
     assert locked.adaptive_contribution.upside_power == pytest.approx(0.25)
@@ -238,6 +239,7 @@ def test_sim_acg_operational_lock_v5(scenario_id: str) -> None:
     )
     locked = apply_operational_contribution_lock(bare_qqq)
     assert locked.adaptive_contribution is OPERATIONAL_ADAPTIVE_CONTRIBUTION
+    assert locked.targets_override == {"QQQ": 0.9, "SOXX": 0.1}
     assert locked.adaptive_contribution.neutral_deadband == pytest.approx(5.0)
     assert locked.adaptive_contribution.dispersion == pytest.approx(1.35)
     assert locked.adaptive_contribution.rank_window == 126
