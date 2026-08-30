@@ -29,9 +29,17 @@ from src.policy.contribution_shape import (
 )
 from src.policy.currency import conversion_fraction
 from src.policy.kafi_deployment import KafiDeploymentConfig, apply_kafi_deployment
+from src.policy.mix_risk_budget import MixRiskBudgetConfig, resolve_mix_risk_budget_targets
 from src.policy.overlay import apply_bounded_overlay
 from src.policy.reserve import apply_reserve_schedule
-from src.policy.targets import OPERATIONAL_POLICY_ID, OPERATIONAL_TARGETS_OVERRIDE, PolicyError, PolicyId, policy_sleeves, resolve_targets
+from src.policy.targets import (
+    OPERATIONAL_POLICY_ID,
+    OPERATIONAL_TARGETS_OVERRIDE,
+    PolicyError,
+    PolicyId,
+    policy_sleeves,
+    resolve_targets,
+)
 from src.policy.tilt import resolve_tilted_targets
 from src.sim.contribution import allocate_contribution
 from src.sim.lots import fill_integer_buys
@@ -92,6 +100,7 @@ class AllocationConfig:
     kafi_deployment: KafiDeploymentConfig | None = None
     adaptive_contribution: AdaptiveContributionConfig | None = None
     targets_override: Mapping[str, float] | None = None
+    mix_risk_budget: MixRiskBudgetConfig | None = None
 
 
 def apply_operational_contribution_lock(config: AllocationConfig) -> AllocationConfig:
@@ -104,6 +113,8 @@ def apply_operational_contribution_lock(config: AllocationConfig) -> AllocationC
     if config.policy is not OPERATIONAL_POLICY_ID:
         return config
     if config.cadence != "monthly":
+        return config
+    if config.mix_risk_budget is not None:
         return config
     if config.targets_override is not None and dict(config.targets_override) != OPERATIONAL_TARGETS_OVERRIDE:
         return config
@@ -250,6 +261,8 @@ def run_allocation(
         if config.cadence != "monthly":
             # Sizing is one independent credit per calendar month; split months double-count.
             raise ValueError("adaptive_contribution requires the monthly decision cadence")
+    if config.mix_risk_budget is not None and (config.targets_override is not None or config.tilt is not None):
+        raise ValueError("mix_risk_budget is mutually exclusive with targets_override and tilt")
     if config.tilt is not None and config.targets_override is not None:
         raise ValueError("targets_override and tilt are mutually exclusive allocation modules")
     if config.targets_override is not None:
@@ -300,7 +313,9 @@ def run_allocation(
         close_ts = calendar.close_ts(point.execution_session)
         usdkrw = _visible_fx(fx, point.execution_session, close_ts)
         cpi_level = _visible_cpi(cpi, point.execution_session, close_ts)
-        if config.targets_override is not None:
+        if config.mix_risk_budget is not None:
+            targets = resolve_mix_risk_budget_targets(prices, point.signal_at, config.mix_risk_budget)
+        elif config.targets_override is not None:
             targets = dict(config.targets_override)
         elif config.tilt is None:
             targets = resolve_targets(config.policy, prices, point.signal_at)
