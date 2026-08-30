@@ -1,0 +1,91 @@
+{
+  "thesis_id": "physical_automation",
+  "as_of": "2026-08-28T00:00:00+00:00",
+  "panel_as_of": "2026-08-28T20:00:00+00:00",
+  "lag_days": 2,
+  "freshness_status": "FRESH",
+  "portfolio_status": "historically_weak",
+  "vehicle_ticker": "ROBO",
+  "horizon_months": 120,
+  "horizon_fallback": false,
+  "arms": [
+    {
+      "arm_id": "qqq95_robo5",
+      "soxx_weight": 0.05,
+      "median_ratio": 0.9824430112531801,
+      "p10_ratio": 0.982252846445683,
+      "worst_ratio": 0.9822053052438087,
+      "win_rate": 0.0,
+      "cohort_count": 3,
+      "ce_gamma_2": 0.983164828919199,
+      "ce_gamma_5": 0.9834819031322259,
+      "ce_gamma_10": 0.9839622214456626,
+      "attribution": {
+        "target_soxx_weight": 0.05,
+        "mean_realized_soxx_weight": 0.030226493358224735,
+        "terminal_realized_soxx_weight": 0.01807887498869855,
+        "mean_abs_weight_drift": 0.019773506641775268,
+        "terminal_weight_drift": -0.031921125011301454,
+        "incremental_wealth_ratio": 0.9822053052438087
+      },
+      "path_bootstrap": {
+        "n_paths": 400,
+        "win_rate": 0.05,
+        "p05_terminal_ratio": 0.9650984955880846,
+        "ok": false
+      }
+    },
+    {
+      "arm_id": "qqq90_robo10",
+      "soxx_weight": 0.1,
+      "median_ratio": 0.958670561816194,
+      "p10_ratio": 0.9569521245127675,
+      "worst_ratio": 0.9565225151869108,
+      "win_rate": 0.0,
+      "cohort_count": 3,
+      "ce_gamma_2": 0.9589563940759445,
+      "ce_gamma_5": 0.9594289267862653,
+      "ce_gamma_10": 0.9602011272109138,
+      "attribution": {
+        "target_soxx_weight": 0.1,
+        "mean_realized_soxx_weight": 0.07421956603695501,
+        "terminal_realized_soxx_weight": 0.05176857095345894,
+        "mean_abs_weight_drift": 0.025780433963044993,
+        "terminal_weight_drift": -0.04823142904654107,
+        "incremental_wealth_ratio": 0.958670561816194
+      },
+      "path_bootstrap": {
+        "n_paths": 400,
+        "win_rate": 0.0475,
+        "p05_terminal_ratio": 0.9194699930649082,
+        "ok": false
+      }
+    },
+    {
+      "arm_id": "qqq85_robo15",
+      "soxx_weight": 0.15,
+      "median_ratio": 0.9342653034606673,
+      "p10_ratio": 0.9300165195294893,
+      "worst_ratio": 0.9289543235466947,
+      "win_rate": 0.0,
+      "cohort_count": 3,
+      "ce_gamma_2": 0.9332510097805591,
+      "ce_gamma_5": 0.9337763585557218,
+      "ce_gamma_10": 0.9347035504319777,
+      "attribution": {
+        "target_soxx_weight": 0.15,
+        "mean_realized_soxx_weight": 0.12139039345524448,
+        "terminal_realized_soxx_weight": 0.08772257167520887,
+        "mean_abs_weight_drift": 0.03033583710780813,
+        "terminal_weight_drift": -0.06227742832479112,
+        "incremental_wealth_ratio": 0.9342653034606673
+      },
+      "path_bootstrap": {
+        "n_paths": 400,
+        "win_rate": 0.045,
+        "p05_terminal_ratio": 0.8748044635627908,
+        "ok": false
+      }
+    }
+  ]
+}
