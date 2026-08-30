@@ -1,0 +1,25 @@
+{
+  "thesis_id": "ai_power_bottleneck",
+  "primary_series_id": "A35SNO",
+  "primary_frequency": "M",
+  "secondary_series_ids": ["PNFI"],
+  "falsifiers": {
+    "backlog_normalization": {
+      "series_id": "A35SNO",
+      "metric": "yoy_pct",
+      "threshold_pct": 0.0,
+      "consecutive_periods": 2
+    }
+  },
+  "structural": {
+    "lookback_periods": 20,
+    "min_history_periods": 8,
+    "min_positive_periods": 4,
+    "yoy_lag": {
+      "Q": 4,
+      "M": 12
+    }
+  },
+  "valuation": null,
+  "crowding": null
+}
