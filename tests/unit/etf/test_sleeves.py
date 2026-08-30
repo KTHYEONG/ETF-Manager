@@ -25,7 +25,7 @@ def test_sleeve_02_us_buckets_and_satellites(scenario_id: str) -> None:
         (SleeveId.US_LARGE_CAP, VehicleId.IVV),
         (SleeveId.AI_SEMICONDUCTOR, VehicleId.SOXX),
         (SleeveId.AI_POWER_EQUIPMENT, VehicleId.PAVE),
-        (SleeveId.PHYSICAL_AUTOMATION, VehicleId.BOTZ),
+        (SleeveId.PHYSICAL_AUTOMATION, VehicleId.ROBO),
     )
     for sleeve, expected in cases:
         assert resolve_vehicle(sleeve, VehicleRole.EXECUTION) is expected
@@ -60,8 +60,8 @@ def test_physical_automation_vehicle_split_not_reopened(scenario_id: str) -> Non
 
     from src.data.panel_freshness import THESIS_PANEL_TICKERS
 
-    assert resolve_vehicle(SleeveId.PHYSICAL_AUTOMATION, VehicleRole.EXECUTION) is VehicleId.BOTZ
-    assert resolve_vehicle(SleeveId.PHYSICAL_AUTOMATION, VehicleRole.HISTORICAL) is VehicleId.BOTZ
+    assert resolve_vehicle(SleeveId.PHYSICAL_AUTOMATION, VehicleRole.EXECUTION) is VehicleId.ROBO
+    assert resolve_vehicle(SleeveId.PHYSICAL_AUTOMATION, VehicleRole.HISTORICAL) is VehicleId.ROBO
     sleeve_members = set(SleeveId.__members__)
     assert "INDUSTRIAL_AUTOMATION" not in sleeve_members
     assert "HUMANOID" not in sleeve_members
@@ -69,7 +69,50 @@ def test_physical_automation_vehicle_split_not_reopened(scenario_id: str) -> Non
     vehicle_members = set(VehicleId.__members__.values())
     assert VehicleId.BOTZ.value == "BOTZ"
     assert "HUMANOID" not in VehicleId.__members__
-    assert THESIS_PANEL_TICKERS == ("BOTZ", "GRID", "PAVE", "QQQ", "SOXX")
+    assert THESIS_PANEL_TICKERS == ("BOTZ", "GRID", "PAVE", "QQQ", "ROBO", "SOXX")
     mapping = json.loads(Path("configs/etf_metadata/nport_series_map.json").read_text(encoding="utf-8"))
     assert mapping["S000054693"] == "BOTZ"
+    assert mapping["S000042659"] == "ROBO"
     assert VehicleId.BOTZ in vehicle_members
+    assert VehicleId.ROBO in vehicle_members
+
+
+@pytest.mark.parametrize("scenario_id", ["test_robo_vehicle_id_and_sleeve_resolve"])
+def test_robo_vehicle_id_and_sleeve_resolve(scenario_id: str) -> None:
+    """test_robo_vehicle_id_and_sleeve_resolve"""
+    assert VehicleId.ROBO.value == "ROBO"
+    assert resolve_vehicle(SleeveId.PHYSICAL_AUTOMATION, VehicleRole.EXECUTION) is VehicleId.ROBO
+    assert resolve_vehicle(SleeveId.PHYSICAL_AUTOMATION, VehicleRole.HISTORICAL) is VehicleId.ROBO
+    assert VehicleId.ROBO in RESEARCH_SATELLITE_VEHICLES
+    assert VehicleId.BOTZ in VehicleId.__members__.values()
+
+
+@pytest.mark.parametrize("scenario_id", ["test_physical_automation_vehicle_reopened_to_robo"])
+def test_physical_automation_vehicle_reopened_to_robo(scenario_id: str) -> None:
+    """test_physical_automation_vehicle_reopened_to_robo"""
+    import json
+    from pathlib import Path
+
+    from src.data.panel_freshness import THESIS_PANEL_TICKERS
+
+    assert resolve_vehicle(SleeveId.PHYSICAL_AUTOMATION, VehicleRole.EXECUTION) is VehicleId.ROBO
+    assert resolve_vehicle(SleeveId.PHYSICAL_AUTOMATION, VehicleRole.HISTORICAL) is VehicleId.ROBO
+    assert "HUMANOID" not in SleeveId.__members__
+    assert "INDUSTRIAL_AUTOMATION" not in SleeveId.__members__
+    assert "HUMANOID" not in VehicleId.__members__
+    assert THESIS_PANEL_TICKERS == ("BOTZ", "GRID", "PAVE", "QQQ", "ROBO", "SOXX")
+    mapping = json.loads(Path("configs/etf_metadata/nport_series_map.json").read_text(encoding="utf-8"))
+    assert mapping["S000042659"] == "ROBO"
+    assert mapping["S000054693"] == "BOTZ"
+
+
+@pytest.mark.parametrize("scenario_id", ["test_nport_series_map_includes_robo"])
+def test_nport_series_map_includes_robo(scenario_id: str) -> None:
+    """test_nport_series_map_includes_robo"""
+    import json
+    from pathlib import Path
+
+    mapping = json.loads(Path("configs/etf_metadata/nport_series_map.json").read_text(encoding="utf-8"))
+    assert mapping["S000042659"] == "ROBO"
+    assert mapping["S000054693"] == "BOTZ"
+    assert mapping["S000056509"] == "PAVE"

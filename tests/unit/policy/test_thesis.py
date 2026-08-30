@@ -62,7 +62,7 @@ def test_thesis_01_load_three_seeds(scenario_id: str) -> None:
         assert spec.horizon.target_years == 10
     assert VehicleId.SOXX in registry[ThesisId.AI_COMPUTE].historical_proxies
     assert VehicleId.PAVE in registry[ThesisId.AI_POWER_BOTTLENECK].historical_proxies
-    assert VehicleId.BOTZ in registry[ThesisId.PHYSICAL_AUTOMATION].historical_proxies
+    assert VehicleId.ROBO in registry[ThesisId.PHYSICAL_AUTOMATION].historical_proxies
 
 
 @pytest.mark.parametrize("scenario_id", ["THESIS-02-reject-empty-falsifiers"])
@@ -176,6 +176,35 @@ def test_life_03_reopen_cycle(scenario_id: str) -> None:
     assert back.status is ThesisStatus.RESEARCH
     with pytest.raises(ThesisError, match="illegal transition"):
         transition_thesis(dormant, ThesisStatus.CONFIRMED, reason="skip")
+
+
+@pytest.mark.parametrize("scenario_id", ["test_physical_automation_thesis_proxy_is_robo"])
+def test_physical_automation_thesis_proxy_is_robo(scenario_id: str) -> None:
+    """test_physical_automation_thesis_proxy_is_robo"""
+    registry = load_thesis_registry(Path("configs/theses"))
+    assert registry[ThesisId.PHYSICAL_AUTOMATION].historical_proxies == [VehicleId.ROBO]
+
+
+@pytest.mark.parametrize("scenario_id", ["test_experiment_map_points_physical_automation_to_robo"])
+def test_experiment_map_points_physical_automation_to_robo(scenario_id: str) -> None:
+    """test_experiment_map_points_physical_automation_to_robo"""
+    exp_map = json.loads(Path("configs/theses/experiment_map.json").read_text(encoding="utf-8"))
+    path_str = exp_map["physical_automation"]
+    assert path_str.endswith("m_thesis_physical_automation_robo.json")
+    assert Path(path_str).exists()
+    doc = json.loads(Path(path_str).read_text(encoding="utf-8"))
+    assert doc["candidates"][0]["targets"]["ROBO"] == 1.0
+    assert doc["thesis_id"] == "physical_automation"
+    assert doc["start"] == "2013-10-31"
+    assert doc["horizon_months"] == 120
+    inc_path = Path("configs/experiments/m_thesis_physical_automation_robo_inc_5_10_15.json")
+    assert inc_path.exists()
+    inc_doc = json.loads(inc_path.read_text(encoding="utf-8"))
+    weights = {tuple(sorted(c["targets"].items())) for c in inc_doc["candidates"]}
+    assert any(("ROBO", 0.05) in dict(c["targets"]).items() for c in inc_doc["candidates"])
+    assert any(("ROBO", 0.10) in dict(c["targets"]).items() for c in inc_doc["candidates"])
+    assert any(("ROBO", 0.15) in dict(c["targets"]).items() for c in inc_doc["candidates"])
+    assert Path("configs/experiments/m_thesis_physical_automation_botz_prospective.json").exists()
 
 
 @pytest.mark.parametrize("scenario_id", ["test_ai_power_thesis_proxy_is_pave"])
