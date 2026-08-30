@@ -1,5 +1,7 @@
 # System Overview — ETF Accumulation Research & Execution Platform
 
+Agent task load recipes: [04_module_index.md](04_module_index.md).
+
 ## 1. System Boundary
 
 The system answers two coupled questions:

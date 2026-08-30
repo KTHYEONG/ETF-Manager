@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_REPO_LAYOUT_REFACTOR",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_REPO_LAYOUT_REFACTOR",
+      "domain": "architecture",
+      "title": "Repository layout refactor (W1–W5): CLI, thesis package, validation split, config taxonomy, agent index",
+      "why": "God-module src/cli.py (~2551 LOC), flat thesis analytics, monolithic validation tests, and flat experiment configs inflated AI context and slowed maintenance.",
+      "resolution": "W1: src/cli_commands/* facade (cli.py ≤450 LOC). W2: src/analytics/thesis/* with legacy shims. W3: validation walk_forward/cost_grid/cadence_robustness split + campaign_parts/experiment test dirs. W4: configs/experiments/INDEX.json + archive fallback in load_experiment_config. W5: docs/architecture/04_module_index.md + code_map family field + test_module_index guards.",
+      "impact": "Bounded agent context per command family; backward-compatible imports/CLI argv; lean_check + full pytest PASS; no CE/PIT/ledger behavior change."
+    },
+    {
       "task_id": "TASK_V2_WAVE_F_PHYSICAL_AUTOMATION_HOLDINGS_PURITY",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_V2_WAVE_F_PHYSICAL_AUTOMATION_HOLDINGS_PURITY",
