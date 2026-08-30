@@ -21,7 +21,7 @@
     }
   },
   "valuation": {
-    "vehicle_ticker": "BOTZ",
+    "vehicle_ticker": "ROBO",
     "benchmark_ticker": "QQQ",
     "trailing_sessions": 1260,
     "rich_percentile": 80,
@@ -31,13 +31,13 @@
     "collapse_return_pct": -15.0
   },
   "crowding": {
-    "vehicle_ticker": "BOTZ",
+    "vehicle_ticker": "ROBO",
     "top_n": 5,
     "concentrated_hhi_threshold": 0.18,
     "concentrated_top5_pct": 60.0
   },
   "purity": {
-    "vehicle_ticker": "BOTZ",
+    "vehicle_ticker": "ROBO",
     "incumbent_ticker": "QQQ",
     "pure_min_pct": 70,
     "impure_max_pct": 40,
