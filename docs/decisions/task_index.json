@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_WAVE_E_AI_POWER_VALUATION_CROWDING",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_V2_WAVE_E_AI_POWER_VALUATION_CROWDING",
+      "domain": "quant",
+      "title": "Wave E Track F slice 2: ai_power GRID valuation/crowding diagnostic registry",
+      "why": "Slice 1 wired A35SNO structural for ai_power_bottleneck but valuation/crowding stayed unknown (registry null); Wave E slice 2 requires GRID/QQQ diagnostic slots before holdings purity and new vehicle selection.",
+      "resolution": "Filled ai_power_bottleneck.json valuation (GRID/QQQ, Wave D thresholds) and crowding (GRID); renamed valuation falsifier metric to falsifier_pricing_collapse_active; contract tests for registry, GRID slots, evidence vector not unknown; operator thesis-wave FRESH 2026-08-28: valuation=fair 38.2% return +27.1%, crowding=dispersed hhi 0.041 top5 38.9% n=122.",
+      "impact": "QQQ 100% operational and adoption_passes unchanged; ai_power evidence now 5/5 slots computed on FRESH panel (valuation/crowding no longer unknown); GRID remains REJECTED_PROXY diagnostic only (120M median 0.87, thesis UNRESOLVED); no Track H or GRID 100 vs QQQ experiments; Wave E slice 3 (holdings purity) next; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_WAVE_E_AI_POWER_FUNDAMENTALS",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_V2_WAVE_E_AI_POWER_FUNDAMENTALS",

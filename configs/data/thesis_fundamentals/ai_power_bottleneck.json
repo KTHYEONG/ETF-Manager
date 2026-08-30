@@ -20,6 +20,20 @@
       "M": 12
     }
   },
-  "valuation": null,
-  "crowding": null
+  "valuation": {
+    "vehicle_ticker": "GRID",
+    "benchmark_ticker": "QQQ",
+    "trailing_sessions": 1260,
+    "rich_percentile": 80,
+    "cheap_percentile": 20,
+    "min_sessions": 252,
+    "return_lookback_sessions": 252,
+    "collapse_return_pct": -15.0
+  },
+  "crowding": {
+    "vehicle_ticker": "GRID",
+    "top_n": 5,
+    "concentrated_hhi_threshold": 0.18,
+    "concentrated_top5_pct": 60.0
+  }
 }
