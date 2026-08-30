@@ -362,3 +362,13 @@ def test_inc_report_includes_horizon_fields(scenario_id: str, tmp_path) -> None:
     assert data["horizon_months"] == 84
     assert data["horizon_fallback"] is True
     assert data["thesis_id"] == "ai_power_bottleneck"
+
+
+def test_incremental_grid_unchanged() -> None:
+    import pytest
+    from src.analytics.thesis.incremental import INCREMENTAL_SATELLITE_WEIGHTS, arm_targets
+
+    assert INCREMENTAL_SATELLITE_WEIGHTS == (0.05, 0.10, 0.15)
+    assert arm_targets(0.10) == {'QQQ': 0.9, 'SOXX': 0.10}
+    with pytest.raises(ValueError, match='not in'):
+        arm_targets(0.90)
