@@ -1,6 +1,6 @@
 # Thesis Wave 2026-08-28
 
-As of: 2026-08-28T20:00:00+00:00
+As of: 2026-08-28T00:00:00+00:00
 panel_as_of: 2026-08-28T20:00:00+00:00
 lag_days: 2
 freshness_status: FRESH
