@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_WAVE_E_AI_POWER_FUNDAMENTALS",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_V2_WAVE_E_AI_POWER_FUNDAMENTALS",
+      "domain": "quant",
+      "title": "Wave E Track F slice 1: ai_power A35SNO fundamental registry + structural falsifier generalization",
+      "why": "Wave D exit completed ai_compute reference slice; ai_power_bottleneck still had price-regime structural proxy and valuation/crowding unknown; Wave E requires PIT fundamental structural evidence before vehicle reopen.",
+      "resolution": "Added configs/data/thesis_fundamentals/ai_power_bottleneck.json (primary A35SNO M, falsifier backlog_normalization, secondary PNFI); generalized structural_evidence resolve_primary_falsifier + dynamic falsifier_{id}_active metrics; contract tests WDE-PWR; lean_check config-kind pre-impl; operator ingest A35SNO from 2011-06-01: structural computed yoy 6.85% expansion falsifier false on FRESH 2026-08-28 panel.",
+      "impact": "QQQ 100% operational and adoption_passes unchanged; ai_power structural slot now fundamental (not regime proxy); GRID vehicle still REJECTED_PROXY (120M median 0.87) with thesis UNRESOLVED; valuation/crowding remain unknown (Wave E slice 2); ingest thesis-fundamentals start 2010 may HTTP 400 on A35SNO vintages—use 2011-06-01+; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_WAVE_D_EXIT",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_V2_WAVE_D_EXIT",
