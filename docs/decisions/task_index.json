@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_WAVE_F_PHYSICAL_AUTOMATION_HOLDINGS_PURITY",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_V2_WAVE_F_PHYSICAL_AUTOMATION_HOLDINGS_PURITY",
+      "domain": "quant",
+      "title": "Wave F Track F slice 3: physical_automation BOTZ purity + industrial/humanoid split review",
+      "why": "Slice 2 closed BOTZ valuation/crowding but overlap slot stayed vanity overlap_pct ~2% without thesis-aligned look-through or industrial/humanoid role split; Wave F slice 3 requires N-PORT exposure_notes before vehicle reopen.",
+      "resolution": "Added purity block with 12 curated exposure_notes (9 industrial_automation + 3 humanoid_optionality) to physical_automation.json; role_aligned_weight_pct + split metrics industrial_weight_pct/humanoid_weight_pct in purity_evidence.py; _overlap_slot purity-enriched; architecture §4.10 BOTZ purity lock; contract tests PUR-PHY; lean_check PASS; operator FRESH 2026-08-28 thesis-wave purity mixed aligned 51.1% incremental 98.0% industrial 44.9% humanoid 6.2% matched 12/12; physical_automation decision reject unchanged (BOTZ REJECTED_PROXY, median 0.618).",
+      "impact": "QQQ 100% operational and adoption_passes unchanged; physical_automation overlap slot purity-enriched (mixed, industrial>>humanoid); BOTZ REJECTED_PROXY diagnostic retained; no Track H or new VehicleId; Wave F slice 4 (vehicle reopen) next; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_WAVE_F_PHYSICAL_AUTOMATION_VALUATION_CROWDING",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_V2_WAVE_F_PHYSICAL_AUTOMATION_VALUATION_CROWDING",
