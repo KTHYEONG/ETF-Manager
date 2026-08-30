@@ -1,4 +1,4 @@
-"""Compound DCA tournament — reporting-only QQQ vs QQQ90/SOXX10 with flat vs adaptive sizing."""
+"""Compound DCA tournament — reporting-only with QQQ/SOXX mixes and risk-budget arms."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Final
 
 from src.policy.adaptive_contribution import OPERATIONAL_ADAPTIVE_CONTRIBUTION
+from src.policy.mix_risk_budget import OPERATIONAL_MIX_RISK_BUDGET
 from src.policy.targets import PolicyId
 from src.sim.allocation import AllocationConfig
 
@@ -21,9 +22,19 @@ COMPOUND_DCA_ARM_IDS: Final[tuple[str, ...]] = (
     "qqq_adaptive_v5",
     "qqq90_soxx10_flat",
     "qqq90_soxx10_adaptive_v5",
+    "soxx90_qqq10_flat",
+    "soxx90_qqq10_adaptive_v5",
+    "soxx100_flat",
+    "soxx100_adaptive_v5",
+    "qqq_soxx_riskbudget_flat",
+    "qqq_soxx_riskbudget_adaptive_v5",
 )
 
 COMPOUND_DCA_MIX_TARGETS: Final[dict[str, float]] = {"QQQ": 0.9, "SOXX": 0.1}
+
+COMPOUND_DCA_ROLE_SWAP_TARGETS: Final[dict[str, float]] = {"SOXX": 0.9, "QQQ": 0.1}
+
+COMPOUND_DCA_SOXX100_TARGETS: Final[dict[str, float]] = {"SOXX": 1.0}
 
 COMPOUND_DCA_WINDOW: Final[tuple[date, date]] = (date(2016, 7, 1), date(2026, 6, 30))
 
@@ -46,7 +57,7 @@ class CompoundDcaArmRow:
 
 @dataclass(frozen=True, slots=True)
 class CompoundDcaReport:
-    """Reporting-only tournament outcome across four arms."""
+    """Reporting-only tournament outcome across ten arms."""
 
     rows: tuple[CompoundDcaArmRow, ...]
     champion_arm_id: str
@@ -63,7 +74,7 @@ def compare_compound_dca(
     start: date | None = None,
     end: date | None = None,
 ) -> CompoundDcaReport:
-    """Run four QQQ arms on identical windows with I5 sizing-family checks.
+    """Run ten arms on identical windows with I5 sizing-family checks.
 
     Raises:
         ValueError: On non-finite or non-positive ``contribution_krw``, diverging
@@ -76,10 +87,21 @@ def compare_compound_dca(
 
     configs: list[tuple[str, AllocationConfig]] = []
     for arm_id in COMPOUND_DCA_ARM_IDS:
-        is_mix = arm_id.startswith("qqq90_soxx10")
         is_adaptive = arm_id.endswith("adaptive_v5")
-        targets = dict(COMPOUND_DCA_MIX_TARGETS) if is_mix else None
         adaptive = OPERATIONAL_ADAPTIVE_CONTRIBUTION if is_adaptive else None
+        targets: dict[str, float] | None = None
+        mrb = None
+        if arm_id.startswith("qqq90_soxx10"):
+            targets = dict(COMPOUND_DCA_MIX_TARGETS)
+        elif arm_id.startswith("soxx90_qqq10"):
+            targets = dict(COMPOUND_DCA_ROLE_SWAP_TARGETS)
+        elif arm_id.startswith("soxx100"):
+            targets = dict(COMPOUND_DCA_SOXX100_TARGETS)
+        elif arm_id.startswith("qqq_soxx_riskbudget"):
+            targets = None
+            mrb = OPERATIONAL_MIX_RISK_BUDGET
+        else:
+            targets = None
         cfg = AllocationConfig(
             policy=PolicyId.QQQ,
             start=window_start,
@@ -87,6 +109,7 @@ def compare_compound_dca(
             monthly_contribution_krw=float(contribution_krw),
             adaptive_contribution=adaptive,
             targets_override=targets,
+            mix_risk_budget=mrb,
             rebalance_band=None,
         )
         configs.append((arm_id, cfg))
@@ -103,13 +126,17 @@ def compare_compound_dca(
     def credits(arm_id: str) -> tuple[float, ...]:
         return tuple(s.contribution_krw for s in results[arm_id].snapshots)
 
-    flat_pair = (credits("qqq_flat"), credits("qqq90_soxx10_flat"))
-    if flat_pair[0] != flat_pair[1]:
-        raise ValueError(f"I5 flat credits must be identical: qqq_flat vs qqq90_soxx10_flat mismatch {flat_pair[0]!r} vs {flat_pair[1]!r}")
-
-    adaptive_pair = (credits("qqq_adaptive_v5"), credits("qqq90_soxx10_adaptive_v5"))
-    if adaptive_pair[0] != adaptive_pair[1]:
-        raise ValueError(f"I5 adaptive credits must be identical: qqq_adaptive_v5 vs qqq90_soxx10_adaptive_v5 mismatch {adaptive_pair[0]!r} vs {adaptive_pair[1]!r}")
+    # I5 family checks: flat vs adaptive
+    flat_arms = [aid for aid in COMPOUND_DCA_ARM_IDS if not aid.endswith("adaptive_v5")]
+    adaptive_arms = [aid for aid in COMPOUND_DCA_ARM_IDS if aid.endswith("adaptive_v5")]
+    flat_ref = credits(flat_arms[0])
+    for aid in flat_arms[1:]:
+        if credits(aid) != flat_ref:
+            raise ValueError(f"I5 flat credits must be identical: {flat_arms[0]!r} vs {aid!r} mismatch {flat_ref!r} vs {credits(aid)!r}")
+    adaptive_ref = credits(adaptive_arms[0])
+    for aid in adaptive_arms[1:]:
+        if credits(aid) != adaptive_ref:
+            raise ValueError(f"I5 adaptive credits must be identical: {adaptive_arms[0]!r} vs {aid!r} mismatch {adaptive_ref!r} vs {credits(aid)!r}")
 
     rows: list[CompoundDcaArmRow] = []
     for arm_id in COMPOUND_DCA_ARM_IDS:
