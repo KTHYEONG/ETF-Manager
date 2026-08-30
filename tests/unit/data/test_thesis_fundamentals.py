@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from src.data.thesis_fundamentals import (
     FalsifierCollection,
     ThesisFundamentalsSpec,
@@ -72,7 +74,7 @@ def test_load_ai_power_valuation_crowding_registry() -> None:
 
     vspec = load_valuation_spec(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
     assert vspec is not None
-    assert vspec.vehicle_ticker == "GRID"
+    assert vspec.vehicle_ticker == "PAVE"
     assert vspec.benchmark_ticker == "QQQ"
     assert vspec.trailing_sessions == 1260
     assert vspec.rich_percentile == 80
@@ -82,7 +84,7 @@ def test_load_ai_power_valuation_crowding_registry() -> None:
     assert vspec.collapse_return_pct == -15.0
     cspec = load_crowding_spec(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
     assert cspec is not None
-    assert cspec.vehicle_ticker == "GRID"
+    assert cspec.vehicle_ticker == "PAVE"
     assert cspec.top_n == 5
     assert cspec.concentrated_hhi_threshold == 0.18
     assert cspec.concentrated_top5_pct == 60.0
@@ -95,11 +97,11 @@ def test_load_ai_power_purity_spec() -> None:
 
     spec = load_purity_spec(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
     assert spec is not None
-    assert spec.vehicle_ticker == "GRID"
+    assert spec.vehicle_ticker == "PAVE"
     assert spec.incumbent_ticker == "QQQ"
     assert spec.pure_min_pct == 70.0
     assert spec.impure_max_pct == 40.0
-    assert len(spec.exposure_notes) >= 12
+    assert len(spec.exposure_notes) >= 8
     for note in spec.exposure_notes:
         assert note.role.strip()
         assert note.note.strip()
@@ -107,30 +109,68 @@ def test_load_ai_power_purity_spec() -> None:
     isins = {n.isin for n in spec.exposure_notes if n.isin}
     required = {
         "IE00B8KQN827",
-        "CH0012221716",
-        "FR0000121972",
-        "IT0004176001",
+        "IE00BK9ZQ967",
+        "IE0001827041",
+        "US2441991054",
+        "US29084Q1004",
+        "US2910111044",
+        "US4435106079",
+        "US5763231090",
         "US74762E1029",
-        "GB00BDR05C01",
-        "IT0003242622",
-        "BE0003822393",
+        "US7587501039",
+        "US8168511090",
+        "US9291601097",
     }
     for req in required:
         assert req in isins
-    # GRID N-PORT identifiers (regression: wrong ISIN silently drops aligned weight)
-    grid_holdings_isins = {
+    # PAVE N-PORT identifiers (regression: wrong ISIN silently drops aligned weight)
+    pave_holdings_isins = {
         "US4435106079",  # Hubbell Incorporated
-        "IE00BDVJJQ56",  # NVent Electric PLC
+        "US74762E1029",  # Quanta Services
     }
-    for req in grid_holdings_isins:
+    for req in pave_holdings_isins:
         assert req in isins
     dilution = {
         "US67066G1040",
         "US88160R1014",
-        "US17275R1023",
         "US68389X1054",
         "DE0007164600",
     }
     for d in dilution:
         assert d not in isins
     assert load_purity_spec(thesis_id=ThesisId.AI_COMPUTE) is None
+
+
+@pytest.mark.parametrize("scenario_id", ["test_load_ai_power_fundamentals_retarget_pave"])
+def test_load_ai_power_fundamentals_retarget_pave(scenario_id: str) -> None:
+    """test_load_ai_power_fundamentals_retarget_pave"""
+    from src.data.thesis_fundamentals import load_crowding_spec, load_purity_spec, load_valuation_spec
+
+    vspec = load_valuation_spec(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
+    cspec = load_crowding_spec(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
+    pspec = load_purity_spec(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
+    assert vspec is not None
+    assert vspec.vehicle_ticker == "PAVE"
+    assert cspec is not None
+    assert cspec.vehicle_ticker == "PAVE"
+    assert pspec is not None
+    assert pspec.vehicle_ticker == "PAVE"
+    assert pspec.incumbent_ticker == "QQQ"
+    assert len(pspec.exposure_notes) >= 8
+    allowed_roles = {"grid_equipment", "grid_contractor", "cable_manufacturer", "transmission_operator", "infrastructure_materials", "electrical_equipment"}
+    for note in pspec.exposure_notes:
+        assert note.role in allowed_roles
+    isins = {n.isin for n in pspec.exposure_notes if n.isin}
+    assert "US74762E1029" in isins
+
+
+@pytest.mark.parametrize("scenario_id", ["test_nport_series_map_includes_pave"])
+def test_nport_series_map_includes_pave(scenario_id: str) -> None:
+    """test_nport_series_map_includes_pave"""
+    import json
+    from pathlib import Path
+
+    mapping = json.loads(Path("configs/etf_metadata/nport_series_map.json").read_text(encoding="utf-8"))
+    assert mapping["S000056509"] == "PAVE"
+    assert mapping["S000026919"] == "GRID"
+    assert mapping["S000004354"] == "SOXX"

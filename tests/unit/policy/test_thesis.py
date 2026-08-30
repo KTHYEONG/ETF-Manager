@@ -61,7 +61,7 @@ def test_thesis_01_load_three_seeds(scenario_id: str) -> None:
         assert spec.horizon.min_years == 5
         assert spec.horizon.target_years == 10
     assert VehicleId.SOXX in registry[ThesisId.AI_COMPUTE].historical_proxies
-    assert VehicleId.GRID in registry[ThesisId.AI_POWER_BOTTLENECK].historical_proxies
+    assert VehicleId.PAVE in registry[ThesisId.AI_POWER_BOTTLENECK].historical_proxies
     assert VehicleId.BOTZ in registry[ThesisId.PHYSICAL_AUTOMATION].historical_proxies
 
 
@@ -176,3 +176,35 @@ def test_life_03_reopen_cycle(scenario_id: str) -> None:
     assert back.status is ThesisStatus.RESEARCH
     with pytest.raises(ThesisError, match="illegal transition"):
         transition_thesis(dormant, ThesisStatus.CONFIRMED, reason="skip")
+
+
+@pytest.mark.parametrize("scenario_id", ["test_ai_power_thesis_proxy_is_pave"])
+def test_ai_power_thesis_proxy_is_pave(scenario_id: str) -> None:
+    """test_ai_power_thesis_proxy_is_pave"""
+    registry = load_thesis_registry(Path("configs/theses"))
+    proxies = registry[ThesisId.AI_POWER_BOTTLENECK].historical_proxies
+    assert proxies == [VehicleId.PAVE]
+    assert VehicleId.GRID not in proxies
+
+
+@pytest.mark.parametrize("scenario_id", ["test_experiment_map_points_ai_power_to_pave"])
+def test_experiment_map_points_ai_power_to_pave(scenario_id: str) -> None:
+    """test_experiment_map_points_ai_power_to_pave"""
+    exp_map = json.loads(Path("configs/theses/experiment_map.json").read_text(encoding="utf-8"))
+    path_str = exp_map["ai_power_bottleneck"]
+    assert path_str.endswith("m_thesis_ai_power_pave.json")
+    assert Path(path_str).exists()
+    inc_path = Path("configs/experiments/m_thesis_ai_power_pave_inc_5_10_15.json")
+    assert inc_path.exists()
+    doc = json.loads(inc_path.read_text(encoding="utf-8"))
+    assert doc["preregistration"]["weights_locked"] is True
+    cands = doc["candidates"]
+    assert len(cands) == 3
+    ids = {c["id"] for c in cands}
+    assert ids == {"qqq95_pave5", "qqq90_pave10", "qqq85_pave15"}
+    for c in cands:
+        targets = c["targets"]
+        assert "PAVE" in targets
+        assert "QQQ" in targets
+    # ensure legacy grid file still exists but not mapped
+    assert Path("configs/experiments/m_thesis_ai_power_bottleneck_grid.json").exists()
