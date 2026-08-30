@@ -65,3 +65,26 @@ def test_load_ai_power_fundamentals_registry() -> None:
     assert "PNFI" in ids
     assert ids == tuple(sorted(ids))
     assert ids == ("A35SNO", "PNFI")
+
+
+def test_load_ai_power_valuation_crowding_registry() -> None:
+    from src.data.thesis_fundamentals import load_crowding_spec, load_valuation_spec
+
+    vspec = load_valuation_spec(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
+    assert vspec is not None
+    assert vspec.vehicle_ticker == "GRID"
+    assert vspec.benchmark_ticker == "QQQ"
+    assert vspec.trailing_sessions == 1260
+    assert vspec.rich_percentile == 80
+    assert vspec.cheap_percentile == 20
+    assert vspec.min_sessions == 252
+    assert vspec.return_lookback_sessions == 252
+    assert vspec.collapse_return_pct == -15.0
+    cspec = load_crowding_spec(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
+    assert cspec is not None
+    assert cspec.vehicle_ticker == "GRID"
+    assert cspec.top_n == 5
+    assert cspec.concentrated_hhi_threshold == 0.18
+    assert cspec.concentrated_top5_pct == 60.0
+    spec = load_thesis_fundamentals(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
+    assert spec.primary_series_id == "A35SNO"
