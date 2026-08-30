@@ -7,17 +7,24 @@ from datetime import date
 import pytest
 
 from src.analytics.incremental_portfolio import (
+    INCREMENTAL_HORIZON_SURFACE,
+    INCREMENTAL_SATELLITE_WEIGHTS,
     INCREMENTAL_SOXX_WEIGHTS,
     PATH_BOOTSTRAP_WIN_FLOOR,
     BuyOnlyAttribution,
     IncrementalArmId,
     IncrementalArmReport,
+    IncrementalPortfolioReport,
     PathBootstrapVerdict,
     arm_targets,
     attribute_buy_only_soxx,
     classify_portfolio_status,
+    clip_incremental_cohort_start,
+    make_incremental_arm_id,
     paired_path_block_bootstrap,
     apply_incremental_portfolio_status,
+    resolve_incremental_horizon,
+    write_incremental_portfolio_report,
 )
 from src.analytics.thesis_meaning import (
     HistoricalQuality,
@@ -218,3 +225,131 @@ def test_inc_h6_apply_status_preserves_vehicle() -> None:
     assert updated.thesis_status == snap.thesis_status
     assert updated.portfolio_status == PortfolioEvidenceStatus.HISTORICALLY_PROMISING
     assert updated.historical_quality == snap.historical_quality
+
+
+@pytest.mark.parametrize("scenario_id", ["test_inc_arm_targets_parameterized_vehicle"])
+def test_inc_arm_targets_parameterized_vehicle(scenario_id: str) -> None:
+    """test_inc_arm_targets_parameterized_vehicle"""
+    assert arm_targets(0.05) == {"QQQ": 0.95, "SOXX": 0.05}
+    assert arm_targets(0.10, vehicle_ticker="PAVE") == {"QQQ": 0.90, "PAVE": 0.10}
+    with pytest.raises(ValueError, match="not in"):
+        arm_targets(0.17)  # type: ignore[arg-type]
+    assert INCREMENTAL_SOXX_WEIGHTS is INCREMENTAL_SATELLITE_WEIGHTS
+    assert INCREMENTAL_SATELLITE_WEIGHTS == (0.05, 0.10, 0.15)
+    assert INCREMENTAL_SOXX_WEIGHTS == (0.05, 0.10, 0.15)
+
+
+@pytest.mark.parametrize("scenario_id", ["test_inc_make_arm_id_soxx_and_pave"])
+def test_inc_make_arm_id_soxx_and_pave(scenario_id: str) -> None:
+    """test_inc_make_arm_id_soxx_and_pave"""
+    assert make_incremental_arm_id("SOXX", 0.05) == "qqq95_soxx5"
+    assert make_incremental_arm_id("PAVE", 0.15) == "qqq85_pave15"
+    assert make_incremental_arm_id("SOXX", 0.10) == "qqq90_soxx10"
+
+
+@pytest.mark.parametrize("scenario_id", ["test_inc_resolve_horizon_prefers_120_then_fallback"])
+def test_inc_resolve_horizon_prefers_120_then_fallback(scenario_id: str) -> None:
+    """test_inc_resolve_horizon_prefers_120_then_fallback"""
+    assert INCREMENTAL_HORIZON_SURFACE == (120, 96, 84, 60)
+    h1, fb1 = resolve_incremental_horizon(date(2007, 8, 31), date(2026, 8, 28))
+    assert h1 == 120
+    assert fb1 is False
+    h2, fb2 = resolve_incremental_horizon(date(2019, 2, 28), date(2026, 8, 28))
+    assert h2 in (60, 84, 96)
+    assert fb2 is True
+    assert h2 != 120
+    with pytest.raises(ValueError, match="span too short"):
+        resolve_incremental_horizon(date(2026, 8, 28), date(2026, 8, 28))
+
+
+@pytest.mark.parametrize("scenario_id", ["test_inc_clip_cohort_start_to_vehicle_listing"])
+def test_inc_clip_cohort_start_to_vehicle_listing(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """test_inc_clip_cohort_start_to_vehicle_listing"""
+    from datetime import UTC, datetime
+
+    import polars as pl
+
+    from src.data.settings import DataSettings
+
+    pave_first = date(2019, 2, 28)
+    soxx_first = date(2007, 8, 31)
+    as_of = datetime(2026, 8, 28, tzinfo=UTC)
+    settings = DataSettings()
+
+    def fake_load_visible(_settings: DataSettings, _dataset: object, _as_of: datetime) -> pl.DataFrame:
+        return pl.DataFrame(
+            {
+                "ticker": ["PAVE", "SOXX"],
+                "date": [pave_first, soxx_first],
+                "adjusted_close": [50.0, 100.0],
+            }
+        )
+
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_load_visible)
+    catalog_start = date(2007, 8, 31)
+    assert clip_incremental_cohort_start(
+        catalog_start=catalog_start,
+        settings=settings,
+        as_of=as_of,
+        vehicle_ticker="PAVE",
+    ) == pave_first
+    assert clip_incremental_cohort_start(
+        catalog_start=catalog_start,
+        settings=settings,
+        as_of=as_of,
+        vehicle_ticker="SOXX",
+    ) == soxx_first
+    with pytest.raises(ValueError, match="no price history"):
+        clip_incremental_cohort_start(
+            catalog_start=catalog_start,
+            settings=settings,
+            as_of=as_of,
+            vehicle_ticker="MISSING",
+        )
+
+
+@pytest.mark.parametrize("scenario_id", ["test_inc_attribute_uses_vehicle_ticker"])
+def test_inc_attribute_uses_vehicle_ticker(scenario_id: str) -> None:
+    """test_inc_attribute_uses_vehicle_ticker"""
+    def price_at(d: date, ticker: str) -> float:
+        assert ticker == "PAVE"
+        return 100.0
+
+    def fx_at(d: date) -> float:
+        return 1.0
+
+    cand = _make_result((1000.0, 1000.0), ({"PAVE": 1.0}, {"PAVE": 2.0}), terminal_real=2000.0)
+    base = _make_result((1000.0, 1000.0), ({}, {}), terminal_real=1000.0)
+    attr = attribute_buy_only_soxx(candidate=cand, baseline=base, soxx_weight=0.15, price_at=price_at, fx_at=fx_at, vehicle_ticker="PAVE")
+    assert attr.mean_abs_weight_drift == pytest.approx(0.05, abs=1e-9)
+    assert attr.target_soxx_weight == pytest.approx(0.15)
+    # default SOXX still works
+    def price_at_soxx(d: date, ticker: str) -> float:
+        assert ticker == "SOXX"
+        return 100.0
+
+    cand2 = _make_result((1000.0, 1000.0), ({"SOXX": 1.0}, {"SOXX": 2.0}), terminal_real=2000.0)
+    attr2 = attribute_buy_only_soxx(candidate=cand2, baseline=base, soxx_weight=0.15, price_at=price_at_soxx, fx_at=fx_at)
+    assert attr2.mean_realized_soxx_weight == pytest.approx(0.15, abs=1e-9)
+
+
+@pytest.mark.parametrize("scenario_id", ["test_inc_report_includes_horizon_fields"])
+def test_inc_report_includes_horizon_fields(scenario_id: str, tmp_path) -> None:
+    """test_inc_report_includes_horizon_fields"""
+    from datetime import UTC, datetime
+
+    as_of = datetime(2026, 8, 28, 15, 0, tzinfo=UTC)
+    panel_as_of = datetime(2026, 8, 28, 21, 0, tzinfo=UTC)
+    verdict = PathBootstrapVerdict(n_paths=10, win_rate=0.6, p05_terminal_ratio=1.0, ok=True)
+    attr = BuyOnlyAttribution(target_soxx_weight=0.05, mean_realized_soxx_weight=0.05, terminal_realized_soxx_weight=0.05, mean_abs_weight_drift=0.0, terminal_weight_drift=0.0, incremental_wealth_ratio=1.0)
+    arm = IncrementalArmReport(arm_id=IncrementalArmId.QQQ95_PAVE5, soxx_weight=0.05, median_ratio=1.01, p10_ratio=1.0, worst_ratio=0.99, win_rate=0.6, cohort_count=8, ce_gamma_2=1.0, ce_gamma_5=1.0, ce_gamma_10=1.0, attribution=attr, path_bootstrap=verdict)
+    report = IncrementalPortfolioReport(thesis_id="ai_power_bottleneck", as_of=as_of, panel_as_of=panel_as_of, lag_days=0, freshness_status="FRESH", arms=(arm,), portfolio_status=PortfolioEvidenceStatus.HISTORICALLY_PROMISING, vehicle_ticker="PAVE", horizon_months=84, horizon_fallback=True)
+    path = tmp_path / "report.json"
+    write_incremental_portfolio_report(report, path)
+    import json
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["vehicle_ticker"] == "PAVE"
+    assert data["horizon_months"] == 84
+    assert data["horizon_fallback"] is True
+    assert data["thesis_id"] == "ai_power_bottleneck"

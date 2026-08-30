@@ -60,6 +60,7 @@ def test_veh_e_history_union(scenario_id: str) -> None:
         "ITOT",
         "IVV",
         "IWF",
+        "PAVE",
         "QQQ",
         "SCHF",
         "SOXX",
@@ -79,6 +80,7 @@ def test_veh_e_history_union(scenario_id: str) -> None:
         "ITA",
         "ITOT",
         "IWF",
+        "PAVE",
         "SCHF",
         "SOXX",
         "XLI",
@@ -103,10 +105,23 @@ def test_veh_j_history_includes_itot(scenario_id: str) -> None:
 def test_veh_mix_satellite_ingest(scenario_id: str) -> None:
     """VEH-MIX-satellite-ingest"""
     satellites = research_satellite_tickers()
-    assert satellites == ("BOTZ", "GRID", "IBB", "ITA", "IWF", "SOXX", "XLI")
+    assert satellites == ("BOTZ", "GRID", "IBB", "ITA", "IWF", "PAVE", "SOXX", "XLI")
     history = history_price_tickers()
     assert set(satellites) <= set(history)
     assert set(satellites).isdisjoint(set(all_policy_tickers()))
+
+
+@pytest.mark.parametrize("scenario_id", ["test_thesis_panel_tickers_include_pave"])
+def test_thesis_panel_tickers_include_pave(scenario_id: str) -> None:
+    """test_thesis_panel_tickers_include_pave"""
+    from src.data.panel_freshness import THESIS_PANEL_TICKERS
+
+    assert "PAVE" in THESIS_PANEL_TICKERS
+    assert "GRID" in THESIS_PANEL_TICKERS
+    assert THESIS_PANEL_TICKERS == ("BOTZ", "GRID", "PAVE", "QQQ", "SOXX")
+    satellites = research_satellite_tickers()
+    assert "PAVE" in satellites
+    assert "PAVE" in history_price_tickers()
 
 
 def _smb_factor_frame(months: list[date]) -> pl.DataFrame:
