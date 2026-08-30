@@ -191,6 +191,32 @@ def test_load_physical_automation_fundamentals_registry(scenario_id: str) -> Non
     assert ids == ("NEWORDER", "PNFI")
 
 
+@pytest.mark.parametrize("scenario_id", ["test_load_physical_automation_valuation_crowding_registry"])
+def test_load_physical_automation_valuation_crowding_registry(scenario_id: str) -> None:
+    """test_load_physical_automation_valuation_crowding_registry"""
+    from src.data.thesis_fundamentals import load_crowding_spec, load_valuation_spec
+
+    vspec = load_valuation_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    assert vspec is not None
+    assert vspec.vehicle_ticker == "BOTZ"
+    assert vspec.benchmark_ticker == "QQQ"
+    assert vspec.trailing_sessions == 1260
+    assert vspec.rich_percentile == 80
+    assert vspec.cheap_percentile == 20
+    assert vspec.min_sessions == 252
+    assert vspec.return_lookback_sessions == 252
+    assert vspec.collapse_return_pct == -15.0
+    cspec = load_crowding_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    assert cspec is not None
+    assert cspec.vehicle_ticker == "BOTZ"
+    assert cspec.top_n == 5
+    assert cspec.concentrated_hhi_threshold == 0.18
+    assert cspec.concentrated_top5_pct == 60.0
+    spec = load_thesis_fundamentals(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    assert spec.primary_series_id == "NEWORDER"
+    assert "commercialization_lag" in spec.falsifiers
+
+
 @pytest.mark.parametrize("scenario_id", ["test_physical_automation_valuation_crowding_purity_absent"])
 def test_physical_automation_valuation_crowding_purity_absent(scenario_id: str) -> None:
     """test_physical_automation_valuation_crowding_purity_absent"""
@@ -199,12 +225,14 @@ def test_physical_automation_valuation_crowding_purity_absent(scenario_id: str) 
 
     from src.data.thesis_fundamentals import load_crowding_spec, load_purity_spec, load_valuation_spec
 
-    assert load_valuation_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION) is None
-    assert load_crowding_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION) is None
+    vspec = load_valuation_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    cspec = load_crowding_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    assert vspec is not None
+    assert cspec is not None
     assert load_purity_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION) is None
     payload = json.loads(Path("configs/data/thesis_fundamentals/physical_automation.json").read_text(encoding="utf-8"))
-    assert "valuation" not in payload
-    assert "crowding" not in payload
+    assert "valuation" in payload
+    assert "crowding" in payload
     assert "purity" not in payload
 
 

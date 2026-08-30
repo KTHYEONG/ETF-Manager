@@ -212,7 +212,83 @@ def test_compute_valuation_slot_ai_power_grid(tmp_path: Path, monkeypatch: pytes
     assert "falsifier_semiconductor_pricing_collapse_active" not in slot.metrics
 
 
-def test_val_slot_unknown_without_registry(tmp_path: Path) -> None:
+@pytest.mark.parametrize("scenario_id", ["test_compute_valuation_slot_physical_automation_botz"])
+def test_compute_valuation_slot_physical_automation_botz(
+    scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """test_compute_valuation_slot_physical_automation_botz"""
+    from src.analytics.valuation_evidence import compute_valuation_slot
+    from src.data.calendar import load_calendar
+    from src.data.pit import stamp_availability
+    from src.data.schema import Dataset, spec_for
+    from src.data.settings import DataSettings
+    from src.policy.thesis import Horizon, ThesisId, ThesisSpec
+
+    thesis = ThesisSpec(
+        id=ThesisId.PHYSICAL_AUTOMATION,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["f1"],
+        candidate_sleeves=["physical_automation"],
+        historical_proxies=["BOTZ"],
+    )
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2021, 12, 30, tzinfo=UTC)
+    spec_prices = spec_for(Dataset.PRICES)
+    cal = load_calendar("XNYS")
+    sessions = cal.sessions(date(2020, 1, 1), date(2021, 12, 31))
+    n = 300
+    assert len(sessions) >= n
+    price_dates = list(sessions[:n])
+    botz_prices = [100.0 * (1.001 ** i) for i in range(n)]
+    qqq_prices = [100.0] * n
+    retrieved = datetime(2021, 12, 29, tzinfo=UTC)
+    rows: list[dict[str, object]] = []
+    for i, d in enumerate(price_dates):
+        for ticker, px in [("BOTZ", botz_prices[i]), ("QQQ", qqq_prices[i])]:
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "date": d,
+                    "open": px,
+                    "high": px,
+                    "low": px,
+                    "close": px,
+                    "volume": 1000,
+                    "adjusted_close": px,
+                    "dividend": 0.0,
+                    "split_factor": 1.0,
+                    "source": "test",
+                    "retrieved_at": retrieved,
+                }
+            )
+    df = pl.DataFrame(rows).cast(pl.Schema(dict(spec_prices.columns)))
+    stamped = stamp_availability(df, spec_prices, cal)
+
+    def fake_load_visible(settings, dataset, decision_ts):  # type: ignore[no-untyped-def]
+        if dataset == Dataset.PRICES:
+            return stamped
+        raise ValueError(f"unexpected dataset {dataset}")
+
+    monkeypatch.setattr("src.analytics.valuation_evidence.load_visible", fake_load_visible)
+    slot = compute_valuation_slot(thesis=thesis, settings=settings, as_of=as_of)
+    assert slot.status == "computed"
+    assert slot.summary.startswith("valuation:")
+    assert slot.metrics["vehicle_ticker"] == "BOTZ"
+    assert slot.metrics["benchmark_ticker"] == "QQQ"
+    assert slot.metrics["richness_label"] in {"rich", "fair", "cheap"}
+    assert isinstance(slot.metrics["falsifier_pricing_collapse_active"], bool)
+    assert "falsifier_semiconductor_pricing_collapse_active" not in slot.metrics
+
+
+@pytest.mark.parametrize("scenario_id", ["test_val_slot_unknown_without_registry"])
+def test_val_slot_unknown_without_registry(
+    scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """test_val_slot_unknown_without_registry"""
     from src.analytics.valuation_evidence import compute_valuation_slot
     from src.data.settings import DataSettings
     from src.policy.thesis import Horizon, ThesisId, ThesisSpec
@@ -230,6 +306,7 @@ def test_val_slot_unknown_without_registry(tmp_path: Path) -> None:
     )
     settings = DataSettings(data_root=tmp_path / "data")
     as_of = datetime(2025, 4, 30, tzinfo=UTC)
+    monkeypatch.setattr("src.data.thesis_fundamentals.load_valuation_spec", lambda **kwargs: None)
     slot = compute_valuation_slot(thesis=thesis, settings=settings, as_of=as_of)
     assert slot.status == "unknown"
     assert "not configured" in slot.summary
