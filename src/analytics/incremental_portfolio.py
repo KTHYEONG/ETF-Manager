@@ -18,9 +18,11 @@ from src.data.settings import DataSettings
 from src.policy.targets import PolicyId
 from src.sim.allocation import AllocationConfig, AllocationResult
 from src.validation.gate import certainty_equivalent, cohort_win_rate, wealth_quantile
-from src.validation.windows import add_calendar_months, rolling_cohorts
+from src.validation.windows import rolling_cohorts
 
 __all__ = [
+    "INCREMENTAL_HORIZON_SURFACE",
+    "INCREMENTAL_SATELLITE_WEIGHTS",
     "INCREMENTAL_SOXX_WEIGHTS",
     "PATH_BOOTSTRAP_WIN_FLOOR",
     "BuyOnlyAttribution",
@@ -32,13 +34,18 @@ __all__ = [
     "arm_targets",
     "attribute_buy_only_soxx",
     "classify_portfolio_status",
+    "clip_incremental_cohort_start",
+    "make_incremental_arm_id",
     "monthly_simple_returns",
     "paired_path_block_bootstrap",
+    "resolve_incremental_horizon",
     "run_incremental_portfolio",
     "write_incremental_portfolio_report",
 ]
 
-INCREMENTAL_SOXX_WEIGHTS: Final[tuple[float, ...]] = (0.05, 0.10, 0.15)
+INCREMENTAL_SATELLITE_WEIGHTS: Final[tuple[float, ...]] = (0.05, 0.10, 0.15)
+INCREMENTAL_SOXX_WEIGHTS: Final[tuple[float, ...]] = INCREMENTAL_SATELLITE_WEIGHTS
+INCREMENTAL_HORIZON_SURFACE: Final[tuple[int, ...]] = (120, 96, 84, 60)
 PATH_BOOTSTRAP_WIN_FLOOR: Final[float] = 0.55
 WEIGHT_UPPER_EPS: Final[float] = 1e-3
 MIN_REALIZED_FRAC_OF_TARGET: Final[float] = 0.05
@@ -48,6 +55,18 @@ class IncrementalArmId(StrEnum):
     QQQ95_SOXX5 = "qqq95_soxx5"
     QQQ90_SOXX10 = "qqq90_soxx10"
     QQQ85_SOXX15 = "qqq85_soxx15"
+    QQQ95_PAVE5 = "qqq95_pave5"
+    QQQ90_PAVE10 = "qqq90_pave10"
+    QQQ85_PAVE15 = "qqq85_pave15"
+
+    @classmethod
+    def _missing_(cls, value: object) -> IncrementalArmId | None:
+        if isinstance(value, str) and value.startswith("qqq"):
+            obj = str.__new__(cls, value)
+            obj._name_ = value.upper()
+            obj._value_ = value
+            return obj
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,13 +112,56 @@ class IncrementalPortfolioReport:
     freshness_status: str
     arms: tuple[IncrementalArmReport, ...]
     portfolio_status: PortfolioEvidenceStatus
+    vehicle_ticker: str = "SOXX"
+    horizon_months: int = 120
+    horizon_fallback: bool = False
 
 
-def arm_targets(soxx_weight: float) -> dict[str, float]:
-    w = float(soxx_weight)
-    if w not in INCREMENTAL_SOXX_WEIGHTS:
-        raise ValueError(f"soxx_weight {soxx_weight!r} not in {INCREMENTAL_SOXX_WEIGHTS}")
-    return {"QQQ": 1.0 - w, "SOXX": w}
+def arm_targets(satellite_weight: float, *, vehicle_ticker: str = "SOXX") -> dict[str, float]:
+    w = float(satellite_weight)
+    if w not in INCREMENTAL_SATELLITE_WEIGHTS:
+        raise ValueError(f"soxx_weight {satellite_weight!r} not in {INCREMENTAL_SATELLITE_WEIGHTS}")
+    return {"QQQ": 1.0 - w, vehicle_ticker: w}
+
+
+def make_incremental_arm_id(vehicle_ticker: str, satellite_weight: float) -> str:
+    w = float(satellite_weight)
+    if w not in INCREMENTAL_SATELLITE_WEIGHTS:
+        raise ValueError(f"weight {satellite_weight!r} not in {INCREMENTAL_SATELLITE_WEIGHTS}")
+    qqq_pct = round((1.0 - w) * 100)
+    veh_pct = round(w * 100)
+    return f"qqq{qqq_pct}_{vehicle_ticker.lower()}{veh_pct}"
+
+
+def resolve_incremental_horizon(start: date, end: date) -> tuple[int, bool]:
+    for h in INCREMENTAL_HORIZON_SURFACE:
+        cohorts = rolling_cohorts(start, end, horizon_months=h, step_months=12)
+        if cohorts:
+            return (int(h), bool(h != 120))
+    raise ValueError("span too short for any horizon in INCREMENTAL_HORIZON_SURFACE")
+
+
+def clip_incremental_cohort_start(
+    *,
+    catalog_start: date,
+    settings: DataSettings,
+    as_of: datetime,
+    vehicle_ticker: str,
+) -> date:
+    """Clip cohort start to the vehicle's first PIT price session."""
+    import polars as pl
+
+    from src.data.catalog import load_visible
+    from src.data.schema import Dataset
+
+    prices = load_visible(settings, Dataset.PRICES, as_of)
+    ticker_prices = prices.filter(pl.col("ticker") == str(vehicle_ticker))
+    if ticker_prices.is_empty():
+        raise ValueError(f"no price history for vehicle {vehicle_ticker!r}")
+    vehicle_first = ticker_prices.get_column("date").min()
+    if not isinstance(vehicle_first, date):
+        raise ValueError(f"invalid price dates for vehicle {vehicle_ticker!r}")
+    return max(catalog_start, vehicle_first)
 
 
 def monthly_simple_returns(result: AllocationResult) -> tuple[float, ...]:
@@ -177,6 +239,7 @@ def attribute_buy_only_soxx(
     soxx_weight: float,
     price_at: Callable[[date, str], float],
     fx_at: Callable[[date], float],
+    vehicle_ticker: str = "SOXX",
 ) -> BuyOnlyAttribution:
     if not candidate.snapshots:
         raise ValueError("candidate snapshots empty")
@@ -189,7 +252,7 @@ def attribute_buy_only_soxx(
         if not math.isfinite(mk) or mk <= 0.0:
             raise ValueError(f"mark_krw must be positive, got {mk!r}")
         try:
-            px = float(price_at(snap.session, "SOXX"))
+            px = float(price_at(snap.session, vehicle_ticker))
         except Exception as exc:
             raise ValueError(f"price_at failed for {snap.session}: {exc}") from exc
         if not math.isfinite(px) or px <= 0.0:
@@ -200,7 +263,7 @@ def attribute_buy_only_soxx(
             raise ValueError(f"fx_at failed for {snap.session}: {exc}") from exc
         if not math.isfinite(usdkrw) or usdkrw <= 0.0:
             raise ValueError(f"fx_at returned non-positive {usdkrw!r} for {snap.session}")
-        shares = float(snap.shares.get("SOXX", 0.0))
+        shares = float(snap.shares.get(vehicle_ticker, 0.0))
         w = shares * px * usdkrw / mk
         if not math.isfinite(w):
             raise ValueError("realized weight non-finite")
@@ -217,7 +280,7 @@ def attribute_buy_only_soxx(
         raise ValueError("terminal wealths must be positive")
     ratio = cand_tw / base_tw
     if target > 0.0:
-        has_position = any(float(s.shares.get("SOXX", 0.0)) > 0.0 for s in candidate.snapshots)
+        has_position = any(float(s.shares.get(vehicle_ticker, 0.0)) > 0.0 for s in candidate.snapshots)
         if has_position and mean_realized < target * MIN_REALIZED_FRAC_OF_TARGET:
             raise ValueError(f"mean realized weight {mean_realized!r} below coherence floor {target * MIN_REALIZED_FRAC_OF_TARGET!r}")
     return BuyOnlyAttribution(
@@ -311,16 +374,6 @@ def _make_fx_at(settings: DataSettings) -> Callable[[date], float]:
     return _fx_at
 
 
-def _cohort_start_fallback(end: date) -> date:
-    # fallback start ensures at least one 120M cohort ending at end
-    try:
-        s = add_calendar_months(end, -120)
-        # add one day to make inclusive horizon fit exactly; rolling_cohorts handles inclusive logic
-        return s
-    except Exception:
-        return date(2007, 8, 31)
-
-
 def run_incremental_portfolio(
     *,
     settings: DataSettings,
@@ -330,6 +383,8 @@ def run_incremental_portfolio(
     bootstrap_paths: int,
     seed: int,
     panel_report: CatalogPanelReport | None = None,
+    thesis_id: str = "ai_compute",
+    vehicle_ticker: str = "SOXX",
 ) -> IncrementalPortfolioReport:
     if contribution_krw <= 0 or not math.isfinite(contribution_krw):
         raise ValueError("contribution_krw must be positive")
@@ -354,21 +409,25 @@ def run_incremental_portfolio(
     except Exception:
         start = date(2007, 8, 31)
     start, end = clamp_inclusive_session_range(cal, start, end)
-    cohorts = rolling_cohorts(start, end, horizon_months=120, step_months=12)
+    start = clip_incremental_cohort_start(
+        catalog_start=start,
+        settings=settings,
+        as_of=as_of,
+        vehicle_ticker=vehicle_ticker,
+    )
+    start, end = clamp_inclusive_session_range(cal, start, end)
+    horizon_months, horizon_fallback = resolve_incremental_horizon(start, end)
+    cohorts = rolling_cohorts(start, end, horizon_months=horizon_months, step_months=12)
     if not cohorts:
-        fb_start = _cohort_start_fallback(end)
-        fb_start, end = clamp_inclusive_session_range(cal, fb_start, end)
-        cohorts = rolling_cohorts(fb_start, end, horizon_months=120, step_months=12)
-        if not cohorts:
-            raise ValueError("span too short for 120M cohort")
-        start = fb_start
+        # resolve should have raised, but guard
+        raise ValueError(f"span too short for {horizon_months}M cohort")
 
     price_at = _make_price_at(settings)
     fx_at = _make_fx_at(settings)
 
     arms: list[IncrementalArmReport] = []
-    for idx, w in enumerate(INCREMENTAL_SOXX_WEIGHTS):
-        arm_id = [IncrementalArmId.QQQ95_SOXX5, IncrementalArmId.QQQ90_SOXX10, IncrementalArmId.QQQ85_SOXX15][idx]
+    for idx, w in enumerate(INCREMENTAL_SATELLITE_WEIGHTS):
+        arm_id = IncrementalArmId(make_incremental_arm_id(vehicle_ticker, float(w)))
         baseline_template = AllocationConfig(
             policy=PolicyId.QQQ,
             start=start,
@@ -380,7 +439,7 @@ def run_incremental_portfolio(
             start=start,
             end=end,
             monthly_contribution_krw=float(contribution_krw),
-            targets_override=arm_targets(float(w)),
+            targets_override=arm_targets(float(w), vehicle_ticker=vehicle_ticker),
         )
         c_wealths: list[float] = []
         b_wealths: list[float] = []
@@ -400,13 +459,12 @@ def run_incremental_portfolio(
         ce5 = certainty_equivalent(c_wealths, gamma=5.0) / certainty_equivalent(b_wealths, gamma=5.0)
         ce10 = certainty_equivalent(c_wealths, gamma=10.0) / certainty_equivalent(b_wealths, gamma=10.0)
 
-        # Full-span attribution and path bootstrap: use most recent 120M window
-        # most recent cohort is cohorts[-1]; use that window for full-span
+        # Full-span attribution and path bootstrap: use most recent horizon window
         full_start, full_end = cohorts[-1]
         base_full = runner(replace(baseline_template, start=full_start, end=full_end))
         cand_full = runner(replace(candidate_template, start=full_start, end=full_end))
         # attribution
-        attribution = attribute_buy_only_soxx(candidate=cand_full, baseline=base_full, soxx_weight=float(w), price_at=price_at, fx_at=fx_at)
+        attribution = attribute_buy_only_soxx(candidate=cand_full, baseline=base_full, soxx_weight=float(w), price_at=price_at, fx_at=fx_at, vehicle_ticker=vehicle_ticker)
         # path bootstrap on monthly returns of full-span path
         cand_rets = monthly_simple_returns(cand_full)
         base_rets = monthly_simple_returns(base_full)
@@ -435,13 +493,16 @@ def run_incremental_portfolio(
 
     status = classify_portfolio_status(arms)
     return IncrementalPortfolioReport(
-        thesis_id="ai_compute",
+        thesis_id=str(thesis_id),
         as_of=as_of,
         panel_as_of=panel.panel_as_of,
         lag_days=int(panel.lag_days),
         freshness_status=str(panel.status.value),
         arms=tuple(arms),
         portfolio_status=status,
+        vehicle_ticker=str(vehicle_ticker),
+        horizon_months=int(horizon_months),
+        horizon_fallback=bool(horizon_fallback),
     )
 
 
@@ -453,9 +514,12 @@ def write_incremental_portfolio_report(report: IncrementalPortfolioReport, path:
         "lag_days": int(report.lag_days),
         "freshness_status": str(report.freshness_status),
         "portfolio_status": report.portfolio_status.value,
+        "vehicle_ticker": str(report.vehicle_ticker),
+        "horizon_months": int(report.horizon_months),
+        "horizon_fallback": bool(report.horizon_fallback),
         "arms": [
             {
-                "arm_id": a.arm_id.value,
+                "arm_id": a.arm_id.value if hasattr(a.arm_id, "value") else str(a.arm_id),
                 "soxx_weight": float(a.soxx_weight),
                 "median_ratio": float(a.median_ratio),
                 "p10_ratio": float(a.p10_ratio),
