@@ -2121,3 +2121,24 @@ def test_cli_thesis_incremental_parser(scenario_id: str, monkeypatch: pytest.Mon
     rc2 = main(["run", "thesis-incremental", "--thesis-id", "ai_compute"])
     assert rc2 == 0
     assert called.get("called") is True
+
+
+def test_cli_ingest_thesis_fundamentals_parser() -> None:
+    parser = cli._build_parser()
+    args = parser.parse_args(["ingest", "thesis-fundamentals", "--start", "2000-01-01", "--end", "2020-01-01"])
+    assert args.dataset == "thesis-fundamentals"
+    assert args.start == date(2000, 1, 1)
+    assert args.end == date(2020, 1, 1)
+
+
+def test_cli_ingest_thesis_fundamentals_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    called: dict[str, object] = {}
+
+    def fake_fetch(**kwargs: object) -> object:
+        called.update(kwargs)
+        return SimpleNamespace(manifest=SimpleNamespace(row_count=1))
+
+    monkeypatch.setattr("src.data.thesis_fundamentals.fetch_and_persist_thesis_fundamentals", fake_fetch)
+    assert main(["ingest", "thesis-fundamentals", "--start", "2000-01-01", "--end", "2020-01-01"]) == 0
+    assert called.get("start") == date(2000, 1, 1)
+    assert called.get("end") == date(2020, 1, 1)

@@ -264,6 +264,73 @@ def test_ev_adaptive_horizon_not_hardcoded_120(tmp_path: Path, monkeypatch: pyte
     assert snapshot.historical.status == "computed"
 
 
+def test_ev_structural_not_unknown_ai_compute(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.analytics.thesis_evidence import compute_evidence_vector
+
+    thesis = ThesisSpec(
+        id=ThesisId.AI_COMPUTE,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["f1"],
+        candidate_sleeves=["ai_semiconductor"],
+        historical_proxies=["SOXX"],
+    )
+    settings = DataSettings(data_root=Path("data"))
+    as_of = datetime(2025, 4, 30, tzinfo=UTC)
+    release = datetime(2025, 4, 29, 12, 0, tzinfo=UTC)
+    obs_dates = [
+        date(2015, 3, 31),
+        date(2015, 6, 30),
+        date(2015, 9, 30),
+        date(2015, 12, 31),
+        date(2016, 3, 31),
+        date(2016, 6, 30),
+        date(2016, 9, 30),
+        date(2016, 12, 31),
+        date(2017, 3, 31),
+        date(2017, 6, 30),
+        date(2017, 9, 30),
+        date(2017, 12, 31),
+    ]
+    macro = pl.DataFrame(
+        {
+            "series_id": ["PNFI"] * 12,
+            "observation_date": obs_dates,
+            "release_date": [release] * 12,
+            "value": [3000.0 + i * 50.0 for i in range(12)],
+        }
+    )
+
+    def fake_load_visible(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+        if dataset == Dataset.MACRO:
+            return macro
+        if dataset == Dataset.ETF_HOLDINGS:
+            raise ValueError("no holdings")
+        return pl.DataFrame()
+
+    monkeypatch.setattr("src.analytics.structural_evidence.load_visible", fake_load_visible)
+
+    def runner(config: AllocationConfig) -> AllocationResult:
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=100.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=100.0,
+            xirr_real=0.0,
+        )
+
+    snapshot = compute_evidence_vector(thesis=thesis, settings=settings, as_of=as_of, runner=runner)
+    assert snapshot.structural.status in ("computed", "insufficient_data")
+    assert snapshot.structural.status != "unknown"
+    assert snapshot.valuation.status == "unknown"
+    assert snapshot.crowding.status == "unknown"
+
+
 def test_ev_market_regime_not_structural(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from src.analytics.thesis_evidence import compute_evidence_vector
     from src.analytics.thesis_evidence import EvidenceSlot
@@ -309,5 +376,11 @@ def test_ev_market_regime_not_structural(tmp_path: Path, monkeypatch: pytest.Mon
 
     snapshot = compute_evidence_vector(thesis=thesis, settings=settings, as_of=as_of, runner=runner, include_regime=True)
     assert snapshot.market_regime.status in ("computed", "insufficient_data")
-    assert snapshot.structural.status == "unknown"
-    assert ("not implemented" in snapshot.structural.summary.lower() or "fundamental" in snapshot.structural.summary.lower())
+    assert snapshot.structural.status in ("computed", "insufficient_data")
+    assert snapshot.structural.status != "unknown"
+    assert snapshot.valuation.status == "unknown"
+    assert snapshot.crowding.status == "unknown"
+    if snapshot.structural.status == "computed":
+        assert snapshot.structural.summary.startswith("fundamental:")
+    else:
+        assert "error" in snapshot.structural.metrics
