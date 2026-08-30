@@ -1,0 +1,199 @@
+{
+  "files": {
+    "acc_qqq_baseline_120m.json": {
+      "status": "active",
+      "kind": "acc",
+      "notes": "active challenger baseline 120m"
+    },
+    "m0_m1.json": {
+      "status": "fixture",
+      "kind": "m",
+      "notes": "M1 schema regression fixture"
+    },
+    "m1_d_universe.json": {
+      "status": "fixture",
+      "kind": "m",
+      "notes": "M1 schema regression fixture"
+    },
+    "m1_m2.json": {
+      "status": "fixture",
+      "kind": "m",
+      "notes": "M1 schema regression fixture"
+    },
+    "m1_n_nasdaq.json": {
+      "status": "fixture",
+      "kind": "m",
+      "notes": "M1 schema regression fixture"
+    },
+    "m_qqq_grid.json": {
+      "status": "archived",
+      "kind": "m",
+      "notes": "FUTURE_INDUSTRY_STATIC_MIX closed"
+    },
+    "m_qqq_iwf.json": {
+      "status": "archived",
+      "kind": "m",
+      "notes": "FUTURE_INDUSTRY_STATIC_MIX closed"
+    },
+    "m_thesis_ai_compute_soxx.json": {
+      "status": "active",
+      "kind": "m_thesis",
+      "notes": "active thesis mix ai_compute"
+    },
+    "m_thesis_ai_compute_soxx_120m.json": {
+      "status": "active",
+      "kind": "m_thesis",
+      "notes": "active thesis mix ai_compute 120m"
+    },
+    "m_thesis_ai_compute_soxx_inc_5_10_15.json": {
+      "status": "active",
+      "kind": "m_thesis",
+      "notes": "active thesis incremental mix ai_compute"
+    },
+    "m_thesis_ai_power_bottleneck_grid.json": {
+      "status": "active",
+      "kind": "m_thesis",
+      "notes": "active thesis grid ai_power"
+    },
+    "m_thesis_ai_power_pave.json": {
+      "status": "active",
+      "kind": "m_thesis",
+      "notes": "active thesis mix ai_power pave"
+    },
+    "m_thesis_ai_power_pave_inc_5_10_15.json": {
+      "status": "active",
+      "kind": "m_thesis",
+      "notes": "active thesis incremental mix ai_power pave"
+    },
+    "m_thesis_physical_automation_botz_prospective.json": {
+      "status": "active",
+      "kind": "m_thesis",
+      "notes": "active thesis prospective physical_automation"
+    },
+    "wf_qqq_adaptive_contribution.json": {
+      "status": "archived",
+      "kind": "wf",
+      "notes": "superseded by v5"
+    },
+    "wf_qqq_adaptive_v2.json": {
+      "status": "archived",
+      "kind": "wf",
+      "notes": "superseded by v5"
+    },
+    "wf_qqq_adaptive_v3.json": {
+      "status": "archived",
+      "kind": "wf",
+      "notes": "superseded by v5"
+    },
+    "wf_qqq_adaptive_v4.json": {
+      "status": "archived",
+      "kind": "wf",
+      "notes": "superseded by v5"
+    },
+    "wf_qqq_adaptive_v5.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "operational adaptive lock candidate"
+    },
+    "wf_qqq_cadence.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "active cadence baseline"
+    },
+    "wf_qqq_cadence_twice.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "active cadence twice_monthly"
+    },
+    "wf_qqq_future_core.json": {
+      "status": "archived",
+      "kind": "wf",
+      "notes": "FUTURE_INDUSTRY_STATIC_MIX closed"
+    },
+    "wf_qqq_kafi_deployment.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "active kafi deployment"
+    },
+    "wf_qqq_kafi_shape.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "active kafi contribution shape"
+    },
+    "wf_qqq_overlay.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "active overlay"
+    },
+    "wf_qqq_reserve.json": {
+      "status": "archived",
+      "kind": "wf",
+      "notes": "superseded by v4"
+    },
+    "wf_qqq_reserve_v2.json": {
+      "status": "archived",
+      "kind": "wf",
+      "notes": "superseded by v4"
+    },
+    "wf_qqq_reserve_v3.json": {
+      "status": "archived",
+      "kind": "wf",
+      "notes": "superseded by v4"
+    },
+    "wf_qqq_reserve_v4.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "operational reserve lock candidate"
+    },
+    "wf_thesis_ai_compute_soxx_inc_10.json": {
+      "status": "active",
+      "kind": "wf_thesis",
+      "notes": "active thesis walk-forward inc 10"
+    },
+    "wf_vt_ff_proxy.json": {
+      "status": "archived",
+      "kind": "wf",
+      "notes": "unreferenced proxy remnant"
+    },
+    "wf_vt_vti.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "active vt vti walk-forward"
+    },
+    "wf_vti_cadence.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "active vti cadence"
+    },
+    "wf_vti_currency.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "active vti currency"
+    },
+    "wf_vti_ivv.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "active vti ivv"
+    },
+    "wf_vti_mapping.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "active vti mapping"
+    },
+    "wf_vti_overlay.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "active vti overlay"
+    },
+    "wf_vti_qqq.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "active vti qqq"
+    },
+    "wf_vti_reserve.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "active vti reserve"
+    }
+  }
+}
