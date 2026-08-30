@@ -388,6 +388,7 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
         "ITA",
         "ITOT",
         "IWF",
+        "PAVE",
         "SCHF",
         "SOXX",
         "XLI",
@@ -2094,19 +2095,22 @@ def test_cli_thesis_incremental_parser(scenario_id: str, monkeypatch: pytest.Mon
     # patch the incremental runner where cli imports it
     called: dict[str, object] = {}
 
-    def fake_run(*, settings, as_of, runner, contribution_krw, bootstrap_paths, seed, panel_report=None):  # type: ignore[no-untyped-def]
+    def fake_run(*, settings, as_of, runner, contribution_krw, bootstrap_paths, seed, panel_report=None, thesis_id="ai_compute", vehicle_ticker="SOXX", **kw):  # type: ignore[no-untyped-def]
         called["called"] = True
         from src.analytics.incremental_portfolio import IncrementalPortfolioReport
         from src.analytics.thesis_meaning import PortfolioEvidenceStatus
 
         return IncrementalPortfolioReport(
-            thesis_id="ai_compute",
+            thesis_id=str(thesis_id),
             as_of=as_of,
             panel_as_of=fake_panel.panel_as_of,
             lag_days=fake_panel.lag_days,
             freshness_status=fake_panel.status.value,
             arms=(),
             portfolio_status=PortfolioEvidenceStatus.HISTORICALLY_WEAK,
+            vehicle_ticker=str(vehicle_ticker),
+            horizon_months=120,
+            horizon_fallback=False,
         )
 
     # patch both possible import locations
@@ -2257,3 +2261,58 @@ def test_cli_thesis_pipeline_stale_gate(scenario_id: str, monkeypatch: pytest.Mo
     rc2 = main(["run", "thesis-pipeline", "--thesis-id", "ai_compute", "--allow-stale"])
     # should not be stale gate 1; even if markdown succeeds it returns 0
     assert rc2 == 0
+
+
+@pytest.mark.parametrize("scenario_id", ["test_cli_thesis_incremental_allows_ai_power"])
+def test_cli_thesis_incremental_allows_ai_power(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """test_cli_thesis_incremental_allows_ai_power"""
+    from datetime import UTC, datetime, date
+
+    from src.data.panel_freshness import CatalogPanelReport, PanelFreshnessStatus
+
+    fake_panel = CatalogPanelReport(
+        panel_as_of=datetime(2026, 6, 30, 20, 0, tzinfo=UTC),
+        lag_days=10,
+        status=PanelFreshnessStatus.FRESH,
+        ticker_last_session={t: date(2026, 6, 30) for t in ("BOTZ", "GRID", "PAVE", "QQQ", "SOXX")},
+        cpi_last_observation=date(2026, 6, 30),
+        fx_last_observation=date(2026, 6, 30),
+        holdings_last_filing=None,
+    )
+    monkeypatch.setattr(cli, "resolve_catalog_panel_as_of", lambda settings, reference_now=None, tickers=None: fake_panel)
+
+    captured: dict[str, object] = {}
+
+    def fake_run(*, settings, as_of, runner, contribution_krw, bootstrap_paths, seed, panel_report=None, thesis_id="ai_compute", vehicle_ticker="SOXX", **kw):  # type: ignore[no-untyped-def]
+        captured["thesis_id"] = thesis_id
+        captured["vehicle_ticker"] = vehicle_ticker
+        from src.analytics.incremental_portfolio import IncrementalPortfolioReport
+        from src.analytics.thesis_meaning import PortfolioEvidenceStatus
+
+        return IncrementalPortfolioReport(
+            thesis_id=str(thesis_id),
+            as_of=as_of,
+            panel_as_of=fake_panel.panel_as_of,
+            lag_days=fake_panel.lag_days,
+            freshness_status=fake_panel.status.value,
+            arms=(),
+            portfolio_status=PortfolioEvidenceStatus.HISTORICALLY_WEAK,
+            vehicle_ticker=str(vehicle_ticker),
+            horizon_months=84,
+            horizon_fallback=True,
+        )
+
+    monkeypatch.setattr(cli, "run_incremental_portfolio", fake_run, raising=False)
+    monkeypatch.setattr("src.analytics.incremental_portfolio.run_incremental_portfolio", fake_run, raising=False)
+    monkeypatch.setattr(cli, "write_incremental_portfolio_report", lambda report, path: Path("tmp/fake.json"), raising=False)
+    monkeypatch.setattr("src.analytics.incremental_portfolio.write_incremental_portfolio_report", lambda report, path: Path("tmp/fake.json"), raising=False)
+
+    rc = main(["run", "thesis-incremental", "--thesis-id", "ai_power_bottleneck"])
+    assert rc == 0
+    assert captured["thesis_id"] == "ai_power_bottleneck"
+    assert captured["vehicle_ticker"] == "PAVE"
+    # not allowed thesis should exit 2
+    rc2 = main(["run", "thesis-incremental", "--thesis-id", "physical_automation"])
+    assert rc2 == 2
+    # contains the anchor string
+    assert "only ai_compute supported" in Path("src/cli.py").read_text(encoding="utf-8")
