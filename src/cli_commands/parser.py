@@ -288,7 +288,7 @@ def _build_parser() -> _Parser:
     diagnose_qqq_adaptive_hp.add_argument("--contribution-krw", required=True, type=float)
     diagnose_compound_dca = run_targets.add_parser(
         "diagnose-compound-dca",
-        help="Compound DCA tournament QQQ vs QQQ90/SOXX10 flat vs adaptive; reporting only, never an adoption gate",
+        help="Compound DCA tournament QQQ vs QQQ90/SOXX10 vs SOXX90/QQQ10 role-swap vs SOXX100 vs QQQ/SOXX risk-budget flat vs adaptive; reporting only, never an adoption gate",
     )
     diagnose_compound_dca.add_argument("--contribution-krw", required=True, type=float)
     accumulation_cohort = run_targets.add_parser(
