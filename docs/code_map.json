@@ -57,7 +57,8 @@
     "testing": "tests/unit/data/test_etf_metadata_bootstrap.py"
   },
   "src/data/fetch.py": {
-    "testing": "tests/unit/data/test_fetch.py"
+    "testing": "tests/unit/data/test_fetch.py",
+    "architecture": "docs/architecture/01_data_contracts.md"
   },
   "src/data/nport_ingest.py": {
     "testing": "tests/unit/data/test_nport_ingest.py"
