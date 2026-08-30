@@ -1346,7 +1346,7 @@ def run_thesis_wave_command(*, as_of: str | None, settings: DataSettings, allow_
         # Also write markdown
         from src.analytics.thesis_wave import write_thesis_wave_markdown
 
-        md_path = Path(f"docs/results/{as_of_dt.date().isoformat()}_v2_thesis_wave.md")
+        md_path = Path(f"docs/results/thesis-wave/{as_of_dt.date().isoformat()}_v2_thesis_wave.md")
         write_thesis_wave_markdown(wave, md_path)
         if not wave.entries:
             raise ValueError("thesis wave produced zero successful entries")
@@ -1453,7 +1453,7 @@ def run_thesis_incremental_command(
             seed=int(seed),
             panel_report=gate_report,
         )
-        out_path = Path(f"docs/results/{as_of_dt.date().isoformat()}_incremental_{thesis_id}.json")
+        out_path = Path(f"docs/results/thesis-incremental/{as_of_dt.date().isoformat()}_incremental_{thesis_id}.json")
         # also write under data root for history
         write_incremental_portfolio_report(report, out_path)
         # also write under data dir

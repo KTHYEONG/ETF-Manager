@@ -8,4 +8,4 @@ Implementation roadmaps and architecture evolution notes. These documents explai
 
 Kernel (old Waves 0–7: identity, experiments, holdings, evidence blob, horizon, prospective, regime proxy, thesis-wave E2E) is **first-pass complete**. Next implementation is **Wave A (integrity)** in that plan.
 
-Review input for the rewrite: `docs/feedback.md` (2026-08-29). Results: `docs/results/20260829_v2_thesis_wave_detail.md`.
+Review input for the rewrite: `docs/feedback.md` (2026-08-29). Results: `docs/results/thesis-wave/20260829_v2_thesis_wave_detail.md`.

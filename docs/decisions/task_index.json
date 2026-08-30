@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_AI_COMPUTE_RESEARCH_PIPELINE",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_V2_AI_COMPUTE_RESEARCH_PIPELINE",
+      "domain": "quant",
+      "title": "ai_compute research pipeline (thesis-panel → wave → incremental → WF)",
+      "why": "Operator ran full ai_compute research sequence on catalog end 2024-08-31; docs/results flat layout mixed stale runs; thesis-wave blocked on FX/CPI PIT gaps until backfill.",
+      "resolution": "Executed thesis-panel ingest, thesis-wave/incremental (allow-stale), ablation inc 5/10/15, WF+cost grid qqq90, diagnose-overlap, 120M accumulation; added wf_thesis_ai_compute_soxx_inc_10.json; reorganized docs/results into thesis-wave/thesis-incremental/catalog-waves/archive; CLI writes to subdirs; pipeline summary 20260830_ai_compute_research_pipeline.md.",
+      "impact": "Canonical results thesis-wave/2024-08-31 + thesis-incremental JSON: ai_compute continue_research, historically_promising incremental, WF process_adopted=false, 120M n=3<10; QQQ operational unchanged; archive holds superseded runs; specs purged on sync."
+    },
+    {
       "task_id": "TASK_DATA_API_RATE_QUOTA_EFFICIENCY",
       "date": "2026-08-29",
       "adr_id": "ADR_20260829_DATA_API_RATE_QUOTA_EFFICIENCY",
