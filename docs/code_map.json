@@ -14,6 +14,12 @@
   "src/analytics/cadence.py": {
     "testing": "tests/unit/analytics/test_cadence.py"
   },
+  "src/analytics/crowding_evidence.py": {
+    "testing": "tests/unit/analytics/test_crowding_evidence.py"
+  },
+  "src/analytics/incremental_portfolio.py": {
+    "testing": "tests/unit/analytics/test_incremental_portfolio.py"
+  },
   "src/analytics/metrics.py": {
     "testing": "tests/unit/analytics/test_metrics.py"
   },
@@ -23,21 +29,23 @@
   "src/analytics/regime_proxy.py": {
     "testing": "tests/unit/analytics/test_regime_proxy.py"
   },
-  "src/analytics/structural_evidence.py": {
-    "testing": "tests/unit/analytics/test_structural_evidence.py",
-    "architecture": "docs/architecture/02_policy_and_validation.md"
-  },
   "src/analytics/regimes.py": {
     "testing": "tests/unit/analytics/test_regimes.py"
   },
   "src/analytics/reserve_usage.py": {
     "testing": "tests/unit/analytics/test_reserve_usage.py"
   },
+  "src/analytics/structural_evidence.py": {
+    "testing": "tests/unit/analytics/test_structural_evidence.py"
+  },
   "src/analytics/thesis_decision.py": {
     "testing": "tests/unit/analytics/test_thesis_decision.py"
   },
   "src/analytics/thesis_evidence.py": {
     "testing": "tests/unit/analytics/test_thesis_evidence.py"
+  },
+  "src/analytics/thesis_meaning.py": {
+    "testing": "tests/unit/analytics/test_thesis_meaning.py"
   },
   "src/analytics/thesis_report.py": {
     "testing": "tests/unit/analytics/test_thesis_report.py"
@@ -47,6 +55,9 @@
   },
   "src/analytics/us_vehicles.py": {
     "testing": "tests/unit/analytics/test_us_vehicles.py"
+  },
+  "src/analytics/valuation_evidence.py": {
+    "testing": "tests/unit/analytics/test_valuation_evidence.py"
   },
   "src/cli.py": {
     "testing": "tests/unit/test_cli.py"
@@ -61,14 +72,19 @@
     "testing": "tests/unit/data/test_etf_metadata_bootstrap.py"
   },
   "src/data/fetch.py": {
-    "testing": "tests/unit/data/test_fetch.py",
-    "architecture": "docs/architecture/01_data_contracts.md"
+    "testing": "tests/unit/data/test_fetch.py"
+  },
+  "src/data/ingest_guard.py": {
+    "testing": "tests/unit/data/test_ingest_guard.py"
   },
   "src/data/nport_ingest.py": {
     "testing": "tests/unit/data/test_nport_ingest.py"
   },
-  "src/data/thesis_fundamentals.py": {
-    "testing": "tests/unit/data/test_thesis_fundamentals.py"
+  "src/data/panel_freshness.py": {
+    "testing": "tests/unit/data/test_panel_freshness.py"
+  },
+  "src/data/paths.py": {
+    "testing": "tests/unit/data/test_paths.py"
   },
   "src/data/pipeline.py": {
     "testing": "tests/unit/data/test_pipeline.py"
@@ -81,6 +97,7 @@
       "tests/unit/data/test_ecos.py",
       "tests/unit/data/test_fred.py",
       "tests/unit/data/test_french.py",
+      "tests/unit/data/test_quota.py",
       "tests/unit/data/test_tiingo.py",
       "tests/unit/test_cli.py"
     ]
@@ -97,6 +114,12 @@
   "src/data/providers/french.py": {
     "testing": "tests/unit/data/test_french.py"
   },
+  "src/data/providers/quota.py": {
+    "testing": [
+      "tests/unit/data/test_quota.py",
+      "tests/unit/data/test_tiingo.py"
+    ]
+  },
   "src/data/providers/sec_nport.py": {
     "testing": "tests/unit/data/providers/test_sec_nport.py"
   },
@@ -108,6 +131,9 @@
   },
   "src/data/query.py": {
     "testing": "tests/unit/data/test_query.py"
+  },
+  "src/data/retention.py": {
+    "testing": "tests/unit/data/test_retention.py"
   },
   "src/data/schedule.py": {
     "testing": "tests/unit/data/test_schedule.py"
@@ -123,6 +149,9 @@
   },
   "src/data/storage.py": {
     "testing": "tests/unit/data/test_storage.py"
+  },
+  "src/data/thesis_fundamentals.py": {
+    "testing": "tests/unit/data/test_thesis_fundamentals.py"
   },
   "src/etf/mapping.py": {
     "testing": "tests/unit/etf/test_mapping.py"
@@ -233,29 +262,12 @@
     "testing": "tests/unit/validation/test_gate.py"
   },
   "src/validation/prospective.py": {
-    "testing": "tests/unit/validation/test_prospective.py",
-    "architecture": "docs/architecture/02_policy_and_validation.md"
+    "testing": "tests/unit/validation/test_prospective.py"
   },
   "src/validation/registry.py": {
     "testing": "tests/unit/validation/test_registry.py"
   },
   "src/validation/windows.py": {
     "testing": "tests/unit/validation/test_windows.py"
-  },
-  "src/analytics/thesis_meaning.py": {
-    "architecture": "docs/architecture/02_policy_and_validation.md",
-    "testing": "tests/unit/analytics/test_thesis_meaning.py"
-  },
-  "src/data/panel_freshness.py": {
-    "architecture": "docs/architecture/02_policy_and_validation.md",
-    "testing": "tests/unit/data/test_panel_freshness.py"
-  },
-  "src/analytics/incremental_portfolio.py": {
-    "architecture": "docs/architecture/02_policy_and_validation.md",
-    "testing": "tests/unit/analytics/test_incremental_portfolio.py"
-  },
-  "src/data/providers/quota.py": {
-    "testing": "tests/unit/data/test_quota.py"
-  },
-  "configs/experiments/wf_thesis_ai_compute_soxx_inc_10.json": {}
+  }
 }

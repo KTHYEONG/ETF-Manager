@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_TRACK_F_VALUATION_CROWDING",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_V2_TRACK_F_VALUATION_CROWDING",
+      "domain": "quant",
+      "title": "Wave D Track F slice 2: valuation + crowding evidence slots",
+      "why": "Track F slice 1 wired PNFI structural but valuation/crowding stayed unknown; Wave D exit requires both slots computed for ai_compute before Wave E.",
+      "resolution": "Added valuation_evidence.py (SOXX/QQQ PIT relative richness percentile, pricing-collapse falsifier) and crowding_evidence.py (N-PORT HHI/top5 concentration); extended thesis_fundamentals registry with ValuationSpec/CrowdingSpec loaders; wired compute_valuation_slot/compute_crowding_slot in thesis_evidence; architecture §4.11; contract tests VAL/CRD/EV; thesis-wave FRESH 2026-08-28 ai_compute valuation=rich 94.7%, crowding=dispersed hhi 0.047.",
+      "impact": "QQQ 100% operational and adoption_passes unchanged; ai_compute evidence vector complete (valuation/crowding computed); ai_power/physical_automation valuation/crowding remain unknown (no registry); Track F slice 2 done; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_TRACK_F_STRUCTURAL",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_V2_TRACK_F_STRUCTURAL",
