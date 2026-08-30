@@ -2142,3 +2142,118 @@ def test_cli_ingest_thesis_fundamentals_dispatch(monkeypatch: pytest.MonkeyPatch
     assert main(["ingest", "thesis-fundamentals", "--start", "2000-01-01", "--end", "2020-01-01"]) == 0
     assert called.get("start") == date(2000, 1, 1)
     assert called.get("end") == date(2020, 1, 1)
+
+
+@pytest.mark.parametrize("scenario_id", ["test_cli_thesis_pipeline_parser"])
+def test_cli_thesis_pipeline_parser(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_pipeline(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(cli, "run_thesis_pipeline_command", fake_pipeline)
+    # also ensure parser accepts --thesis-id
+    args = cli._build_parser().parse_args(["run", "thesis-pipeline", "--thesis-id", "ai_compute"])
+    assert args.thesis_id == "ai_compute"
+    assert args.target == "thesis-pipeline"
+    rc = main(["run", "thesis-pipeline", "--thesis-id", "ai_compute"])
+    assert rc == 0
+    assert captured.get("thesis_id") == "ai_compute"
+
+
+@pytest.mark.parametrize("scenario_id", ["test_cli_thesis_pipeline_stale_gate"])
+def test_cli_thesis_pipeline_stale_gate(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import UTC, datetime, date
+
+    from src.data.panel_freshness import CatalogPanelReport, PanelFreshnessStatus
+
+    stale = CatalogPanelReport(
+        panel_as_of=datetime(2025, 4, 30, 20, 0, tzinfo=UTC),
+        lag_days=200,
+        status=PanelFreshnessStatus.STALE,
+        ticker_last_session={t: date(2025, 4, 30) for t in ("BOTZ", "GRID", "QQQ", "SOXX")},
+        cpi_last_observation=date(2025, 4, 30),
+        fx_last_observation=date(2025, 4, 30),
+        holdings_last_filing=None,
+        hard_stop_reason=None,
+    )
+    import src.analytics.wave_d_exit as wave_d
+    import src.data.panel_freshness as pf
+
+    def _stale_resolver(settings, reference_now=None, tickers=None):  # type: ignore[no-untyped-def]
+        return stale
+
+    monkeypatch.setattr(cli, "resolve_catalog_panel_as_of", _stale_resolver, raising=False)
+    monkeypatch.setattr(pf, "resolve_catalog_panel_as_of", _stale_resolver, raising=False)
+    monkeypatch.setattr(wave_d, "resolve_catalog_panel_as_of", _stale_resolver, raising=False)
+    monkeypatch.setattr(cli, "load_panel_hard_stop", lambda path=None: None, raising=False)
+    monkeypatch.setattr(pf, "load_panel_hard_stop", lambda path=None: None, raising=False)
+    monkeypatch.setattr(wave_d, "load_panel_hard_stop", lambda path=None: None, raising=False)
+    called = {"pipeline": False}
+
+    def fake_wave(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        called["pipeline"] = True
+        from src.analytics.thesis_wave import ThesisWaveReport
+
+        return ThesisWaveReport(as_of=datetime.now(UTC), entries=(), failures=())
+
+    monkeypatch.setattr(cli, "run_thesis_wave", fake_wave, raising=False)
+    monkeypatch.setattr("src.analytics.thesis_wave.run_thesis_wave", fake_wave, raising=False)
+    monkeypatch.setattr("src.analytics.incremental_portfolio.run_incremental_portfolio", lambda **kw: (_ for _ in ()).throw(AssertionError("should not run on stale")), raising=False)
+    monkeypatch.setattr(wave_d, "run_thesis_wave", fake_wave, raising=False)
+    monkeypatch.setattr(wave_d, "run_incremental_portfolio", lambda **kw: (_ for _ in ()).throw(AssertionError("should not run on stale")), raising=False)
+    rc = main(["run", "thesis-pipeline", "--thesis-id", "ai_compute"])
+    assert rc == 1
+    assert called["pipeline"] is False
+    # with --allow-stale should not gate at 1 (it will attempt to run and may fail later, but not gate 1)
+    monkeypatch.setattr(cli, "resolve_catalog_panel_as_of", _stale_resolver, raising=False)
+    monkeypatch.setattr(pf, "resolve_catalog_panel_as_of", _stale_resolver, raising=False)
+    monkeypatch.setattr(wave_d, "resolve_catalog_panel_as_of", _stale_resolver, raising=False)
+    # patch run functions to succeed when allowed
+    from src.analytics.incremental_portfolio import IncrementalPortfolioReport
+    from src.analytics.thesis_meaning import PortfolioEvidenceStatus
+    from src.analytics.thesis_wave import ThesisWaveReport
+
+    def fake_wave_ok(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        from datetime import UTC, datetime
+        from pathlib import Path
+
+        from src.analytics.thesis_evidence import EvidenceSlot, EvidenceSnapshot
+        from src.analytics.thesis_report import ThesisReport
+        from src.analytics.thesis_wave import ThesisWaveEntry
+        from src.analytics.thesis_decision import ThesisDecision, ThesisDecisionRecord
+        from src.policy.thesis import ThesisId, ThesisStatus
+        from src.validation.prospective import ProspectiveEligibility
+
+        as_of = datetime(2026, 6, 30, 20, 0, tzinfo=UTC)
+        slot = EvidenceSlot(status="computed", summary="ok", metrics={})
+        snap = EvidenceSnapshot(thesis_id=ThesisId.AI_COMPUTE, as_of=as_of, historical=slot, structural=slot, valuation=slot, overlap=slot, crowding=slot)
+        rep = ThesisReport(thesis_id=ThesisId.AI_COMPUTE, evidence=snap, long_horizon=None, prospective=ProspectiveEligibility(eligible=False, catalog_span_years=8.0, min_years_required=5, reason="test"), suggested_status=ThesisStatus.RESEARCH, next_falsifier="f1", divergence=None)
+        dec = ThesisDecisionRecord(decision=ThesisDecision.CONTINUE_RESEARCH, rationale="test", metrics={})
+        entry = ThesisWaveEntry(thesis_id=ThesisId.AI_COMPUTE, report=rep, decision=dec, experiment_path=Path("configs/experiments/m_thesis_ai_compute_soxx_120m.json"))
+        return ThesisWaveReport(as_of=as_of, entries=(entry,), failures=(), panel_as_of=stale.panel_as_of, lag_days=200, freshness_status="STALE")
+
+    def fake_inc_ok(**kwargs: object):  # type: ignore[no-untyped-def]
+        from datetime import UTC, datetime
+
+        as_of = kwargs.get("as_of") or datetime(2026, 6, 30, 20, 0, tzinfo=UTC)
+        return IncrementalPortfolioReport(
+            thesis_id="ai_compute",
+            as_of=as_of,
+            panel_as_of=stale.panel_as_of,
+            lag_days=200,
+            freshness_status="STALE",
+            arms=(),
+            portfolio_status=PortfolioEvidenceStatus.HISTORICALLY_WEAK,
+        )
+
+    monkeypatch.setattr("src.analytics.thesis_wave.run_thesis_wave", fake_wave_ok, raising=False)
+    monkeypatch.setattr("src.analytics.incremental_portfolio.run_incremental_portfolio", fake_inc_ok, raising=False)
+    monkeypatch.setattr(wave_d, "run_thesis_wave", fake_wave_ok, raising=False)
+    monkeypatch.setattr(wave_d, "run_incremental_portfolio", fake_inc_ok, raising=False)
+    monkeypatch.setattr("src.analytics.wave_d_exit.write_wave_d_exit_markdown", lambda *a, **kw: Path("tmp/fake.md"), raising=False)
+    monkeypatch.setattr(wave_d, "write_wave_d_exit_markdown", lambda *a, **kw: Path("tmp/fake.md"), raising=False)
+    rc2 = main(["run", "thesis-pipeline", "--thesis-id", "ai_compute", "--allow-stale"])
+    # should not be stale gate 1; even if markdown succeeds it returns 0
+    assert rc2 == 0

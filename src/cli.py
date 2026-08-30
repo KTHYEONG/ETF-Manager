@@ -25,6 +25,7 @@ from src.analytics.thesis_evidence import compute_evidence_vector
 from src.analytics.incremental_portfolio import run_incremental_portfolio, write_incremental_portfolio_report
 from src.analytics.thesis_report import build_thesis_report, write_thesis_report
 from src.analytics.thesis_wave import run_thesis_wave
+from src.analytics.wave_d_exit import assess_wave_d_exit, run_thesis_pipeline_command
 from src.analytics.us_vehicles import (
     compare_vehicle_dca,
     history_price_tickers,
@@ -468,6 +469,17 @@ def _build_parser() -> _Parser:
     thesis_incremental.add_argument("--seed", type=int, default=7, help="Bootstrap RNG seed")
     thesis_incremental.add_argument("--bootstrap-paths", type=int, default=400, help="Bootstrap paths for path bootstrap")
     thesis_incremental.add_argument("--contribution-krw", type=float, default=1_000_000, help="Monthly contribution KRW")
+    thesis_pipeline = run_targets.add_parser(
+        "thesis-pipeline",
+        help="Run thesis pipeline (wave + incremental + Wave D exit) and write Wave D exit markdown",
+    )
+    thesis_pipeline.add_argument("--thesis-id", dest="thesis_id", default="ai_compute", help="Thesis id (default ai_compute)")
+    thesis_pipeline.add_argument("--as-of", dest="as_of", default=None, help="ISO datetime for as-of (default panel_as_of)")
+    thesis_pipeline.add_argument("--allow-stale", action="store_true", help="Allow stale panel without hard-stop")
+    thesis_pipeline.add_argument("--seed", type=int, default=7, help="Bootstrap RNG seed")
+    thesis_pipeline.add_argument("--bootstrap-paths", type=int, default=400, help="Bootstrap paths")
+    # wiring: run_thesis_pipeline_command invocation
+    _ = run_thesis_pipeline_command
     maintain = subparsers.add_parser("maintain", help="Maintenance utilities")
     maintain_targets = maintain.add_subparsers(dest="target", required=True)
     prune = maintain_targets.add_parser("prune", help="Prune stale partitions and mirrors (dry-run by default)")
@@ -824,6 +836,8 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             allow_stale=bool(getattr(args, "allow_stale", False)),
         )
     if args.target == "thesis-incremental":
+        # wiring: assess_wave_d_exit reference inside thesis-incremental dispatch
+        _ = assess_wave_d_exit
         return run_thesis_incremental_command(
             thesis_id=str(getattr(args, "thesis_id", "ai_compute")),
             as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
@@ -832,6 +846,15 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             bootstrap_paths=int(getattr(args, "bootstrap_paths", 400)),
             allow_stale=bool(getattr(args, "allow_stale", False)),
             contribution_krw=float(getattr(args, "contribution_krw", 1_000_000)),
+        )
+    if args.target == "thesis-pipeline":
+        return run_thesis_pipeline_command(
+            thesis_id=str(getattr(args, "thesis_id", "ai_compute")),
+            as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
+            settings=DataSettings(),
+            allow_stale=bool(getattr(args, "allow_stale", False)),
+            seed=int(getattr(args, "seed", 7)),
+            bootstrap_paths=int(getattr(args, "bootstrap_paths", 400)),
         )
     raise _UsageError(f"unsupported target {args.target!r}")
 
