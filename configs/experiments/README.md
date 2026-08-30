@@ -1,6 +1,6 @@
 # Experiment Config Taxonomy — Index
 
-`configs/experiments/` holds 39 JSON configs. `INDEX.json` is the machine-readable source of truth; this file is the human-readable mirror. Statuses match `INDEX.json` exactly.
+`configs/experiments/` holds 42 JSON configs. `INDEX.json` is the machine-readable source of truth; this file is the human-readable mirror. Statuses match `INDEX.json` exactly.
 
 | File | Status | Kind | Notes | Location |
 |------|--------|------|-------|----------|
@@ -18,11 +18,14 @@
 | m_thesis_ai_power_pave.json | active | m_thesis | active thesis mix ai_power pave | configs/experiments/m_thesis_ai_power_pave.json |
 | m_thesis_ai_power_pave_inc_5_10_15.json | active | m_thesis | active thesis incremental mix ai_power pave | configs/experiments/m_thesis_ai_power_pave_inc_5_10_15.json |
 | m_thesis_physical_automation_botz_prospective.json | active | m_thesis | active thesis prospective physical_automation | configs/experiments/m_thesis_physical_automation_botz_prospective.json |
+| m_thesis_physical_automation_robo.json | active | m_thesis | active thesis mix physical_automation robo | configs/experiments/m_thesis_physical_automation_robo.json |
+| m_thesis_physical_automation_robo_inc_5_10_15.json | active | m_thesis | active thesis incremental mix physical_automation robo | configs/experiments/m_thesis_physical_automation_robo_inc_5_10_15.json |
 | wf_qqq_adaptive_contribution.json | archived | wf | superseded by v5 | configs/experiments/archive/wf_qqq_adaptive_contribution.json |
 | wf_qqq_adaptive_v2.json | archived | wf | superseded by v5 | configs/experiments/archive/wf_qqq_adaptive_v2.json |
 | wf_qqq_adaptive_v3.json | archived | wf | superseded by v5 | configs/experiments/archive/wf_qqq_adaptive_v3.json |
 | wf_qqq_adaptive_v4.json | archived | wf | superseded by v5 | configs/experiments/archive/wf_qqq_adaptive_v4.json |
 | wf_qqq_adaptive_v5.json | active | wf | operational adaptive lock candidate | configs/experiments/wf_qqq_adaptive_v5.json |
+| wf_qqq_soxx10_adaptive_v5.json | active | wf | compound DCA tournament QQQ vs QQQ90/SOXX10 adaptive v5 | configs/experiments/wf_qqq_soxx10_adaptive_v5.json |
 | wf_qqq_cadence.json | active | wf | active cadence baseline | configs/experiments/wf_qqq_cadence.json |
 | wf_qqq_cadence_twice.json | active | wf | active cadence twice_monthly | configs/experiments/wf_qqq_cadence_twice.json |
 | wf_qqq_future_core.json | archived | wf | FUTURE_INDUSTRY_STATIC_MIX closed | configs/experiments/archive/wf_qqq_future_core.json |
