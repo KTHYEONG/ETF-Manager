@@ -275,7 +275,8 @@
     "testing": "tests/unit/analytics/test_wave_d_exit.py"
   },
   "src/analytics/purity_evidence.py": {
-    "testing": "tests/unit/analytics/test_purity_evidence.py"
+    "testing": "tests/unit/analytics/test_purity_evidence.py",
+    "architecture": "docs/architecture/02_policy_and_validation.md"
   },
   "configs/data/thesis_fundamentals/physical_automation.json": {
     "architecture": "docs/architecture/02_policy_and_validation.md",
