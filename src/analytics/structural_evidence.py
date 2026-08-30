@@ -13,6 +13,7 @@ from src.data.catalog import load_visible
 from src.data.pit import AVAILABLE_AT, TS_DTYPE
 from src.data.schema import Dataset
 from src.data.settings import DataSettings
+from src.data.thesis_fundamentals import FalsifierSpec, ThesisFundamentalsSpec
 from src.policy.thesis import ThesisSpec
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "detect_yoy_regime_change",
     "evaluate_falsifier_slowdown",
     "pit_macro_series_levels",
+    "resolve_primary_falsifier",
     "yoy_growth_pct",
 ]
 
@@ -114,6 +116,16 @@ def detect_yoy_regime_change(
     if latest < 0:
         return ("slowdown", None)
     return ("unknown", None)
+
+
+def resolve_primary_falsifier(*, spec: ThesisFundamentalsSpec) -> FalsifierSpec | None:
+    """Prefer falsifier whose series_id equals primary_series_id, else first."""
+    if not spec.falsifiers:
+        return None
+    for fals in spec.falsifiers:
+        if fals.series_id == spec.primary_series_id:
+            return fals  # type: ignore[no-any-return]
+    return spec.falsifiers[0]  # type: ignore[no-any-return]
 
 
 def _infer_periods(levels: pl.DataFrame) -> int:
@@ -213,21 +225,17 @@ def compute_structural_slot(*, thesis: ThesisSpec, settings: DataSettings, as_of
         )
     last_yoy = float(valid_yoy.tail(1).get_column("yoy_pct").to_list()[0])
 
-    # falsifier
-    # find falsifier spec for capex_structural_slowdown
+    # falsifier via resolve_primary_falsifier
     falsifier_active = False
+    falsifier_id = "capex_structural_slowdown"
     threshold_pct = 0.0
     consecutive = 2
     try:
-        # spec.falsifiers is FalsifierCollection
-        fals = None
-        for f in spec.falsifiers:
-            if getattr(f, "id", None) == "capex_structural_slowdown":
-                fals = f
-                break
-        if fals is not None:
-            threshold_pct = float(fals.threshold_pct)
-            consecutive = int(fals.consecutive_periods)
+        resolved = resolve_primary_falsifier(spec=spec)
+        if resolved is not None:
+            falsifier_id = str(resolved.id)
+            threshold_pct = float(resolved.threshold_pct)
+            consecutive = int(resolved.consecutive_periods)
         falsifier_active = evaluate_falsifier_slowdown(yoy=yoy, threshold_pct=threshold_pct, consecutive_periods=consecutive)
     except Exception:
         falsifier_active = False
@@ -251,7 +259,7 @@ def compute_structural_slot(*, thesis: ThesisSpec, settings: DataSettings, as_of
     metrics: dict[str, float | int | str] = {
         "primary_series_id": spec.primary_series_id,
         "primary_yoy_pct": float(last_yoy),
-        "falsifier_capex_structural_slowdown_active": bool(falsifier_active),
+        f"falsifier_{falsifier_id}_active": bool(falsifier_active),
         "change_point_date": change_point_str,
         "regime": str(regime),
     }
