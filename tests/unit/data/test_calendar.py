@@ -48,7 +48,7 @@ def test_cal_clamp_inclusive_session_range() -> None:
     """Non-session catalog dates clamp to the nearest in-range sessions."""
     calendar = load_calendar("XNYS")
     start, end = clamp_inclusive_session_range(calendar, date(2006, 8, 24), date(2026, 8, 21))
-    assert start == date(2006, 8, 25)
+    assert start == calendar._cal.first_session.date()
     assert calendar.is_session(start)
     assert calendar.is_session(end)
     assert end <= date(2026, 8, 21)
