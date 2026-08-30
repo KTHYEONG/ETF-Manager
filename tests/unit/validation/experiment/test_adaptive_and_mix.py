@@ -1,3 +1,4 @@
+# ruff: noqa
 """Unit tests for experiment JSON spec loading."""
 
 from __future__ import annotations
@@ -349,5 +350,31 @@ def test_exp_ag_v5_resolve(scenario_id: str) -> None:
     assert resolved_baseline.upside_power == pytest.approx(0.35)
     assert resolved_baseline.downside_power == pytest.approx(3.5)
     assert resolved_baseline.neutral_deadband == pytest.approx(4.0)
+
+
+def test_exp_ag_soxx10_adaptive_v5_resolve() -> None:
+    import pytest
+    from src.validation.experiment import load_experiment_config, resolve_adaptive_contribution, resolve_baseline_adaptive_contribution
+    spec = load_experiment_config('configs/experiments/wf_qqq_soxx10_adaptive_v5.json')
+    assert spec.objective == 'adaptive_growth'
+    assert spec.thesis_id is not None and spec.thesis_id.value == 'ai_compute'
+    assert spec.baseline.modules == 1
+    assert spec.candidates[0].modules == 2
+    assert spec.baseline.targets == {'QQQ': 1.0}
+    assert spec.candidates[0].targets == {'QQQ': 0.9, 'SOXX': 0.1}
+    assert spec.cadence is None and spec.overlay is None and spec.reserve is None
+    cand = resolve_adaptive_contribution(spec)
+    base = resolve_baseline_adaptive_contribution(spec)
+    assert cand is not None and base is not None
+    assert cand.dispersion == pytest.approx(1.35)
+    assert cand.upside_power == pytest.approx(0.25)
+    assert cand.downside_power == pytest.approx(4.0)
+    assert cand.neutral_deadband == pytest.approx(5.0)
+    assert cand.include_vol_dampener is False
+    assert cand.rank_window == 126
+    assert base.dispersion == pytest.approx(cand.dispersion)
+    assert base.upside_power == pytest.approx(cand.upside_power)
+    assert base.downside_power == pytest.approx(cand.downside_power)
+    assert base.neutral_deadband == pytest.approx(cand.neutral_deadband)
 
 
