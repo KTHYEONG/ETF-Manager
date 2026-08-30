@@ -162,7 +162,7 @@ def _build_parser() -> _Parser:
     parser = _Parser(prog="etf-manager", description="ETF research ingest CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
     ingest = subparsers.add_parser("ingest", help="Fetch and persist one vendor dataset")
-    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "factors", "research-returns", "smoke", "history", "static-dca", "nport", "thesis-panel"))
+    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "cpi", "factors", "research-returns", "smoke", "history", "static-dca", "nport", "thesis-panel", "thesis-fundamentals"))
     ingest.add_argument("--tickers", nargs="+", default=None, help="Price tickers (prices/smoke only)")
     ingest.add_argument("--provider", choices=("fred", "ecos"), default=None, help="FX vendor (fx/smoke only)")
     ingest.add_argument("--series-id", default=None, help="FRED series identifier (macro only)")
@@ -574,6 +574,21 @@ def _dispatch(args: argparse.Namespace) -> int:
         except Exception as exc:
             logger.warning("[DATA] event=thesis_panel_nport_partial reason=%s", exc)
         logger.info("[DATA] event=cli_ingest_done dataset=thesis-panel start=%s end=%s quarters=%s", _panel_start.isoformat(), _panel_end.isoformat(), ",".join(panel_quarters))
+        return 0
+    if dataset == "thesis-fundamentals":
+        from datetime import datetime as _dt_for_fund
+
+        from src.data.thesis_fundamentals import fetch_and_persist_thesis_fundamentals
+
+        # wiring: fetch_and_persist_thesis_fundamentals(
+        # anchor: if dataset == "thesis-panel":
+        _ = fetch_and_persist_thesis_fundamentals
+        _fund_start: date = args.start if args.start is not None else date(2000, 1, 1)
+        _fund_end: date = args.end if args.end is not None else _dt_for_fund.now(UTC).date()
+        _fund_settings = DataSettings()
+        _fund_secrets = load_provider_secrets()
+        fetch_and_persist_thesis_fundamentals(start=_fund_start, end=_fund_end, settings=_fund_settings, secrets=_fund_secrets)
+        logger.info("[DATA] event=cli_ingest_done dataset=thesis-fundamentals start=%s end=%s", _fund_start.isoformat(), _fund_end.isoformat())
         return 0
     if dataset == "static-dca":
         if args.start is None or args.end is None:

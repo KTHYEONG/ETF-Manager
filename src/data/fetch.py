@@ -238,12 +238,16 @@ def fetch_and_persist_macro(
     secrets: ProviderSecrets,
     settings: DataSettings,
     client: httpx.Client | None = None,
+    retain_other_series: bool = False,
 ) -> DatasetArtifact:
     """Fetch ALFRED vintage observations and persist Dataset.MACRO as one partition.
 
     A sequence of series ids fetches each vintage frame over one HTTP session and
     persists their vertical concat as a single MACRO partition; a bare string
     behaves exactly like the historical single-series path.
+
+    When ``retain_other_series`` is true, rows for series ids outside the fetch
+    list are copied from the latest trusted MACRO partition before persist.
     """
     series_ids = (series_id,) if isinstance(series_id, str) else tuple(series_id)
     if not series_ids:
@@ -257,6 +261,16 @@ def fetch_and_persist_macro(
             payload, frame = fetched[0]
         else:
             payload, frame = _merge_macro_payloads(series_ids, fetched)
+        if retain_other_series:
+            spec = spec_for(Dataset.MACRO)
+            store = DataStore(settings)
+            try:
+                prior = store.read_normalized(latest_artifact(settings, Dataset.MACRO), spec)
+                kept = prior.select(*spec.columns).filter(~pl.col("series_id").is_in(series_ids))
+                if not kept.is_empty():
+                    frame = pl.concat([kept, frame.select(*spec.columns)], how="vertical")
+            except UntrustedDatasetError:
+                pass
         artifact = persist_ingest(frame, Dataset.MACRO, payload, settings)
     _log_done("macro", "fred", artifact.manifest.row_count)
     return artifact
