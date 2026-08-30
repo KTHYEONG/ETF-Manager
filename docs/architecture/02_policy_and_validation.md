@@ -141,7 +141,7 @@ flowchart LR
 
 ### 4.8 Thesis panel freshness (Wave C)
 
-- `THESIS_PANEL_TICKERS=("BOTZ","GRID","QQQ","SOXX")`, `MAX_PANEL_LAG_DAYS=62`
+- `THESIS_PANEL_TICKERS=("BOTZ","GRID","PAVE","QQQ","ROBO","SOXX")`, `MAX_PANEL_LAG_DAYS=62`
 - `panel_as_of` = latest XNYS month-end close where PRICES(all tickers)+FX+CPI boundary-pass; `lag_days=(reference_now-panel_as_of).days`
 - Default `run thesis-wave`/`thesis-report` `as_of` = `panel_as_of` from `resolve_catalog_panel_as_of` (not `datetime.now` alone); explicit `--as-of` after catalog coverage fails closed
 - `STALE` (`lag_days>62`) fails wave unless `--allow-stale` or `configs/data/panel_hard_stop.json` ack (`HARD_STOP_ACK`); experiment JSON `end` non-authoritative for thesis path — runtime uses `effective_thesis_end(as_of)`
@@ -155,13 +155,13 @@ flowchart LR
 - `PortfolioEvidenceStatus`: `unverified` (before Track H), `historically_promising` if any arm `median_ratio≥1` and `path_bootstrap.ok`, else `historically_weak`
 - Path bootstrap: paired monthly returns joint circular block (`block 12`, `PATH_BOOTSTRAP_WIN_FLOOR=0.55`, `ok iff win_rate≥0.55`)
 - Buy-only attribution: realized SOXX weight `shares * px_usd * usdkrw / mark_krw` (KRW-consistent) vs target; `mean_abs_weight_drift`, `terminal_weight_drift`, `incremental_wealth_ratio`; CLI `run thesis-incremental` shares STALE gate with thesis-wave
-- Track H is vehicle-parameterized; horizon surface {120,96,84,60}; ai_power uses PAVE.
+- Track H is vehicle-parameterized; horizon surface {120,96,84,60}; ai_power uses PAVE; physical_automation uses ROBO.
 
 ### 4.10 Track F structural fundamentals
 
 - Registry `configs/data/thesis_fundamentals/ai_compute.json` locks `PNFI` (Q, primary); `IPG3344S` deferred (FRED-only, not ALFRED). Falsifier `capex_structural_slowdown` (`threshold 0.0%`, `consecutive 2`); `min_history 8`, `lookback 20`.
 - Registry `configs/data/thesis_fundamentals/ai_power_bottleneck.json` locks `A35SNO` (M, primary) with secondary `PNFI`; falsifier `backlog_normalization` (`threshold 0.0%`, `consecutive 2`); `min_history 8`, `lookback 20`.
-- Registry `configs/data/thesis_fundamentals/physical_automation.json` locks `NEWORDER` (M, primary) with secondary `PNFI`; falsifier `commercialization_lag` (`threshold 0.0%`, `consecutive 2`); `min_history 8`, `lookback 20`, `yoy_lag Q=4 M=12`; `valuation`/`crowding` lock `vehicle BOTZ / benchmark QQQ` with Wave D thresholds (`trailing 1260`, `rich 80 / cheap 20`, `min_sessions 252`, `return_lookback 252`, `collapse -15%`; `top_n 5`, `hhi 0.18`, `top5 60%`); `purity` locks `vehicle BOTZ / incumbent QQQ` (`pure 70 / impure 40`) with 12 notes split `industrial_automation` (9) vs `humanoid_optionality` (3) and split metrics `industrial_weight_pct`/`humanoid_weight_pct` diagnostic; BOTZ stays `REJECTED_PROXY`, no new `VehicleId`, Track H out of scope for this thesis.
+- Registry `configs/data/thesis_fundamentals/physical_automation.json` locks `NEWORDER` (M, primary) with secondary `PNFI`; falsifier `commercialization_lag` (`threshold 0.0%`, `consecutive 2`); `min_history 8`, `lookback 20`, `yoy_lag Q=4 M=12`; `valuation`/`crowding` lock `vehicle ROBO / benchmark QQQ` with Wave D thresholds (`trailing 1260`, `rich 80 / cheap 20`, `min_sessions 252`, `return_lookback 252`, `collapse -15%`; `top_n 5`, `hhi 0.18`, `top5 60%`); `purity` locks `vehicle ROBO / incumbent QQQ` (`pure 70 / impure 40`) with 12 notes split `industrial_automation` (9) vs `humanoid_optionality` (3) and split metrics `industrial_weight_pct`/`humanoid_weight_pct` diagnostic; BOTZ stays `REJECTED_PROXY` diagnostic on panel, physical_automation Track H uses ROBO.
 - Reuses `Dataset.MACRO` only; `ingest thesis-fundamentals` merges all registry ids via `fetch_and_persist_macro` into one PIT partition (`RELEASE_COLUMN`).
 - PIT `pit_macro_series_levels` filters `series_id` + `available_at ≤ as_of` and keeps latest vintage per `observation_date`, sorted ascending.
 - YoY `% = (x_t/x_{t-lag}-1)*100` with lag 4 (Q) /12 (M) inferred from spacing or `primary_frequency`; `evaluate_falsifier_slowdown` checks last 2 YoY `<0`.
@@ -170,7 +170,7 @@ flowchart LR
 
 ### 4.11 Valuation & crowding (Track F)
 
-- Registry `valuation` blocks lock `vehicle SOXX / PAVE / BOTZ` vs `benchmark QQQ`, `trailing 1260`, `rich 80 / cheap 20`, `min_sessions 252`, `return_lookback 252`, `collapse -15%`; `crowding` locks `vehicle SOXX / PAVE / BOTZ`, `top_n 5`, `hhi 0.18`, `top5 60%`.
+- Registry `valuation` blocks lock `vehicle SOXX / PAVE / ROBO` vs `benchmark QQQ`, `trailing 1260`, `rich 80 / cheap 20`, `min_sessions 252`, `return_lookback 252`, `collapse -15%`; `crowding` locks `vehicle SOXX / PAVE / ROBO`, `top_n 5`, `hhi 0.18`, `top5 60%`.
 - `load_valuation_spec` / `load_crowding_spec` return `None` when block absent; `compute_*_slot` returns `unknown` (`not configured`) without raising.
 - Valuation uses `load_visible(Dataset.PRICES, as_of)`; `pit_price_series` filters `ticker` + `available_at ≤ as_of`; align vehicle/benchmark on `date` inner-join; fails closed to `insufficient_data` when `aligned < min_sessions`.
 - `relative_richness_percentile` computes `ratio = v/b` per session, trailing window; `percentile = fraction ≤ latest *100`; label `rich ≥80`, `cheap ≤20` else `fair`; summary prefix `valuation:`.
