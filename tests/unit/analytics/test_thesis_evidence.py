@@ -841,6 +841,175 @@ def test_overlap_slot_uses_purity_when_configured(tmp_path: Path, monkeypatch: p
     assert "overlap_pct" in slot2.metrics
 
 
+@pytest.mark.parametrize("scenario_id", ["test_thesis_evidence_physical_automation_valuation_crowding_not_unknown"])
+def test_thesis_evidence_physical_automation_valuation_crowding_not_unknown(
+    scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """test_thesis_evidence_physical_automation_valuation_crowding_not_unknown"""
+    from src.analytics.thesis_evidence import compute_evidence_vector
+    from src.data.calendar import load_calendar
+    from src.data.pit import stamp_availability
+    from src.data.schema import Dataset, spec_for
+
+    thesis = ThesisSpec(
+        id=ThesisId.PHYSICAL_AUTOMATION,
+        version=1,
+        title="test physical",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["commercialization_lag"],
+        candidate_sleeves=["physical_automation"],
+        historical_proxies=["BOTZ"],
+    )
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2025, 4, 30, tzinfo=UTC)
+
+    cal = load_calendar("XNYS")
+    sessions = cal.sessions(date(2020, 1, 1), date(2025, 4, 30))
+    n = 300
+    assert len(sessions) >= n
+    price_dates = list(sessions[:n])
+    botz_prices = [100.0 * (1.001 ** i) for i in range(n)]
+    qqq_prices = [100.0] * n
+    price_retrieved = datetime(2025, 4, 29, tzinfo=UTC)
+    spec_prices = spec_for(Dataset.PRICES)
+    price_rows: list[dict[str, object]] = []
+    for i, d in enumerate(price_dates):
+        for ticker, px in [("BOTZ", botz_prices[i]), ("QQQ", qqq_prices[i])]:
+            price_rows.append(
+                {
+                    "ticker": ticker,
+                    "date": d,
+                    "open": px,
+                    "high": px,
+                    "low": px,
+                    "close": px,
+                    "volume": 1000,
+                    "adjusted_close": px,
+                    "dividend": 0.0,
+                    "split_factor": 1.0,
+                    "source": "test",
+                    "retrieved_at": price_retrieved,
+                }
+            )
+    prices_df = pl.DataFrame(price_rows).cast(pl.Schema(dict(spec_prices.columns)))
+    prices_stamped = stamp_availability(prices_df, spec_prices, cal)
+
+    spec_holdings = spec_for(Dataset.ETF_HOLDINGS)
+    holdings_retrieved = datetime(2025, 4, 29, tzinfo=UTC)
+    filing = datetime(2025, 4, 15, tzinfo=UTC)
+    report_date = price_dates[-1]
+    weights = [35.0, 17.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0]
+    hold_rows: list[dict[str, object]] = []
+    for i, w in enumerate(weights):
+        hold_rows.append(
+            {
+                "etf_ticker": "BOTZ",
+                "report_date": report_date,
+                "filing_date": filing,
+                "holding_id": f"B{i}",
+                "issuer_name": f"Issuer{i}",
+                "cusip": f"CUSIP{i}",
+                "isin": None,
+                "lei": None,
+                "weight_pct": w,
+                "value_usd": w * 10,
+                "source": "sec_nport",
+                "retrieved_at": holdings_retrieved,
+            }
+        )
+    holdings_df = pl.DataFrame(hold_rows).cast(pl.Schema(dict(spec_holdings.columns)))
+    holdings_stamped = stamp_availability(holdings_df, spec_holdings)
+
+    release = datetime(2025, 4, 29, 12, 0, tzinfo=UTC)
+    obs_dates = [
+        date(2023, 1, 15),
+        date(2023, 2, 15),
+        date(2023, 3, 15),
+        date(2023, 4, 15),
+        date(2023, 5, 15),
+        date(2023, 6, 15),
+        date(2023, 7, 15),
+        date(2023, 8, 15),
+        date(2023, 9, 15),
+        date(2023, 10, 15),
+        date(2023, 11, 15),
+        date(2023, 12, 15),
+        date(2024, 1, 15),
+        date(2024, 2, 15),
+        date(2024, 3, 15),
+        date(2024, 4, 15),
+        date(2024, 5, 15),
+        date(2024, 6, 15),
+        date(2024, 7, 15),
+        date(2024, 8, 15),
+    ]
+    values = [100.0 + i * 5.0 for i in range(len(obs_dates))]
+    macro = pl.DataFrame(
+        {
+            "series_id": ["NEWORDER"] * len(obs_dates),
+            "observation_date": obs_dates,
+            "release_date": [release] * len(obs_dates),
+            "value": values,
+        }
+    )
+
+    def fake_catalog(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:  # type: ignore[no-untyped-def]
+        if dataset == Dataset.PRICES:
+            return prices_stamped
+        if dataset == Dataset.ETF_HOLDINGS:
+            return holdings_stamped
+        if dataset == Dataset.MACRO:
+            return macro
+        return pl.DataFrame()
+
+    def fake_struct_load(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:  # type: ignore[no-untyped-def]
+        if dataset == Dataset.MACRO:
+            return macro
+        raise ValueError("unexpected")
+
+    def fake_val_load(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:  # type: ignore[no-untyped-def]
+        if dataset == Dataset.PRICES:
+            return prices_stamped
+        raise ValueError("unexpected")
+
+    def fake_crd_load(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:  # type: ignore[no-untyped-def]
+        if dataset == Dataset.ETF_HOLDINGS:
+            return holdings_stamped
+        raise ValueError("unexpected")
+
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_catalog)
+    monkeypatch.setattr("src.analytics.structural_evidence.load_visible", fake_struct_load)
+    monkeypatch.setattr("src.analytics.valuation_evidence.load_visible", fake_val_load)
+    monkeypatch.setattr("src.analytics.crowding_evidence.load_visible", fake_crd_load)
+
+    def runner(config: AllocationConfig) -> AllocationResult:
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=100.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=100.0,
+            xirr_real=0.0,
+        )
+
+    snapshot = compute_evidence_vector(thesis=thesis, settings=settings, as_of=as_of, runner=runner)
+    assert snapshot.structural.status == "computed"
+    assert snapshot.structural.summary.startswith("fundamental:")
+    assert snapshot.valuation.status != "unknown"
+    assert snapshot.valuation.status in {"computed", "insufficient_data"}
+    assert snapshot.crowding.status != "unknown"
+    assert snapshot.crowding.status in {"computed", "insufficient_data"}
+    if snapshot.valuation.status == "computed":
+        assert snapshot.valuation.summary.startswith("valuation:")
+        assert snapshot.valuation.metrics["vehicle_ticker"] == "BOTZ"
+    if snapshot.crowding.status == "computed":
+        assert snapshot.crowding.summary.startswith("crowding:")
+        assert snapshot.crowding.metrics["vehicle_ticker"] == "BOTZ"
+
+
 @pytest.mark.parametrize("scenario_id", ["test_thesis_evidence_physical_automation_structural_not_unknown"])
 def test_thesis_evidence_physical_automation_structural_not_unknown(
     scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -931,5 +1100,7 @@ def test_thesis_evidence_physical_automation_structural_not_unknown(
     snapshot = compute_evidence_vector(thesis=thesis, settings=settings, as_of=as_of, runner=runner)
     assert snapshot.structural.status == "computed"
     assert snapshot.structural.summary.startswith("fundamental:")
-    assert snapshot.valuation.status == "unknown"
-    assert snapshot.crowding.status == "unknown"
+    assert snapshot.valuation.status != "unknown"
+    assert snapshot.crowding.status != "unknown"
+    assert snapshot.valuation.status in {"computed", "insufficient_data"}
+    assert snapshot.crowding.status in {"computed", "insufficient_data"}
