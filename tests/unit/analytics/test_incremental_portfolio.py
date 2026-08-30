@@ -247,6 +247,15 @@ def test_inc_make_arm_id_soxx_and_pave(scenario_id: str) -> None:
     assert make_incremental_arm_id("SOXX", 0.10) == "qqq90_soxx10"
 
 
+@pytest.mark.parametrize("scenario_id", ["test_inc_make_arm_id_robo"])
+def test_inc_make_arm_id_robo(scenario_id: str) -> None:
+    """test_inc_make_arm_id_robo"""
+    assert make_incremental_arm_id("ROBO", 0.05) == "qqq95_robo5"
+    assert make_incremental_arm_id("ROBO", 0.10) == "qqq90_robo10"
+    assert make_incremental_arm_id("ROBO", 0.15) == "qqq85_robo15"
+    assert arm_targets(0.10, vehicle_ticker="ROBO") == {"QQQ": 0.9, "ROBO": 0.1}
+
+
 @pytest.mark.parametrize("scenario_id", ["test_inc_resolve_horizon_prefers_120_then_fallback"])
 def test_inc_resolve_horizon_prefers_120_then_fallback(scenario_id: str) -> None:
     """test_inc_resolve_horizon_prefers_120_then_fallback"""
