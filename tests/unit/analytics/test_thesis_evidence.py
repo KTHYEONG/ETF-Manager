@@ -304,14 +304,26 @@ def test_ev_structural_not_unknown_ai_compute(monkeypatch: pytest.MonkeyPatch) -
         }
     )
 
-    def fake_load_visible(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
-        if dataset == Dataset.MACRO:
-            return macro
+    def fake_catalog_load(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
         if dataset == Dataset.ETF_HOLDINGS:
             raise ValueError("no holdings")
         return pl.DataFrame()
 
-    monkeypatch.setattr("src.analytics.structural_evidence.load_visible", fake_load_visible)
+    def fake_struct_load(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+        if dataset == Dataset.MACRO:
+            return macro
+        raise ValueError("no holdings")
+
+    def fake_val_load(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+        raise ValueError("no prices")
+
+    def fake_crd_load(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+        raise ValueError("no holdings")
+
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_catalog_load)
+    monkeypatch.setattr("src.analytics.structural_evidence.load_visible", fake_struct_load)
+    monkeypatch.setattr("src.analytics.valuation_evidence.load_visible", fake_val_load)
+    monkeypatch.setattr("src.analytics.crowding_evidence.load_visible", fake_crd_load)
 
     def runner(config: AllocationConfig) -> AllocationResult:
         return AllocationResult(
@@ -327,8 +339,8 @@ def test_ev_structural_not_unknown_ai_compute(monkeypatch: pytest.MonkeyPatch) -
     snapshot = compute_evidence_vector(thesis=thesis, settings=settings, as_of=as_of, runner=runner)
     assert snapshot.structural.status in ("computed", "insufficient_data")
     assert snapshot.structural.status != "unknown"
-    assert snapshot.valuation.status == "unknown"
-    assert snapshot.crowding.status == "unknown"
+    assert snapshot.valuation.status in ("insufficient_data", "computed")
+    assert snapshot.crowding.status in ("insufficient_data", "computed")
 
 
 def test_ev_market_regime_not_structural(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -354,14 +366,24 @@ def test_ev_market_regime_not_structural(tmp_path: Path, monkeypatch: pytest.Mon
 
     monkeypatch.setattr("src.analytics.regime_proxy.compute_regime_proxy_slot", fake_regime)
 
-    def fake_load_visible(settings, dataset, decision_ts):
+    def fake_catalog(settings, dataset, decision_ts):
         if dataset == Dataset.ETF_HOLDINGS:
             raise ValueError("no holdings")
-        import polars as pl
-
         return pl.DataFrame()
 
-    monkeypatch.setattr("src.data.catalog.load_visible", fake_load_visible)
+    def fake_val(settings, dataset, decision_ts):
+        raise ValueError("no prices")
+
+    def fake_crd(settings, dataset, decision_ts):
+        raise ValueError("no holdings")
+
+    def fake_struct(settings, dataset, decision_ts):
+        raise ValueError("no macro")
+
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_catalog)
+    monkeypatch.setattr("src.analytics.valuation_evidence.load_visible", fake_val)
+    monkeypatch.setattr("src.analytics.crowding_evidence.load_visible", fake_crd)
+    monkeypatch.setattr("src.analytics.structural_evidence.load_visible", fake_struct)
 
     def runner(config: AllocationConfig) -> AllocationResult:
         return AllocationResult(
@@ -378,9 +400,153 @@ def test_ev_market_regime_not_structural(tmp_path: Path, monkeypatch: pytest.Mon
     assert snapshot.market_regime.status in ("computed", "insufficient_data")
     assert snapshot.structural.status in ("computed", "insufficient_data")
     assert snapshot.structural.status != "unknown"
-    assert snapshot.valuation.status == "unknown"
-    assert snapshot.crowding.status == "unknown"
+    assert snapshot.valuation.status in ("insufficient_data", "computed")
+    assert snapshot.crowding.status in ("insufficient_data", "computed")
     if snapshot.structural.status == "computed":
         assert snapshot.structural.summary.startswith("fundamental:")
     else:
         assert "error" in snapshot.structural.metrics
+
+
+def test_ev_valuation_crowding_ai_compute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.analytics.thesis_evidence import compute_evidence_vector
+
+    thesis = ThesisSpec(
+        id=ThesisId.AI_COMPUTE,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["f1"],
+        candidate_sleeves=["ai_semiconductor"],
+        historical_proxies=["SOXX"],
+    )
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2025, 4, 30, tzinfo=UTC)
+    # Build PRICES: SOXX and QQQ 300 sessions
+    from src.data.schema import Dataset, spec_for
+    from src.data.calendar import load_calendar
+    from src.data.pit import stamp_availability
+
+    spec_prices = spec_for(Dataset.PRICES)
+    spec_holdings = spec_for(Dataset.ETF_HOLDINGS)
+    n = 300
+    start = date(2020, 1, 1)
+    # For calibration to avoid NotSessionError, use valid session dates
+    cal = load_calendar("XNYS")
+    sessions = cal.sessions(date(2020, 1, 1), date(2021, 12, 31))
+    assert len(sessions) >= n
+    price_dates = list(sessions[:n])
+    # SOXX rising, QQQ flat
+    soxx_prices = [100 * (1.001 ** i) for i in range(n)]
+    qqq_prices = [100.0] * n
+    price_rows = []
+    retrieved = datetime(2021, 12, 30, tzinfo=UTC)
+    for i, d in enumerate(price_dates):
+        for ticker, px in [("SOXX", soxx_prices[i]), ("QQQ", qqq_prices[i])]:
+            price_rows.append(
+                {
+                    "ticker": ticker,
+                    "date": d,
+                    "open": px,
+                    "high": px,
+                    "low": px,
+                    "close": px,
+                    "volume": 1000,
+                    "adjusted_close": px,
+                    "dividend": 0.0,
+                    "split_factor": 1.0,
+                    "source": "test",
+                    "retrieved_at": retrieved,
+                }
+            )
+    prices_df = pl.DataFrame(price_rows).cast(pl.Schema(dict(spec_prices.columns)))
+    prices_stamped = stamp_availability(prices_df, spec_prices, cal)
+
+    # ETF_HOLDINGS: concentrated SOXX snapshot + QQQ for overlap
+    report_date = price_dates[-1]
+    filing = datetime(2021, 12, 15, tzinfo=UTC)
+    weights_soxx = [35.0, 17.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0]
+    weights_qqq = [20.0, 20.0, 20.0, 20.0, 20.0]
+    hold_rows = []
+    for i, w in enumerate(weights_soxx):
+        hold_rows.append(
+            {
+                "etf_ticker": "SOXX",
+                "report_date": report_date,
+                "filing_date": filing,
+                "holding_id": f"S{i}",
+                "issuer_name": f"S Issuer {i}",
+                "cusip": f"CUSIP_S{i}",
+                "isin": None,
+                "lei": None,
+                "weight_pct": w,
+                "value_usd": w * 10,
+                "source": "sec_nport",
+                "retrieved_at": retrieved,
+            }
+        )
+    for i, w in enumerate(weights_qqq):
+        hold_rows.append(
+            {
+                "etf_ticker": "QQQ",
+                "report_date": report_date,
+                "filing_date": filing,
+                "holding_id": f"Q{i}",
+                "issuer_name": f"Q Issuer {i}",
+                "cusip": f"CUSIP_Q{i}",
+                "isin": None,
+                "lei": None,
+                "weight_pct": w,
+                "value_usd": w * 10,
+                "source": "sec_nport",
+                "retrieved_at": retrieved,
+            }
+        )
+    holdings_df = pl.DataFrame(hold_rows).cast(pl.Schema(dict(spec_holdings.columns)))
+    holdings_stamped = stamp_availability(holdings_df, spec_holdings)
+
+    # MACRO for structural
+    release = datetime(2025, 4, 29, 12, 0, tzinfo=UTC)
+    obs_dates = [date(2015, 3, 31), date(2015, 6, 30), date(2015, 9, 30), date(2015, 12, 31), date(2016, 3, 31), date(2016, 6, 30), date(2016, 9, 30), date(2016, 12, 31), date(2017, 3, 31), date(2017, 6, 30), date(2017, 9, 30), date(2017, 12, 31)]
+    macro = pl.DataFrame({"series_id": ["PNFI"] * 12, "observation_date": obs_dates, "release_date": [release] * 12, "value": [3000.0 + i * 50.0 for i in range(12)]})
+
+    def fake_catalog(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+        if dataset == Dataset.PRICES:
+            return prices_stamped
+        if dataset == Dataset.ETF_HOLDINGS:
+            return holdings_stamped
+        if dataset == Dataset.MACRO:
+            return macro
+        return pl.DataFrame()
+
+    def fake_struct_load(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+        if dataset == Dataset.MACRO:
+            return macro
+        raise ValueError("unexpected")
+
+    def fake_val_load(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+        if dataset == Dataset.PRICES:
+            return prices_stamped
+        raise ValueError("unexpected")
+
+    def fake_crd_load(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+        if dataset == Dataset.ETF_HOLDINGS:
+            return holdings_stamped
+        raise ValueError("unexpected")
+
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_catalog)
+    monkeypatch.setattr("src.analytics.structural_evidence.load_visible", fake_struct_load)
+    monkeypatch.setattr("src.analytics.valuation_evidence.load_visible", fake_val_load)
+    monkeypatch.setattr("src.analytics.crowding_evidence.load_visible", fake_crd_load)
+
+    def runner(config) -> AllocationResult:
+        return AllocationResult(config=config, snapshots=(), terminal_wealth_krw=100.0, xirr=0.0, max_drawdown=0.0, terminal_wealth_real_krw=100.0, xirr_real=0.0)
+
+    snapshot = compute_evidence_vector(thesis=thesis, settings=settings, as_of=as_of, runner=runner)
+    assert snapshot.valuation.status in ("computed", "insufficient_data")
+    assert snapshot.crowding.status in ("computed", "insufficient_data")
+    assert snapshot.valuation.status != "unknown"
+    assert snapshot.crowding.status != "unknown"
+    assert snapshot.structural.status != "unknown"
