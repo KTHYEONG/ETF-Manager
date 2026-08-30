@@ -137,8 +137,8 @@ def test_compute_purity_slot_labels_and_incremental(monkeypatch: pytest.MonkeyPa
     assert slot2.metrics["purity_label"] == "impure"
 
 
-def test_thesis_aligned_weight_grid_identifier_regression() -> None:
-    """Exposure notes must use GRID N-PORT ISINs (not approximate tickers)."""
+def test_thesis_aligned_weight_pave_identifier_regression() -> None:
+    """Exposure notes must use PAVE N-PORT ISINs (not approximate tickers)."""
     from src.analytics.purity_evidence import thesis_aligned_weight_pct
     from src.data.thesis_fundamentals import load_purity_spec
 
@@ -146,14 +146,14 @@ def test_thesis_aligned_weight_grid_identifier_regression() -> None:
     assert spec is not None
     snapshot = pl.DataFrame(
         {
-            "weight_pct": [2.87, 2.10, 95.03],
-            "isin": ["US4435106079", "IE00BDVJJQ56", "US67066G1040"],
+            "weight_pct": [3.37, 1.50, 95.13],
+            "isin": ["US74762E1029", "US4435106079", "US67066G1040"],
             "cusip": [None, None, "67066G104"],
-            "holding_id": ["HUB", "NVT", "NVDA"],
+            "holding_id": ["PWR", "HUB", "NVDA"],
         }
     )
     result = thesis_aligned_weight_pct(snapshot=snapshot, notes=spec.exposure_notes)
-    assert result["thesis_aligned_weight_pct"] == pytest.approx(4.97, abs=0.01)
+    assert result["thesis_aligned_weight_pct"] == pytest.approx(4.87, abs=0.01)
     assert result["matched_notes_count"] == 2
 
 
