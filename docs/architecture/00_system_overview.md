@@ -18,14 +18,15 @@ reporting diagnostics.
 Out of scope (deferred): live broker connectivity, sell-based rebalancing in production,
 variable external cashflow without an explicit reserve ledger.
 
-### Operational lock (2026-08-24)
+### Operational lock (2026-08-30)
 
 | Field | Value |
 | --- | --- |
-| Policy | `QQQ` — Nasdaq-100, QQQ 100% |
-| Contribution | Fixed monthly KRW |
+| Policy | `QQQ` — Nasdaq-100 + SOXX satellite |
+| Targets | QQQ 90% / SOXX 10% (`OPERATIONAL_TARGETS_OVERRIDE`) |
+| Contribution | KAFI adaptive v5 (`OPERATIONAL_ADAPTIVE_CONTRIBUTION`) |
 | Rebalancing | Buy-only via `allocate_contribution` |
-| Active modules | Strategic targets only (`modules = 0`) |
+| Active modules | Strategic targets + adaptive sizing (`modules = 2`) |
 
 `S1_US` (VTI) remains the CE baseline in walk-forward and ablation configs. All other
 `PolicyId` values and optional layers (tilt, overlay, currency, mapping) remain **research
