@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_WAVE_E_AI_POWER_PAVE_REOPEN",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_V2_WAVE_E_AI_POWER_PAVE_REOPEN",
+      "domain": "quant",
+      "title": "Wave E slice 4: PAVE vehicle reopen + Track H incremental + ISIN curation",
+      "why": "Slice 3 closed GRID purity on mixed 49.1%; plan required new vehicle + preregistered 5/10/15. Track H was SOXX-hardcoded; PAVE listing clip missing caused pre-fix incremental failure on global catalog start.",
+      "resolution": "Locked PAVE (S000056509): VehicleId/sleeve/proxy/fundamentals retarget; nport map + THESIS_PANEL_TICKERS; preregistered m_thesis_ai_power_pave + inc 5/10/15; generalized incremental_portfolio (vehicle_ticker, adaptive horizon {120,96,84,60}, clip_incremental_cohort_start); CLI thesis-incremental ai_power_bottleneck; curated 12 PAVE N-PORT ISIN exposure_notes (12/12 match, aligned 29.6% impure); operator FRESH 2026-08-28 thesis-wave continue_research overlap 0.9%, incremental historically_promising 96M n=2.",
+      "impact": "QQQ 100% operational and adoption_passes unchanged; GRID REJECTED_PROXY diagnostic retained; PAVE active_proxy impure (~30% aligned) — vehicle purity ceiling not adoption; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_WAVE_E_AI_POWER_HOLDINGS_PURITY",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_V2_WAVE_E_AI_POWER_HOLDINGS_PURITY",
