@@ -1,0 +1,23 @@
+{
+  "thesis_id": "physical_automation",
+  "primary_series_id": "NEWORDER",
+  "primary_frequency": "M",
+  "secondary_series_ids": ["PNFI"],
+  "falsifiers": {
+    "commercialization_lag": {
+      "series_id": "NEWORDER",
+      "metric": "yoy_pct",
+      "threshold_pct": 0.0,
+      "consecutive_periods": 2
+    }
+  },
+  "structural": {
+    "lookback_periods": 20,
+    "min_history_periods": 8,
+    "min_positive_periods": 4,
+    "yoy_lag": {
+      "Q": 4,
+      "M": 12
+    }
+  }
+}
