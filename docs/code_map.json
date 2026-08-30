@@ -273,5 +273,8 @@
   "src/analytics/wave_d_exit.py": {
     "architecture": "docs/architecture/02_policy_and_validation.md",
     "testing": "tests/unit/analytics/test_wave_d_exit.py"
+  },
+  "src/analytics/purity_evidence.py": {
+    "testing": "tests/unit/analytics/test_purity_evidence.py"
   }
 }
