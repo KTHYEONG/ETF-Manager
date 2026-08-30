@@ -71,7 +71,7 @@ single satellite → CE gate fail → exclude from combination (no weight retuni
 ```
 
 `FUTURE_INDUSTRY_STATIC_MIX_V1` is closed: GRID/IWF mixes failed CE; Wave 3 matrix 0/17 pass
-(details: `docs/results/20260828_wave3_satellite_matrix.md`).
+(details: `docs/results/catalog-waves/20260828_wave3_satellite_matrix.md`).
 
 ## 3. Optional Layers (research only in JSON experiments)
 

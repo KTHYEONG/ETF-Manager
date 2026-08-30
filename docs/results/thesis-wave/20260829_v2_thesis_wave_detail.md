@@ -7,7 +7,7 @@
 **Methodology:** adaptive evaluation horizon within `[min_years, target_years]`; prospective iff `span < min_years` (not `target_years`)
 
 Machine-readable flat table: [`data/20260829_v2_thesis_wave.json`](data/20260829_v2_thesis_wave.json)  
-Short summary: [`2025-04-30_v2_thesis_wave.md`](2025-04-30_v2_thesis_wave.md)
+Short summary: [`2024-08-31_v2_thesis_wave.md`](2024-08-31_v2_thesis_wave.md) (canonical); prior panel: [`archive/2025-04-30/2025-04-30_v2_thesis_wave.md`](../archive/2025-04-30/2025-04-30_v2_thesis_wave.md)
 
 ---
 
@@ -255,8 +255,8 @@ Note: GRID reject uses combined weak CE + median in rationale string; decision e
 
 | Artifact | Path |
 | --- | --- |
-| This report | `docs/results/20260829_v2_thesis_wave_detail.md` |
-| Flat JSON | `docs/results/data/20260829_v2_thesis_wave.json` |
+| This report | `docs/results/thesis-wave/20260829_v2_thesis_wave_detail.md` |
+| Flat JSON | `docs/results/thesis-wave/data/20260829_v2_thesis_wave.json` |
 | Wave JSON (runtime) | `data/thesis_reports/wave_2025-04-30T00-00-00+00-00.json` |
 | Per-thesis JSON | `data/thesis_reports/{thesis_id}_2025-04-30T00-00-00+00-00.json` |
 | Experiment map | `configs/theses/experiment_map.json` |
