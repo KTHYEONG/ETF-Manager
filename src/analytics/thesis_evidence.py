@@ -173,6 +173,14 @@ def _historical_slot(
 
 def _overlap_slot(thesis: ThesisSpec, settings: DataSettings, as_of: datetime) -> EvidenceSlot:
     try:
+        from src.analytics.purity_evidence import compute_purity_slot
+
+        purity_slot = compute_purity_slot(thesis=thesis, settings=settings, as_of=as_of)
+        if purity_slot is not None:
+            return purity_slot
+    except Exception:  # noqa: BLE001,S110
+        pass
+    try:
         from src.analytics.overlap import thesis_overlap_vs_incumbent
         from src.data.catalog import load_visible
         from src.data.schema import Dataset
