@@ -1,12 +1,30 @@
 # Research Results Archive
 
-Persistent backtest and catalog audit reports. Machine-readable companions live alongside each report when applicable.
+Curated narrative and summary JSON for operator review. Machine outputs from CLI runs also live under `data/results/` (experiments, thesis wave JSON).
 
-| Date | Report | Scope |
-|------|--------|-------|
-| 2026-08-29 | [v2 Thesis Wave — Detail (adaptive horizon)](20260829_v2_thesis_wave_detail.md) | Seed thesis E2E with adaptive eval horizon; BOTZ 96M reject |
-| 2025-04-30 | [v2 Thesis Wave — Summary](2025-04-30_v2_thesis_wave.md) | One-line thesis-wave table at panel as-of |
-| 2026-08-28 | [Wave 2 — Catalog & Ingest](20260828_wave2_catalog_and_ingest.md) | Historical coverage ingest, feasibility windows, XNYS calendar limits |
-| 2026-08-28 | [Wave 3 — Satellite Matrix](20260828_wave3_satellite_matrix.md) | QQQ + single-satellite ablation (36M CE) and 120M accumulation cohorts |
+## Layout
 
-Raw JSON: [`data/20260828_satellite_matrix.json`](data/20260828_satellite_matrix.json), [`data/20260829_v2_thesis_wave.json`](data/20260829_v2_thesis_wave.json)
+| Directory | Contents |
+|-----------|----------|
+| [`thesis-wave/`](thesis-wave/) | Batch thesis-wave markdown + methodology deep-dives; `data/` holds flat JSON tables |
+| [`thesis-incremental/`](thesis-incremental/) | Track H incremental portfolio JSON (`QQQ95/90/85` vs `QQQ100`) |
+| [`catalog-waves/`](catalog-waves/) | Historical catalog ingest and satellite-matrix reports (Wave 2–3) |
+| [`archive/`](archive/) | Superseded or exploratory runs (stale panel, pre-attribution-fix, etc.) |
+
+## Canonical (catalog `end=2024-08-31`, panel STALE allowed)
+
+| Report | Path |
+|--------|------|
+| Thesis wave summary | [`thesis-wave/2024-08-31_v2_thesis_wave.md`](thesis-wave/2024-08-31_v2_thesis_wave.md) |
+| Track H incremental | [`thesis-incremental/2024-08-31_incremental_ai_compute.json`](thesis-incremental/2024-08-31_incremental_ai_compute.json) |
+| Full pipeline write-up | [`thesis-wave/20260830_ai_compute_research_pipeline.md`](thesis-wave/20260830_ai_compute_research_pipeline.md) |
+
+## Reference (methodology / prior panel)
+
+| Report | Path |
+|--------|------|
+| Adaptive horizon detail (`as_of=2025-04-30`) | [`thesis-wave/20260829_v2_thesis_wave_detail.md`](thesis-wave/20260829_v2_thesis_wave_detail.md) |
+| Wave 2 catalog & ingest | [`catalog-waves/20260828_wave2_catalog_and_ingest.md`](catalog-waves/20260828_wave2_catalog_and_ingest.md) |
+| Wave 3 satellite matrix | [`catalog-waves/20260828_wave3_satellite_matrix.md`](catalog-waves/20260828_wave3_satellite_matrix.md) |
+
+CLI defaults: `run thesis-wave` → `docs/results/thesis-wave/{date}_v2_thesis_wave.md`; `run thesis-incremental` → `docs/results/thesis-incremental/{date}_incremental_{thesis_id}.json`.
