@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_WAVE_D_EXIT",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_V2_WAVE_D_EXIT",
+      "domain": "quant",
+      "title": "Wave D exit: ai_compute reference slice assessment + thesis-pipeline CLI",
+      "why": "Track F slice 2 (valuation/crowding) and Track H incremental completed on FRESH 2026-08-28 panel but no deterministic Wave D exit assessor or integrated pipeline artifact existed; canonical results still pointed to STALE 2024-08-31.",
+      "resolution": "Added analytics/wave_d_exit.py (assess_wave_d_exit, write_wave_d_exit_markdown, run_thesis_pipeline_command); CLI run thesis-pipeline orchestrates thesis-wave + thesis-incremental + exit markdown; contract tests WDE/CLI-pipeline; operator run on FRESH panel: track_f_complete=True, reference_slice_ready=True, operational_challenger_ready=True (research-only), valuation=rich 94.0%, PNFI yoy 9.88%, Track H cohort_count=10 historically_promising.",
+      "impact": "QQQ 100% operational and adoption_passes unchanged; thesis-pipeline never calls adoption_passes; Wave D reference slice artifact at docs/results/thesis-wave/2026-08-28_wave_d_exit_ai_compute.md enables Wave E planning; 120M historical n=3 remains TARGET_THIN; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_TRACK_F_VALUATION_CROWDING",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_V2_TRACK_F_VALUATION_CROWDING",
