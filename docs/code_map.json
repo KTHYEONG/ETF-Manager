@@ -141,6 +141,11 @@
     "testing": "tests/unit/analytics/test_wave_d_exit.py",
     "family": "thesis"
   },
+  "src/analytics/compound_dca.py": {
+    "testing": "tests/unit/analytics/test_compound_dca.py",
+    "family": "analytics",
+    "architecture": "docs/architecture/02_policy_and_validation.md"
+  },
   "src/cli.py": {
     "testing": [
       "tests/unit/cli/test_facade_exports.py",
