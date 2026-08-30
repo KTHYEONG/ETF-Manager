@@ -156,6 +156,15 @@ flowchart LR
 - Path bootstrap: paired monthly returns joint circular block (`block 12`, `PATH_BOOTSTRAP_WIN_FLOOR=0.55`, `ok iff win_rate≥0.55`)
 - Buy-only attribution: realized SOXX weight `shares * px_usd * usdkrw / mark_krw` (KRW-consistent) vs target; `mean_abs_weight_drift`, `terminal_weight_drift`, `incremental_wealth_ratio`; CLI `run thesis-incremental` shares STALE gate with thesis-wave
 
+### 4.10 Track F structural fundamentals
+
+- Registry `configs/data/thesis_fundamentals/ai_compute.json` locks `PNFI` (Q, primary); `IPG3344S` deferred (FRED-only, not ALFRED). Falsifier `capex_structural_slowdown` (`threshold 0.0%`, `consecutive 2`); `min_history 8`, `lookback 20`.
+- Reuses `Dataset.MACRO` only; `ingest thesis-fundamentals` merges all registry ids via `fetch_and_persist_macro` into one PIT partition (`RELEASE_COLUMN`).
+- PIT `pit_macro_series_levels` filters `series_id` + `available_at ≤ as_of` and keeps latest vintage per `observation_date`, sorted ascending.
+- YoY `% = (x_t/x_{t-lag}-1)*100` with lag 4 (Q) /12 (M) inferred from spacing or `primary_frequency`; `evaluate_falsifier_slowdown` checks last 2 YoY `<0`.
+- `detect_yoy_regime_change` scans trailing 20 for first `≥0→<0` after 4 consecutive `≥0`; otherwise `regime` from latest YoY sign; `compute_structural_slot` fails closed to `insufficient_data` if registry/macro absent.
+- `structural` slot summary prefixed `fundamental:` when `computed`; metrics `primary_series_id`, `primary_yoy_pct`, `falsifier_capex_structural_slowdown_active`, `change_point_date`, `regime`; valuation/crowding stay `unknown`.
+
 ## 5. Completed Experiment Matrix
 
 | Config | Baseline | Candidate | Gate | Result (2026-08-23) |

@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_TRACK_F_STRUCTURAL",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_V2_TRACK_F_STRUCTURAL",
+      "domain": "quant",
+      "title": "Wave D Track F slice 1: PNFI structural evidence + thesis-fundamentals ingest",
+      "why": "Track F structural slot was unknown; ingest thesis-fundamentals failed on IPG3344S (FRED-only, not ALFRED); PNFI-only ingest overwrote MACRO partition and dropped VIXCLS/BAA10Y used by KAFI/overlay.",
+      "resolution": "Added structural_evidence.py (PIT PNFI YoY, falsifier, regime), thesis_fundamentals registry+ingest CLI, wired compute_structural_slot in thesis_evidence; deferred IPG3344S in registry; fetch_and_persist_macro retain_other_series merge; contract tests; thesis-wave 2026-08-28 ai_compute structural computed (PNFI yoy 9.88%, expansion, falsifier false).",
+      "impact": "QQQ 100% operational and adoption_passes unchanged; MACRO partition retains PNFI+VIXCLS+BAA10Y; valuation/crowding still unknown (slice 2 pending spec); specs purged on sync."
+    },
+    {
       "task_id": "TASK_THESIS_PANEL_FRESH_RERUN",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_THESIS_PANEL_FRESH_RERUN",
