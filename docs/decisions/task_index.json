@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_WAVE_E_AI_POWER_HOLDINGS_PURITY",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_V2_WAVE_E_AI_POWER_HOLDINGS_PURITY",
+      "domain": "quant",
+      "title": "Wave E Track F slice 3: ai_power GRID holdings purity + exposure notes",
+      "why": "Slice 2 filled GRID valuation/crowding (5/5 evidence computed) but overlap slot still reported vanity overlap_pct without incremental a_only or thesis-aligned beneficiary mapping; Wave E slice 3 requires N-PORT look-through before Slice 4 vehicle reopen.",
+      "resolution": "Added purity block with 12 curated exposure_notes to ai_power_bottleneck.json; ExposureNote/PuritySpec/load_purity_spec; purity_evidence.py (thesis_aligned_weight_pct, compute_purity_slot); _overlap_slot prefers purity when configured; ISIN regression fix Hubbell US4435106079 and nVent IE00BDVJJQ56; contract tests PUR; lean_check PASS; operator thesis-wave FRESH 2026-08-28: purity mixed aligned 49.1% incremental 95.0% overlap 5.0% matched_notes 12/12.",
+      "impact": "QQQ 100% operational and adoption_passes unchanged; ai_power overlap slot purity-enriched (mixed, not pure); GRID remains REJECTED_PROXY (120M median 0.87, thesis UNRESOLVED); no Track H or GRID 100 vs QQQ experiments; Wave E slice 4 (new vehicle + preregistered 5/10/15) next; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_WAVE_E_AI_POWER_VALUATION_CROWDING",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_V2_WAVE_E_AI_POWER_VALUATION_CROWDING",
