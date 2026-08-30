@@ -198,7 +198,7 @@ def test_load_physical_automation_valuation_crowding_registry(scenario_id: str) 
 
     vspec = load_valuation_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
     assert vspec is not None
-    assert vspec.vehicle_ticker == "BOTZ"
+    assert vspec.vehicle_ticker == "ROBO"
     assert vspec.benchmark_ticker == "QQQ"
     assert vspec.trailing_sessions == 1260
     assert vspec.rich_percentile == 80
@@ -208,13 +208,40 @@ def test_load_physical_automation_valuation_crowding_registry(scenario_id: str) 
     assert vspec.collapse_return_pct == -15.0
     cspec = load_crowding_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
     assert cspec is not None
-    assert cspec.vehicle_ticker == "BOTZ"
+    assert cspec.vehicle_ticker == "ROBO"
     assert cspec.top_n == 5
     assert cspec.concentrated_hhi_threshold == 0.18
     assert cspec.concentrated_top5_pct == 60.0
     spec = load_thesis_fundamentals(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
     assert spec.primary_series_id == "NEWORDER"
     assert "commercialization_lag" in spec.falsifiers
+
+
+@pytest.mark.parametrize("scenario_id", ["test_load_physical_automation_vehicle_retargeted_to_robo"])
+def test_load_physical_automation_vehicle_retargeted_to_robo(scenario_id: str) -> None:
+    """test_load_physical_automation_vehicle_retargeted_to_robo"""
+    from src.data.thesis_fundamentals import load_crowding_spec, load_purity_spec, load_valuation_spec
+
+    vspec = load_valuation_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    cspec = load_crowding_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    pspec = load_purity_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    assert vspec is not None
+    assert vspec.vehicle_ticker == "ROBO"
+    assert cspec is not None
+    assert cspec.vehicle_ticker == "ROBO"
+    assert pspec is not None
+    assert pspec.vehicle_ticker == "ROBO"
+    assert pspec.incumbent_ticker == "QQQ"
+    assert len(pspec.exposure_notes) >= 10
+    for note in pspec.exposure_notes:
+        assert note.role.strip()
+        assert note.note.strip()
+        assert note.isin or note.cusip
+    roles = {n.role for n in pspec.exposure_notes}
+    assert "industrial_automation" in roles
+    isins = {n.isin for n in pspec.exposure_notes if n.isin}
+    assert "US67066G1040" not in isins
+    assert load_thesis_fundamentals(thesis_id=ThesisId.PHYSICAL_AUTOMATION).primary_series_id == "NEWORDER"
 
 
 @pytest.mark.parametrize("scenario_id", ["test_load_physical_automation_purity_spec"])
@@ -227,7 +254,7 @@ def test_load_physical_automation_purity_spec(scenario_id: str) -> None:
 
     pspec = load_purity_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
     assert pspec is not None
-    assert pspec.vehicle_ticker == "BOTZ"
+    assert pspec.vehicle_ticker == "ROBO"
     assert pspec.incumbent_ticker == "QQQ"
     assert pspec.pure_min_pct == 70.0
     assert pspec.impure_max_pct == 40.0
@@ -239,9 +266,9 @@ def test_load_physical_automation_purity_spec(scenario_id: str) -> None:
     vspec = load_valuation_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
     cspec = load_crowding_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
     assert vspec is not None
-    assert vspec.vehicle_ticker == "BOTZ"
+    assert vspec.vehicle_ticker == "ROBO"
     assert cspec is not None
-    assert cspec.vehicle_ticker == "BOTZ"
+    assert cspec.vehicle_ticker == "ROBO"
     assert load_purity_spec(thesis_id=ThesisId.AI_COMPUTE) is None
     payload = json.loads(Path("configs/data/thesis_fundamentals/physical_automation.json").read_text(encoding="utf-8"))
     assert "purity" in payload
@@ -302,11 +329,11 @@ def test_physical_automation_valuation_crowding_purity_absent(scenario_id: str) 
     cspec = load_crowding_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
     pspec = load_purity_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
     assert vspec is not None
-    assert vspec.vehicle_ticker == "BOTZ"
+    assert vspec.vehicle_ticker == "ROBO"
     assert cspec is not None
-    assert cspec.vehicle_ticker == "BOTZ"
+    assert cspec.vehicle_ticker == "ROBO"
     assert pspec is not None
-    assert pspec.vehicle_ticker == "BOTZ"
+    assert pspec.vehicle_ticker == "ROBO"
     payload = json.loads(Path("configs/data/thesis_fundamentals/physical_automation.json").read_text(encoding="utf-8"))
     assert "valuation" in payload
     assert "crowding" in payload
