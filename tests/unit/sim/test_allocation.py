@@ -926,6 +926,7 @@ def test_sim_mix_lock_skips_override(scenario_id: str) -> None:
     )
     locked = apply_operational_contribution_lock(bare_qqq)
     assert locked.adaptive_contribution is OPERATIONAL_ADAPTIVE_CONTRIBUTION
+    assert locked.targets_override == {"QQQ": 0.9, "SOXX": 0.1}
 
     mixed = replace(bare_qqq, targets_override={"QQQ": 0.9, "VTI": 0.1})
     skipped = apply_operational_contribution_lock(mixed)
