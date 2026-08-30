@@ -105,6 +105,11 @@
       "kind": "wf",
       "notes": "operational adaptive lock candidate"
     },
+    "wf_qqq_soxx10_adaptive_v5.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "operational QQQ90/SOXX10 adaptive v5 WF + cost grid (start 2016-07-01)"
+    },
     "wf_qqq_cadence.json": {
       "status": "active",
       "kind": "wf",
