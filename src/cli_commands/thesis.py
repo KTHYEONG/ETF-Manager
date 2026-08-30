@@ -373,7 +373,7 @@ def run_thesis_incremental_command(
         except ValueError as exc:
             logger.error("[DATA] event=thesis_incremental_failed reason=%s", exc)
             return 2
-        if tid not in (ThesisId.AI_COMPUTE, ThesisId.AI_POWER_BOTTLENECK):
+        if tid not in (ThesisId.AI_COMPUTE, ThesisId.AI_POWER_BOTTLENECK, ThesisId.PHYSICAL_AUTOMATION):
             logger.error("[DATA] event=thesis_incremental_failed reason=only ai_compute supported")
             return 2
         # anchor keep for wiring: only ai_compute supported
