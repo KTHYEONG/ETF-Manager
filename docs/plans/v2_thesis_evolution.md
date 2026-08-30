@@ -2,7 +2,7 @@
 
 Post–thesis-wave roadmap. Normative contracts live in `docs/architecture/`. This file is the ordered **why and when**; it is not an adoption gate.
 
-Input: `docs/results/20260829_v2_thesis_wave_detail.md` and the 2026-08-29 review (`docs/feedback.md`). Judgment that diverges from that review is in §3.
+Input: `docs/results/thesis-wave/20260829_v2_thesis_wave_detail.md` and the 2026-08-29 review (`docs/feedback.md`). Judgment that diverges from that review is in §3.
 
 ---
 
@@ -68,7 +68,7 @@ BOTZ: 8.62y span, 96M n=1 ratio 0.613. History exists; evidence for a 10y object
 
 ### 2.3 Confirmed code facts (integrity, not policy)
 
-1. **SOXX decision enum is `continue_research`.** Watch requires `median ≥ 1` **and** `ce < 1.02`. CE ratio 1.20 does not take the watch branch. The contradiction is in **report prose** (`docs/results/20260829_v2_thesis_wave_detail.md` §5.1 / §6.2: “hurdle not met”, “below adoption”), not in `synthesize_thesis_decision` for this case.
+1. **SOXX decision enum is `continue_research`.** Watch requires `median ≥ 1` **and** `ce < 1.02`. CE ratio 1.20 does not take the watch branch. The contradiction is in **report prose** (`docs/results/thesis-wave/20260829_v2_thesis_wave_detail.md` §5.1 / §6.2: “hurdle not met”, “below adoption”), not in `synthesize_thesis_decision` for this case.
 2. **Thesis-wave CE is a singleton wealth ratio.** `_ce_ratio_gamma_2` passes a 1-tuple into `certainty_equivalent`. Comparing that number to the **operational** 36M cohort CE hurdle (`1 + 0.02 × modules`) mixes two instruments.
 3. **Holdings PIT likely aggregates multiple `report_date`s.** `overlap.py` keeps max `filing_date` per `(etf_ticker, report_date, holding_id)`, then sums `weight_pct`. Two ~100% snapshots explain `a_only_weight_pct ≈ 195`. Until this is fixed, do not treat “SOXX/QQQ overlap = 11.5%” as a fact.
 

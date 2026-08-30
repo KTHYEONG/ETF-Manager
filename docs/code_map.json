@@ -248,5 +248,6 @@
   },
   "src/data/providers/quota.py": {
     "testing": "tests/unit/data/test_quota.py"
-  }
+  },
+  "configs/experiments/wf_thesis_ai_compute_soxx_inc_10.json": {}
 }
