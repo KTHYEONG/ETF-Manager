@@ -88,3 +88,49 @@ def test_load_ai_power_valuation_crowding_registry() -> None:
     assert cspec.concentrated_top5_pct == 60.0
     spec = load_thesis_fundamentals(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
     assert spec.primary_series_id == "A35SNO"
+
+
+def test_load_ai_power_purity_spec() -> None:
+    from src.data.thesis_fundamentals import load_purity_spec
+
+    spec = load_purity_spec(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
+    assert spec is not None
+    assert spec.vehicle_ticker == "GRID"
+    assert spec.incumbent_ticker == "QQQ"
+    assert spec.pure_min_pct == 70.0
+    assert spec.impure_max_pct == 40.0
+    assert len(spec.exposure_notes) >= 12
+    for note in spec.exposure_notes:
+        assert note.role.strip()
+        assert note.note.strip()
+        assert note.isin or note.cusip
+    isins = {n.isin for n in spec.exposure_notes if n.isin}
+    required = {
+        "IE00B8KQN827",
+        "CH0012221716",
+        "FR0000121972",
+        "IT0004176001",
+        "US74762E1029",
+        "GB00BDR05C01",
+        "IT0003242622",
+        "BE0003822393",
+    }
+    for req in required:
+        assert req in isins
+    # GRID N-PORT identifiers (regression: wrong ISIN silently drops aligned weight)
+    grid_holdings_isins = {
+        "US4435106079",  # Hubbell Incorporated
+        "IE00BDVJJQ56",  # NVent Electric PLC
+    }
+    for req in grid_holdings_isins:
+        assert req in isins
+    dilution = {
+        "US67066G1040",
+        "US88160R1014",
+        "US17275R1023",
+        "US68389X1054",
+        "DE0007164600",
+    }
+    for d in dilution:
+        assert d not in isins
+    assert load_purity_spec(thesis_id=ThesisId.AI_COMPUTE) is None
