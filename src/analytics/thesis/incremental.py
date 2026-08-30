@@ -58,6 +58,9 @@ class IncrementalArmId(StrEnum):
     QQQ95_PAVE5 = "qqq95_pave5"
     QQQ90_PAVE10 = "qqq90_pave10"
     QQQ85_PAVE15 = "qqq85_pave15"
+    QQQ95_ROBO5 = "qqq95_robo5"
+    QQQ90_ROBO10 = "qqq90_robo10"
+    QQQ85_ROBO15 = "qqq85_robo15"
 
     @classmethod
     def _missing_(cls, value: object) -> IncrementalArmId | None:
