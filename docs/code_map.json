@@ -269,5 +269,9 @@
   },
   "src/validation/windows.py": {
     "testing": "tests/unit/validation/test_windows.py"
+  },
+  "src/analytics/wave_d_exit.py": {
+    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "testing": "tests/unit/analytics/test_wave_d_exit.py"
   }
 }
