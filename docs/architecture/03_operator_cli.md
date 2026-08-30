@@ -8,6 +8,8 @@ uv run python -m src.cli <command> ...
 
 All execution, lint, and tests use the `uv run` prefix per project policy.
 
+> Wave 1 layout: `src/cli.py` is a thin facade (≤450 LOC) importing `src/cli_commands/*`; domain runners live in `parser`, `resolvers`, `ingest`, `thesis`, `diagnose`, `sim_run`, `campaign` (each ≤500 LOC). Tests migrated to `tests/unit/cli/` by command family.
+
 ## 2. Commands
 
 ### Ingest
