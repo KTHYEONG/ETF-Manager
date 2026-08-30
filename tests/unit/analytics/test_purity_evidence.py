@@ -113,6 +113,8 @@ def test_compute_purity_slot_labels_and_incremental(monkeypatch: pytest.MonkeyPa
     assert slot.metrics["thesis_aligned_weight_pct"] == pytest.approx(80.0)
     assert slot.metrics["incremental_weight_pct"] == pytest.approx(90.0, abs=0.01)
     assert slot.metrics["overlap_pct"] == pytest.approx(10.0, abs=0.01)
+    assert "industrial_weight_pct" not in slot.metrics
+    assert "humanoid_weight_pct" not in slot.metrics
 
     # second case: aligned forced to 30 -> impure
     # Adjust GRID weight to 30 aligned, keep total 100: change aligned row weight to 30, add extra non-aligned 50
@@ -154,6 +156,168 @@ def test_thesis_aligned_weight_pave_identifier_regression() -> None:
     )
     result = thesis_aligned_weight_pct(snapshot=snapshot, notes=spec.exposure_notes)
     assert result["thesis_aligned_weight_pct"] == pytest.approx(4.87, abs=0.01)
+    assert result["matched_notes_count"] == 2
+
+
+def test_role_aligned_weight_pct_by_role() -> None:
+    from src.analytics.purity_evidence import role_aligned_weight_pct, thesis_aligned_weight_pct
+
+    snapshot = pl.DataFrame(
+        {
+            "weight_pct": [40.0, 10.0, 50.0],
+            "isin": ["ISIN_I", "ISIN_H", "ISIN_X"],
+            "cusip": [None, None, None],
+            "holding_id": ["H1", "H2", "H3"],
+        }
+    )
+    notes = (
+        ExposureNote(isin="ISIN_I", cusip=None, role="industrial_automation", note="i"),
+        ExposureNote(isin="ISIN_H", cusip=None, role="humanoid_optionality", note="h"),
+    )
+    role_weights = role_aligned_weight_pct(snapshot=snapshot, notes=notes)
+    assert role_weights["industrial_automation"] == pytest.approx(40.0)
+    assert role_weights["humanoid_optionality"] == pytest.approx(10.0)
+    aligned = thesis_aligned_weight_pct(snapshot=snapshot, notes=notes)
+    assert aligned["thesis_aligned_weight_pct"] == pytest.approx(50.0)
+    assert aligned["matched_notes_count"] == 2
+
+
+def test_compute_purity_slot_emits_split_metrics_when_roles_present(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from src.analytics.purity_evidence import compute_purity_slot
+    from src.data.pit import stamp_availability
+
+    thesis = ThesisSpec(
+        id=ThesisId.PHYSICAL_AUTOMATION,
+        version=1,
+        title="test physical",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["commercialization_lag"],
+        candidate_sleeves=["physical_automation"],
+        historical_proxies=["BOTZ"],
+    )
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2020, 1, 15, tzinfo=UTC)
+    industrial_isin = "IND_ISIN"
+    humanoid_isin = "HUM_ISIN"
+    notes = (
+        ExposureNote(isin=industrial_isin, cusip=None, role="industrial_automation", note="ind"),
+        ExposureNote(isin=humanoid_isin, cusip=None, role="humanoid_optionality", note="hum"),
+    )
+    purity_spec = PuritySpec(
+        vehicle_ticker="BOTZ",
+        incumbent_ticker="QQQ",
+        pure_min_pct=70.0,
+        impure_max_pct=40.0,
+        exposure_notes=notes,
+    )
+    spec = spec_for(Dataset.ETF_HOLDINGS)
+    retrieved = datetime(2020, 1, 1, tzinfo=UTC)
+    filing = datetime(2019, 12, 15, tzinfo=UTC)
+    report_date = date(2019, 12, 31)
+    rows = [
+        {
+            "etf_ticker": "BOTZ",
+            "report_date": report_date,
+            "filing_date": filing,
+            "holding_id": "I1",
+            "issuer_name": "Industrial Co",
+            "cusip": "CUSIP_I",
+            "isin": industrial_isin,
+            "lei": None,
+            "weight_pct": 45.0,
+            "value_usd": 45,
+            "source": "sec_nport",
+            "retrieved_at": retrieved,
+        },
+        {
+            "etf_ticker": "BOTZ",
+            "report_date": report_date,
+            "filing_date": filing,
+            "holding_id": "H1",
+            "issuer_name": "Humanoid Co",
+            "cusip": "CUSIP_H",
+            "isin": humanoid_isin,
+            "lei": None,
+            "weight_pct": 10.0,
+            "value_usd": 10,
+            "source": "sec_nport",
+            "retrieved_at": retrieved,
+        },
+        {
+            "etf_ticker": "BOTZ",
+            "report_date": report_date,
+            "filing_date": filing,
+            "holding_id": "N1",
+            "issuer_name": "Other Co",
+            "cusip": "CUSIP_N",
+            "isin": "NON_ISIN",
+            "lei": None,
+            "weight_pct": 45.0,
+            "value_usd": 45,
+            "source": "sec_nport",
+            "retrieved_at": retrieved,
+        },
+        {
+            "etf_ticker": "QQQ",
+            "report_date": report_date,
+            "filing_date": filing,
+            "holding_id": "Q1",
+            "issuer_name": "QQQ Only",
+            "cusip": "CUSIP_Q",
+            "isin": "Q_ISIN",
+            "lei": None,
+            "weight_pct": 100.0,
+            "value_usd": 100,
+            "source": "sec_nport",
+            "retrieved_at": retrieved,
+        },
+    ]
+    df = pl.DataFrame(rows).cast(pl.Schema(dict(spec.columns)))
+    stamped = stamp_availability(df, spec)
+
+    monkeypatch.setattr("src.data.thesis_fundamentals.load_purity_spec", lambda **kwargs: purity_spec)
+    monkeypatch.setattr("src.analytics.purity_evidence.load_purity_spec", lambda **kwargs: purity_spec)
+
+    def fake_load_visible(settings, dataset, decision_ts):
+        if dataset == Dataset.ETF_HOLDINGS:
+            return stamped
+        raise ValueError("unexpected dataset")
+
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_load_visible)
+
+    slot = compute_purity_slot(thesis=thesis, settings=settings, as_of=as_of)
+    assert slot is not None
+    assert slot.status == "computed"
+    assert slot.summary.startswith("purity:")
+    assert slot.metrics["purity_label"] == "mixed"
+    assert slot.metrics["thesis_aligned_weight_pct"] == pytest.approx(55.0)
+    assert slot.metrics["industrial_weight_pct"] == pytest.approx(45.0)
+    assert slot.metrics["humanoid_weight_pct"] == pytest.approx(10.0)
+    assert slot.metrics["vehicle_ticker"] == "BOTZ"
+    assert slot.metrics["incremental_weight_pct"] == pytest.approx(100.0, abs=0.01)
+    assert slot.metrics["industrial_weight_pct"] > slot.metrics["humanoid_weight_pct"]
+
+
+def test_thesis_aligned_weight_botz_identifier_regression() -> None:
+    from src.analytics.purity_evidence import thesis_aligned_weight_pct
+    from src.data.thesis_fundamentals import load_purity_spec
+
+    spec = load_purity_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    assert spec is not None
+    snapshot = pl.DataFrame(
+        {
+            "weight_pct": [10.03, 9.26, 9.51],
+            "isin": ["CH0012221716", "JP3802400006", "US67066G1040"],
+            "cusip": [None, None, "67066G104"],
+            "holding_id": ["ABB", "FANUC", "NVDA"],
+        }
+    )
+    result = thesis_aligned_weight_pct(snapshot=snapshot, notes=spec.exposure_notes)
+    assert result["thesis_aligned_weight_pct"] == pytest.approx(19.29, abs=0.01)
     assert result["matched_notes_count"] == 2
 
 

@@ -841,6 +841,132 @@ def test_overlap_slot_uses_purity_when_configured(tmp_path: Path, monkeypatch: p
     assert "overlap_pct" in slot2.metrics
 
 
+@pytest.mark.parametrize("scenario_id", ["test_thesis_evidence_physical_automation_overlap_uses_purity"])
+def test_thesis_evidence_physical_automation_overlap_uses_purity(
+    scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """test_thesis_evidence_physical_automation_overlap_uses_purity"""
+    from src.analytics.thesis_evidence import EvidenceSlot, _overlap_slot
+    from src.data.schema import Dataset, spec_for
+    from src.data.pit import stamp_availability
+
+    thesis_physical = ThesisSpec(
+        id=ThesisId.PHYSICAL_AUTOMATION,
+        version=1,
+        title="test physical",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["commercialization_lag"],
+        candidate_sleeves=["physical_automation"],
+        historical_proxies=["BOTZ"],
+    )
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2020, 1, 15, tzinfo=UTC)
+    fake_purity = EvidenceSlot(
+        status="computed",
+        summary="purity: mixed aligned 51.0%",
+        metrics={
+            "purity_label": "mixed",
+            "industrial_weight_pct": 45.0,
+            "humanoid_weight_pct": 6.0,
+        },
+    )
+    monkeypatch.setattr("src.analytics.purity_evidence.compute_purity_slot", lambda **kwargs: fake_purity)
+    slot = _overlap_slot(thesis_physical, settings, as_of)
+    assert slot.summary.startswith("purity:")
+    assert slot.metrics["purity_label"] == "mixed"
+    assert slot.metrics["industrial_weight_pct"] == 45.0
+    assert slot.metrics["humanoid_weight_pct"] == 6.0
+
+    thesis_compute = ThesisSpec(
+        id=ThesisId.AI_COMPUTE,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["f1"],
+        candidate_sleeves=["ai_semiconductor"],
+        historical_proxies=["SOXX"],
+    )
+    monkeypatch.setattr("src.analytics.purity_evidence.compute_purity_slot", lambda **kwargs: None)
+    spec = spec_for(Dataset.ETF_HOLDINGS)
+    retrieved = datetime(2020, 1, 1, tzinfo=UTC)
+    filing = datetime(2019, 12, 15, tzinfo=UTC)
+    report_date = date(2019, 12, 31)
+    rows = [
+        {
+            "etf_ticker": "SOXX",
+            "report_date": report_date,
+            "filing_date": filing,
+            "holding_id": "X",
+            "issuer_name": "X Inc",
+            "cusip": "X-cusip",
+            "isin": None,
+            "lei": None,
+            "weight_pct": 60.0,
+            "value_usd": 60,
+            "source": "sec_nport",
+            "retrieved_at": retrieved,
+        },
+        {
+            "etf_ticker": "SOXX",
+            "report_date": report_date,
+            "filing_date": filing,
+            "holding_id": "Y",
+            "issuer_name": "Y Inc",
+            "cusip": "Y-cusip",
+            "isin": None,
+            "lei": None,
+            "weight_pct": 40.0,
+            "value_usd": 40,
+            "source": "sec_nport",
+            "retrieved_at": retrieved,
+        },
+        {
+            "etf_ticker": "QQQ",
+            "report_date": report_date,
+            "filing_date": filing,
+            "holding_id": "X",
+            "issuer_name": "X Inc",
+            "cusip": "X-cusip",
+            "isin": None,
+            "lei": None,
+            "weight_pct": 50.0,
+            "value_usd": 50,
+            "source": "sec_nport",
+            "retrieved_at": retrieved,
+        },
+        {
+            "etf_ticker": "QQQ",
+            "report_date": report_date,
+            "filing_date": filing,
+            "holding_id": "Z",
+            "issuer_name": "Z Inc",
+            "cusip": "Z-cusip",
+            "isin": None,
+            "lei": None,
+            "weight_pct": 50.0,
+            "value_usd": 50,
+            "source": "sec_nport",
+            "retrieved_at": retrieved,
+        },
+    ]
+    df = pl.DataFrame(rows).cast(pl.Schema(dict(spec.columns)))
+    stamped = stamp_availability(df, spec)
+
+    def fake_load_visible(settings, dataset, decision_ts):
+        if dataset == Dataset.ETF_HOLDINGS:
+            return stamped
+        raise ValueError("unexpected dataset")
+
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_load_visible)
+    slot2 = _overlap_slot(thesis_compute, settings, as_of)
+    assert slot2.summary.startswith("overlap")
+    assert "overlap_pct" in slot2.metrics
+
+
 @pytest.mark.parametrize("scenario_id", ["test_thesis_evidence_physical_automation_valuation_crowding_not_unknown"])
 def test_thesis_evidence_physical_automation_valuation_crowding_not_unknown(
     scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
