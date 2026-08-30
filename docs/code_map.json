@@ -511,5 +511,10 @@
   "src/validation/__init__.py": {
     "testing": "tests/unit/validation/test_gate.py",
     "family": "validation"
+  },
+  "src/policy/mix_risk_budget.py": {
+    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "family": "policy",
+    "testing": "tests/unit/policy/test_mix_risk_budget.py"
   }
 }

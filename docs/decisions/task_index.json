@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_COMPOUND_SOXX_MAIN_RISKBUDGET_DIAG",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_COMPOUND_SOXX_MAIN_RISKBUDGET_DIAG",
+      "domain": "portfolio",
+      "title": "Compound DCA: SOXX role-swap + PIT risk-budget diagnostic arms",
+      "why": "Operational QQQ90/SOXX10+adaptive v5 left SOXX-main/QQQ-aux inversion and 5/10/15 capital grids unexamined; user asked whether role-swap and finance-engineered weights beat arbitrary satellite shares without retuning the operational lock.",
+      "resolution": "Added trailing_simple_corr, mix_risk_budget (satellite_risk_budget_weight, OPERATIONAL_MIX_RISK_BUDGET θ=0.10 cap 15%), AllocationConfig.mix_risk_budget PIT wiring, compound_dca 10-arm tournament (soxx90/qqq10 role-swap, soxx100, qqq_soxx_riskbudget flat/adaptive); architecture §4.12 and diagnose-compound-dca help updated; INCREMENTAL_SATELLITE_WEIGHTS unchanged.",
+      "impact": "run diagnose-compound-dca reporting-only 10 arms operational_unlock=false; QQQ90/SOXX10+adaptive v5 operational lock unchanged; FRESH 2016-07-01–2026-06-30 run: soxx100_adaptive_v5 champion on real_gain (+5.98억 vs qqq_flat) but MDD -29.4% vs operational -20.7%; riskbudget adaptive between qqq_adaptive and qqq90_soxx10_adaptive — not an adoption gate; specs/scratch purged on sync."
+    },
+    {
       "task_id": "TASK_COMPOUND_SOXX10_ADAPTIVE_OPS_LOCK",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_COMPOUND_SOXX10_ADAPTIVE_OPS_LOCK",

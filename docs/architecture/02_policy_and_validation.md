@@ -231,6 +231,6 @@ justify weight retuning without new structural evidence.
 
 ### 4.12 Compound-DCA tournament (reporting-only)
 
-- `src/analytics/compound_dca.py:compare_compound_dca` runs four arms `qqq_flat`, `qqq_adaptive_v5`, `qqq90_soxx10_flat`, `qqq90_soxx10_adaptive_v5` on window `2015-06-01`–`2026-06-30` with `PolicyId.QQQ` and `OPERATIONAL_ADAPTIVE_CONTRIBUTION` only on adaptive arms; mix arms use `targets_override {"QQQ": 0.9, "SOXX": 0.1}`.
+- `src/analytics/compound_dca.py:compare_compound_dca` runs ten arms `qqq_flat`, `qqq_adaptive_v5`, `qqq90_soxx10_flat`, `qqq90_soxx10_adaptive_v5`, `soxx90_qqq10_flat`, `soxx90_qqq10_adaptive_v5`, `soxx100_flat`, `soxx100_adaptive_v5`, `qqq_soxx_riskbudget_flat`, `qqq_soxx_riskbudget_adaptive_v5` on window `2016-07-01`–`2026-06-30` with `PolicyId.QQQ` and `OPERATIONAL_ADAPTIVE_CONTRIBUTION` only on adaptive arms; `qqq90_soxx10` uses `targets_override {"QQQ": 0.9, "SOXX": 0.1}`, `soxx90_qqq10` role-swap uses `{"SOXX": 0.9, "QQQ": 0.1}`, `soxx100` uses `{"SOXX": 1.0}`, and `qqq_soxx_riskbudget` uses `mix_risk_budget=OPERATIONAL_MIX_RISK_BUDGET` (riskbudget) with `targets_override=None`.
 - Reporting-only; `run diagnose-compound-dca` logs `[DATA] event=compound_dca_arm` per arm and `event=compound_dca_done champion=... operational_unlock=false`.
 - WF JSON `configs/experiments/wf_qqq_soxx10_adaptive_v5.json` validated the operational QQQ90/SOXX10 + adaptive v5 lock (`start=2016-07-01`).
