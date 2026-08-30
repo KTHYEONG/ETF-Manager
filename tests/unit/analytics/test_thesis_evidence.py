@@ -839,3 +839,97 @@ def test_overlap_slot_uses_purity_when_configured(tmp_path: Path, monkeypatch: p
     slot2 = _overlap_slot(thesis_compute, settings, as_of)
     assert slot2.summary.startswith("overlap")
     assert "overlap_pct" in slot2.metrics
+
+
+@pytest.mark.parametrize("scenario_id", ["test_thesis_evidence_physical_automation_structural_not_unknown"])
+def test_thesis_evidence_physical_automation_structural_not_unknown(
+    scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """test_thesis_evidence_physical_automation_structural_not_unknown"""
+    from src.analytics.thesis_evidence import compute_evidence_vector
+
+    thesis = ThesisSpec(
+        id=ThesisId.PHYSICAL_AUTOMATION,
+        version=1,
+        title="test physical",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["commercialization_lag"],
+        candidate_sleeves=["physical_automation"],
+        historical_proxies=["BOTZ"],
+    )
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2025, 4, 30, tzinfo=UTC)
+    release = datetime(2025, 4, 29, 12, 0, tzinfo=UTC)
+    obs_dates = [
+        date(2023, 1, 15),
+        date(2023, 2, 15),
+        date(2023, 3, 15),
+        date(2023, 4, 15),
+        date(2023, 5, 15),
+        date(2023, 6, 15),
+        date(2023, 7, 15),
+        date(2023, 8, 15),
+        date(2023, 9, 15),
+        date(2023, 10, 15),
+        date(2023, 11, 15),
+        date(2023, 12, 15),
+        date(2024, 1, 15),
+        date(2024, 2, 15),
+        date(2024, 3, 15),
+        date(2024, 4, 15),
+        date(2024, 5, 15),
+        date(2024, 6, 15),
+        date(2024, 7, 15),
+        date(2024, 8, 15),
+    ]
+    values = [100.0 + i * 5.0 for i in range(len(obs_dates))]
+    macro = pl.DataFrame(
+        {
+            "series_id": ["NEWORDER"] * len(obs_dates),
+            "observation_date": obs_dates,
+            "release_date": [release] * len(obs_dates),
+            "value": values,
+        }
+    )
+
+    def fake_struct_load(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+        if dataset == Dataset.MACRO:
+            return macro
+        raise ValueError("unexpected dataset")
+
+    def fake_catalog(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+        if dataset == Dataset.MACRO:
+            return macro
+        if dataset == Dataset.ETF_HOLDINGS:
+            raise ValueError("no holdings")
+        return pl.DataFrame()
+
+    def fake_val(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+        raise ValueError("no prices")
+
+    def fake_crd(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+        raise ValueError("no holdings")
+
+    monkeypatch.setattr("src.analytics.structural_evidence.load_visible", fake_struct_load)
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_catalog)
+    monkeypatch.setattr("src.analytics.valuation_evidence.load_visible", fake_val)
+    monkeypatch.setattr("src.analytics.crowding_evidence.load_visible", fake_crd)
+
+    def runner(config: AllocationConfig) -> AllocationResult:
+        return AllocationResult(
+            config=config,
+            snapshots=(),
+            terminal_wealth_krw=100.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=100.0,
+            xirr_real=0.0,
+        )
+
+    snapshot = compute_evidence_vector(thesis=thesis, settings=settings, as_of=as_of, runner=runner)
+    assert snapshot.structural.status == "computed"
+    assert snapshot.structural.summary.startswith("fundamental:")
+    assert snapshot.valuation.status == "unknown"
+    assert snapshot.crowding.status == "unknown"

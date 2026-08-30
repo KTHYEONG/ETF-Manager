@@ -174,3 +174,60 @@ def test_nport_series_map_includes_pave(scenario_id: str) -> None:
     assert mapping["S000056509"] == "PAVE"
     assert mapping["S000026919"] == "GRID"
     assert mapping["S000004354"] == "SOXX"
+
+
+@pytest.mark.parametrize("scenario_id", ["test_load_physical_automation_fundamentals_registry"])
+def test_load_physical_automation_fundamentals_registry(scenario_id: str) -> None:
+    """test_load_physical_automation_fundamentals_registry"""
+    spec = load_thesis_fundamentals(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    assert spec.primary_series_id == "NEWORDER"
+    assert "commercialization_lag" in spec.falsifiers
+    fals = spec.falsifiers["commercialization_lag"]
+    assert fals.series_id == "NEWORDER"
+    assert fals.metric == "yoy_pct"
+    assert fals.threshold_pct == 0.0
+    assert fals.consecutive_periods == 2
+    ids = fundamental_series_ids(spec)
+    assert ids == ("NEWORDER", "PNFI")
+
+
+@pytest.mark.parametrize("scenario_id", ["test_physical_automation_valuation_crowding_purity_absent"])
+def test_physical_automation_valuation_crowding_purity_absent(scenario_id: str) -> None:
+    """test_physical_automation_valuation_crowding_purity_absent"""
+    import json
+    from pathlib import Path
+
+    from src.data.thesis_fundamentals import load_crowding_spec, load_purity_spec, load_valuation_spec
+
+    assert load_valuation_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION) is None
+    assert load_crowding_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION) is None
+    assert load_purity_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION) is None
+    payload = json.loads(Path("configs/data/thesis_fundamentals/physical_automation.json").read_text(encoding="utf-8"))
+    assert "valuation" not in payload
+    assert "crowding" not in payload
+    assert "purity" not in payload
+
+
+@pytest.mark.parametrize("scenario_id", ["test_fundamentals_registry_union_includes_neworder"])
+def test_fundamentals_registry_union_includes_neworder(scenario_id: str) -> None:
+    """test_fundamentals_registry_union_includes_neworder"""
+    from pathlib import Path
+
+    registry_dir = Path("configs/data/thesis_fundamentals")
+    union_ids: set[str] = set()
+    for path in sorted(registry_dir.glob("*.json")):
+        try:
+            tid = ThesisId(path.stem)
+        except ValueError:
+            continue
+        spec = load_thesis_fundamentals(thesis_id=tid, path=path)
+        union_ids.update(fundamental_series_ids(spec))
+    assert "A35SNO" in union_ids
+    assert "NEWORDER" in union_ids
+    assert "PNFI" in union_ids
+    # AI_COMPUTE ids remain ('PNFI',) only
+    ai_compute_spec = load_thesis_fundamentals(thesis_id=ThesisId.AI_COMPUTE)
+    assert fundamental_series_ids(ai_compute_spec) == ("PNFI",)
+    # AI_POWER_BOTTLENECK ids remain ('A35SNO', 'PNFI')
+    ai_power_spec = load_thesis_fundamentals(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
+    assert fundamental_series_ids(ai_power_spec) == ("A35SNO", "PNFI")

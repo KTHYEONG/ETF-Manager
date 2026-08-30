@@ -161,7 +161,7 @@ def test_compute_valuation_slot_ai_power_grid(tmp_path: Path, monkeypatch: pytes
         causal_chain=["a"],
         falsifiers=["backlog_normalization"],
         candidate_sleeves=["ai_power_equipment"],
-        historical_proxies=["GRID"],
+        historical_proxies=["PAVE"],
     )
     settings = DataSettings(data_root=tmp_path / "data")
     as_of = datetime(2021, 12, 30, tzinfo=UTC)
@@ -176,7 +176,7 @@ def test_compute_valuation_slot_ai_power_grid(tmp_path: Path, monkeypatch: pytes
     retrieved = datetime(2021, 12, 29, tzinfo=UTC)
     rows: list[dict[str, object]] = []
     for i, d in enumerate(price_dates):
-        for ticker, px in [("GRID", grid_prices[i]), ("QQQ", qqq_prices[i])]:
+        for ticker, px in [("PAVE", grid_prices[i]), ("QQQ", qqq_prices[i])]:
             rows.append(
                 {
                     "ticker": ticker,
@@ -205,7 +205,7 @@ def test_compute_valuation_slot_ai_power_grid(tmp_path: Path, monkeypatch: pytes
     slot = compute_valuation_slot(thesis=thesis, settings=settings, as_of=as_of)
     assert slot.status == "computed"
     assert slot.summary.startswith("valuation:")
-    assert slot.metrics["vehicle_ticker"] == "GRID"
+    assert slot.metrics["vehicle_ticker"] == "PAVE"
     assert slot.metrics["benchmark_ticker"] == "QQQ"
     assert slot.metrics["richness_label"] in {"rich", "fair", "cheap"}
     assert isinstance(slot.metrics["falsifier_pricing_collapse_active"], bool)
