@@ -49,3 +49,19 @@ def test_thesis_fundamentals_valuation_spec_load() -> None:
     assert cspec is not None
     assert cspec.top_n == 5
     assert cspec.vehicle_ticker == "SOXX"
+
+
+def test_load_ai_power_fundamentals_registry() -> None:
+    spec = load_thesis_fundamentals(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
+    assert spec.primary_series_id == "A35SNO"
+    assert "backlog_normalization" in spec.falsifiers
+    fals = spec.falsifiers["backlog_normalization"]
+    assert fals.series_id == "A35SNO"
+    assert fals.metric == "yoy_pct"
+    assert fals.threshold_pct == 0.0
+    assert fals.consecutive_periods == 2
+    ids = fundamental_series_ids(spec)
+    assert "A35SNO" in ids
+    assert "PNFI" in ids
+    assert ids == tuple(sorted(ids))
+    assert ids == ("A35SNO", "PNFI")
