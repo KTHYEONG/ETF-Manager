@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -43,7 +42,7 @@ def test_taxonomy_index_covers_all_json() -> None:
     assert set(data["files"].keys()) == basenames
     for name, meta in data["files"].items():
         assert meta["status"] in {"active", "fixture", "archived"}, f"{name} bad status {meta['status']}"
-        assert isinstance(meta.get("kind"), str) and meta["kind"]
+        assert isinstance(meta.get("kind"), str) and meta["kind"]  # noqa: PT018, RUF018
 
 
 def test_taxonomy_archive_set_moved() -> None:
@@ -73,7 +72,7 @@ def test_resolve_experiment_config_path_archive_fallback() -> None:
     resolved = resolve_experiment_config_path(historic)
     expected = (Path("configs/experiments/archive") / "m_qqq_grid.json").resolve()
     # also accept repo-root absolute fallback
-    assert resolved == expected or resolved.name == "m_qqq_grid.json" and "archive" in str(resolved)
+    assert resolved == expected or (resolved.name == "m_qqq_grid.json" and "archive" in str(resolved))
     # load via old path must still return ExperimentSpec
     spec = load_experiment_config(historic)
     assert spec is not None
@@ -91,7 +90,7 @@ def test_taxonomy_readme_statuses_match_index() -> None:
     assert readme_path.is_file()
     text = readme_path.read_text(encoding="utf-8")
     data = _load_index()
-    for name, meta in data["files"].items():
+    for name in data["files"].keys():  # noqa: SIM118
         assert name in text, f"{name} not found in README"
     # If markdown table exists, assert status column equals INDEX
     # Parse table rows: | File | Status | ...
@@ -108,10 +107,8 @@ def test_taxonomy_readme_statuses_match_index() -> None:
                 if file_col.lower() == "file" or "---" in file_col:
                     continue
                 # file_col should be a json basename
-                if file_col.endswith(".json"):
-                    # normalize status
-                    if status_col in {"active", "fixture", "archived"}:
-                        table_rows[file_col] = status_col
+                if file_col.endswith(".json") and status_col in {"active", "fixture", "archived"}:  # noqa: SIM102
+                    table_rows[file_col] = status_col
     if table_rows:
         for name, meta in data["files"].items():
             if name in table_rows:
