@@ -35,5 +35,25 @@
     "top_n": 5,
     "concentrated_hhi_threshold": 0.18,
     "concentrated_top5_pct": 60.0
+  },
+  "purity": {
+    "vehicle_ticker": "BOTZ",
+    "incumbent_ticker": "QQQ",
+    "pure_min_pct": 70,
+    "impure_max_pct": 40,
+    "exposure_notes": [
+      {"isin": "CH0012221716", "role": "industrial_automation", "note": "ABB - industrial automation and robotics"},
+      {"isin": "JP3802400006", "role": "industrial_automation", "note": "FANUC - industrial robots and CNC automation"},
+      {"isin": "JP3236200006", "role": "industrial_automation", "note": "KEYENCE - factory automation sensors and vision"},
+      {"isin": "JP3497400006", "role": "industrial_automation", "note": "DAIFUKU - material handling and factory automation"},
+      {"isin": "JP3162600005", "role": "industrial_automation", "note": "SMC - pneumatic control and factory automation"},
+      {"isin": "JP3932000007", "role": "industrial_automation", "note": "YASKAWA - industrial robots and motion control"},
+      {"isin": "US1924221039", "role": "industrial_automation", "note": "COGNEX - machine vision for industrial automation"},
+      {"isin": "JP3197800000", "role": "industrial_automation", "note": "OMRON - industrial automation and control"},
+      {"isin": "US87151X1019", "role": "industrial_automation", "note": "Symbotic - warehouse automation systems"},
+      {"isin": "KR7277810008", "role": "humanoid_optionality", "note": "Rainbow Robotics - humanoid robotics platform"},
+      {"isin": "CNE100006CQ4", "role": "humanoid_optionality", "note": "Ubtech Robotics - humanoid robotics"},
+      {"isin": "KR7108490004", "role": "humanoid_optionality", "note": "ROBOTIS - humanoid and service robotics"}
+    ]
   }
 }
