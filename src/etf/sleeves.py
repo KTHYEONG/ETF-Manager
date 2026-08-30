@@ -39,6 +39,7 @@ class VehicleId(StrEnum):
     ITA = "ITA"
     IWF = "IWF"
     XLI = "XLI"
+    PAVE = "PAVE"
 
 
 class VehicleRole(StrEnum):
@@ -53,7 +54,7 @@ _SLEEVE_VEHICLE: Final[dict[SleeveId, VehicleId]] = {
     SleeveId.US_TOTAL_MARKET: VehicleId.VTI,
     SleeveId.US_LARGE_CAP: VehicleId.IVV,
     SleeveId.AI_SEMICONDUCTOR: VehicleId.SOXX,
-    SleeveId.AI_POWER_EQUIPMENT: VehicleId.GRID,
+    SleeveId.AI_POWER_EQUIPMENT: VehicleId.PAVE,
     SleeveId.PHYSICAL_AUTOMATION: VehicleId.BOTZ,
 }
 
@@ -75,6 +76,7 @@ RESEARCH_SATELLITE_VEHICLES: Final[tuple[VehicleId, ...]] = tuple(
         (
             VehicleId.BOTZ,
             VehicleId.GRID,
+            VehicleId.PAVE,
             VehicleId.IBB,
             VehicleId.ITA,
             VehicleId.IWF,

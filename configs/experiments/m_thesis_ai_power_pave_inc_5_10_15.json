@@ -1,0 +1,52 @@
+{
+  "name": "m_thesis_ai_power_pave_inc_5_10_15",
+  "start": "2019-02-28",
+  "end": "2024-08-31",
+  "contribution_krw": 1000000,
+  "hurdle": 0.02,
+  "objective": "long_horizon",
+  "horizon_months": 120,
+  "thesis_id": "ai_power_bottleneck",
+  "preregistration": {
+    "weights_locked": true,
+    "universe_locked": true,
+    "baseline_frozen": true
+  },
+  "baseline": {
+    "id": "qqq_baseline",
+    "policy": "qqq",
+    "modules": 0,
+    "targets": {
+      "QQQ": 1.0
+    }
+  },
+  "candidates": [
+    {
+      "id": "qqq95_pave5",
+      "policy": "qqq",
+      "modules": 1,
+      "targets": {
+        "QQQ": 0.95,
+        "PAVE": 0.05
+      }
+    },
+    {
+      "id": "qqq90_pave10",
+      "policy": "qqq",
+      "modules": 1,
+      "targets": {
+        "QQQ": 0.9,
+        "PAVE": 0.1
+      }
+    },
+    {
+      "id": "qqq85_pave15",
+      "policy": "qqq",
+      "modules": 1,
+      "targets": {
+        "QQQ": 0.85,
+        "PAVE": 0.15
+      }
+    }
+  ]
+}

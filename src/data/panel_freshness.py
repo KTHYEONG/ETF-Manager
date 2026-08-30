@@ -20,7 +20,7 @@ from src.data.settings import DataSettings
 
 logger = logging.getLogger(__name__)
 
-THESIS_PANEL_TICKERS: Final[tuple[str, ...]] = ("BOTZ", "GRID", "QQQ", "SOXX")
+THESIS_PANEL_TICKERS: Final[tuple[str, ...]] = ("BOTZ", "GRID", "PAVE", "QQQ", "SOXX")
 MAX_PANEL_LAG_DAYS: Final[int] = 62
 
 
