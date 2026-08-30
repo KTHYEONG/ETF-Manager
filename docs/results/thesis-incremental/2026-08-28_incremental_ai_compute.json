@@ -1,10 +1,13 @@
 {
   "thesis_id": "ai_compute",
-  "as_of": "2026-08-28T00:00:00+00:00",
+  "as_of": "2026-08-28T20:00:00+00:00",
   "panel_as_of": "2026-08-28T20:00:00+00:00",
   "lag_days": 2,
   "freshness_status": "FRESH",
   "portfolio_status": "historically_promising",
+  "vehicle_ticker": "SOXX",
+  "horizon_months": 120,
+  "horizon_fallback": false,
   "arms": [
     {
       "arm_id": "qqq95_soxx5",
