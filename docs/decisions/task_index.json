@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_WAVE_F_PHYSICAL_AUTOMATION_VEHICLE_REOPEN",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_V2_WAVE_F_PHYSICAL_AUTOMATION_VEHICLE_REOPEN",
+      "domain": "quant",
+      "title": "Wave F Track F slice 4: physical_automation ROBO vehicle reopen + Track H incremental",
+      "why": "Slice 3 closed BOTZ purity mixed 51.1% industrial>>humanoid but BOTZ stayed REJECTED_PROXY (96M median ~0.618); Wave F plan required vehicle reopen + preregistered 5/10/15; XLI Wave3 exclude, IRBO dilute, BOTZ 100 vs QQQ forbidden.",
+      "resolution": "Locked ROBO (S000042659): VehicleId/sleeve/proxy/fundamentals retarget; nport map + THESIS_PANEL_TICKERS; preregistered m_thesis_physical_automation_robo + inc 5/10/15; CLI thesis-incremental physical_automation; industrial-primary exposure_notes reused on ROBO vehicle; operator ingest thesis-panel + FRESH 2026-08-28 thesis-wave reject 120M median 0.557 purity impure aligned 14.1% industrial 13.0% humanoid 1.1% matched 10/12; incremental historically_weak qqq95_robo5 median 0.982 / qqq90_robo10 0.959 / qqq85_robo15 0.934 n=3.",
+      "impact": "QQQ 100% operational and adoption_passes unchanged; BOTZ REJECTED_PROXY diagnostic retained on panel; ROBO active_proxy impure (~14% aligned) and Track H historically_weak — vehicle ceiling not adoption; thesis UNRESOLVED; no operational challenger; specs purged on sync."
+    },
+    {
       "task_id": "TASK_REPO_LAYOUT_REFACTOR",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_REPO_LAYOUT_REFACTOR",
