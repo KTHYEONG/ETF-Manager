@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 __all__ = [
     "BASELINE_ALIASES",
     "OPERATIONAL_POLICY_ID",
+    "OPERATIONAL_TARGETS_OVERRIDE",
     "POLICY_ALIASES",
     "UNIVERSE_VEHICLE",
     "BaselineId",
@@ -79,8 +80,9 @@ POLICY_ALIASES: Final[Mapping[str, PolicyId]] = {
 }
 
 # CE-gated production default; walk-forward VTI vs QQQ passed on calendar-max window.
-# Bare QQQ CLI/paper runs attach OPERATIONAL_ADAPTIVE_CONTRIBUTION via apply_operational_contribution_lock.
+# Bare QQQ CLI/paper runs attach OPERATIONAL_* via apply_operational_contribution_lock.
 OPERATIONAL_POLICY_ID: Final[PolicyId] = PolicyId.QQQ
+OPERATIONAL_TARGETS_OVERRIDE: Final[dict[str, float]] = {"QQQ": 0.9, "SOXX": 0.1}
 
 
 class BaselineId(StrEnum):
