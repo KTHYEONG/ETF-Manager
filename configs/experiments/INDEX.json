@@ -70,6 +70,16 @@
       "kind": "m_thesis",
       "notes": "active thesis prospective physical_automation"
     },
+    "m_thesis_physical_automation_robo.json": {
+      "status": "active",
+      "kind": "m_thesis",
+      "notes": "active thesis mix physical_automation robo"
+    },
+    "m_thesis_physical_automation_robo_inc_5_10_15.json": {
+      "status": "active",
+      "kind": "m_thesis",
+      "notes": "active thesis incremental mix physical_automation robo"
+    },
     "wf_qqq_adaptive_contribution.json": {
       "status": "archived",
       "kind": "wf",
