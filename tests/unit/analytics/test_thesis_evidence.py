@@ -550,3 +550,66 @@ def test_ev_valuation_crowding_ai_compute(tmp_path: Path, monkeypatch: pytest.Mo
     assert snapshot.valuation.status != "unknown"
     assert snapshot.crowding.status != "unknown"
     assert snapshot.structural.status != "unknown"
+
+
+def test_thesis_evidence_ai_power_structural_not_unknown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.analytics.thesis_evidence import compute_evidence_vector
+    from src.data.settings import DataSettings
+
+    thesis = ThesisSpec(
+        id=ThesisId.AI_POWER_BOTTLENECK,
+        version=1,
+        title="test power",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["backlog_normalization"],
+        candidate_sleeves=["ai_power_equipment"],
+        historical_proxies=["GRID"],
+    )
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2025, 4, 30, tzinfo=UTC)
+    release = datetime(2025, 4, 29, 12, 0, tzinfo=UTC)
+    obs_dates = [date(2023, 1, 15), date(2023, 2, 15), date(2023, 3, 15), date(2023, 4, 15), date(2023, 5, 15), date(2023, 6, 15), date(2023, 7, 15), date(2023, 8, 15), date(2023, 9, 15), date(2023, 10, 15), date(2023, 11, 15), date(2023, 12, 15), date(2024, 1, 15), date(2024, 2, 15), date(2024, 3, 15), date(2024, 4, 15), date(2024, 5, 15), date(2024, 6, 15), date(2024, 7, 15), date(2024, 8, 15)]
+    values = [100.0 + i * 5.0 for i in range(len(obs_dates))]
+    macro = pl.DataFrame(
+        {
+            "series_id": ["A35SNO"] * len(obs_dates),
+            "observation_date": obs_dates,
+            "release_date": [release] * len(obs_dates),
+            "value": values,
+        }
+    )
+
+    def fake_struct_load(settings, dataset, decision_ts):
+        if dataset == Dataset.MACRO:
+            return macro
+        raise ValueError("no holdings")
+
+    def fake_catalog(settings, dataset, decision_ts):
+        if dataset == Dataset.MACRO:
+            return macro
+        if dataset == Dataset.ETF_HOLDINGS:
+            raise ValueError("no holdings")
+        return pl.DataFrame()
+
+    def fake_val(settings, dataset, decision_ts):
+        raise ValueError("no prices")
+
+    def fake_crd(settings, dataset, decision_ts):
+        raise ValueError("no holdings")
+
+    monkeypatch.setattr("src.analytics.structural_evidence.load_visible", fake_struct_load)
+    monkeypatch.setattr("src.data.catalog.load_visible", fake_catalog)
+    monkeypatch.setattr("src.analytics.valuation_evidence.load_visible", fake_val)
+    monkeypatch.setattr("src.analytics.crowding_evidence.load_visible", fake_crd)
+
+    def runner(config: AllocationConfig) -> AllocationResult:
+        return AllocationResult(config=config, snapshots=(), terminal_wealth_krw=100.0, xirr=0.0, max_drawdown=0.0, terminal_wealth_real_krw=100.0, xirr_real=0.0)
+
+    snapshot = compute_evidence_vector(thesis=thesis, settings=settings, as_of=as_of, runner=runner)
+    assert snapshot.structural.status == "computed"
+    assert snapshot.structural.status != "unknown"
+    assert snapshot.valuation.status == "unknown" or snapshot.valuation.status in ("insufficient_data", "unknown")
+    # valuation remains unknown until slice 2 registry blocks exist, but allow insufficient_data as well; main check is structural computed
+    assert snapshot.structural.summary.startswith("fundamental:")
