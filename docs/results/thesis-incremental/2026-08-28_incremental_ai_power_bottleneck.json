@@ -1,0 +1,91 @@
+{
+  "thesis_id": "ai_power_bottleneck",
+  "as_of": "2026-08-28T20:00:00+00:00",
+  "panel_as_of": "2026-08-28T20:00:00+00:00",
+  "lag_days": 2,
+  "freshness_status": "FRESH",
+  "portfolio_status": "historically_promising",
+  "vehicle_ticker": "PAVE",
+  "horizon_months": 96,
+  "horizon_fallback": true,
+  "arms": [
+    {
+      "arm_id": "qqq95_pave5",
+      "soxx_weight": 0.05,
+      "median_ratio": 1.0001960466025914,
+      "p10_ratio": 0.9977784528762571,
+      "worst_ratio": 0.9971740544446734,
+      "win_rate": 0.5,
+      "cohort_count": 2,
+      "ce_gamma_2": 1.0001061224741281,
+      "ce_gamma_5": 0.9998514491014321,
+      "ce_gamma_10": 0.999439487262998,
+      "attribution": {
+        "target_soxx_weight": 0.05,
+        "mean_realized_soxx_weight": 0.04759372342088725,
+        "terminal_realized_soxx_weight": 0.05137149778500278,
+        "mean_abs_weight_drift": 0.004075621066969786,
+        "terminal_weight_drift": 0.0013714977850027774,
+        "incremental_wealth_ratio": 1.0032180387605096
+      },
+      "path_bootstrap": {
+        "n_paths": 400,
+        "win_rate": 0.5075,
+        "p05_terminal_ratio": 0.9717235596942941,
+        "ok": false
+      }
+    },
+    {
+      "arm_id": "qqq90_pave10",
+      "soxx_weight": 0.1,
+      "median_ratio": 1.0007419436235847,
+      "p10_ratio": 0.9958717895018172,
+      "worst_ratio": 0.9946542509713754,
+      "win_rate": 0.5,
+      "cohort_count": 2,
+      "ce_gamma_2": 1.0005421734425197,
+      "ce_gamma_5": 1.0000018377502609,
+      "ce_gamma_10": 0.9991311460148133,
+      "attribution": {
+        "target_soxx_weight": 0.1,
+        "mean_realized_soxx_weight": 0.09938831514951152,
+        "terminal_realized_soxx_weight": 0.10964363773193272,
+        "mean_abs_weight_drift": 0.007465350482253072,
+        "terminal_weight_drift": 0.00964363773193272,
+        "incremental_wealth_ratio": 1.0068296362757938
+      },
+      "path_bootstrap": {
+        "n_paths": 400,
+        "win_rate": 0.56,
+        "p05_terminal_ratio": 0.9435814474257348,
+        "ok": true
+      }
+    },
+    {
+      "arm_id": "qqq85_pave15",
+      "soxx_weight": 0.15,
+      "median_ratio": 1.0011209916152943,
+      "p10_ratio": 0.9927725124739885,
+      "worst_ratio": 0.990685392688662,
+      "win_rate": 0.5,
+      "cohort_count": 2,
+      "ce_gamma_2": 1.0007332972616472,
+      "ce_gamma_5": 0.9997409856564456,
+      "ce_gamma_10": 0.998151653397458,
+      "attribution": {
+        "target_soxx_weight": 0.15,
+        "mean_realized_soxx_weight": 0.15464082445492264,
+        "terminal_realized_soxx_weight": 0.1718365433336091,
+        "mean_abs_weight_drift": 0.013346601526326744,
+        "terminal_weight_drift": 0.0218365433336091,
+        "incremental_wealth_ratio": 1.0115565905419266
+      },
+      "path_bootstrap": {
+        "n_paths": 400,
+        "win_rate": 0.545,
+        "p05_terminal_ratio": 0.9165858882833078,
+        "ok": false
+      }
+    }
+  ]
+}

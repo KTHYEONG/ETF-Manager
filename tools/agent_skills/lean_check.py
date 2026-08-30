@@ -462,6 +462,19 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                                     sf_content,
                                 )
                             )
+                    elif kind == "enum_member":
+                        for node in ast.walk(tree):
+                            if isinstance(node, ast.ClassDef) and node.name == owner:
+                                for member in node.body:
+                                    if isinstance(member, ast.Assign):
+                                        for t in member.targets:
+                                            if isinstance(t, ast.Name) and t.id == leaf:
+                                                found_impl = True
+                                                break
+                                    if isinstance(member, ast.AnnAssign) and isinstance(member.target, ast.Name) and member.target.id == leaf:
+                                        found_impl = True
+                                    if found_impl:
+                                        break
                     elif owner:
                         for node in ast.walk(tree):
                             if isinstance(node, ast.ClassDef) and node.name == owner:
@@ -474,6 +487,14 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                                         and member.name == leaf
                                     ):
                                         target_node = member
+                                        found_impl = True
+                                    # also allow enum/constant members defined via Assign
+                                    if isinstance(member, ast.Assign):
+                                        for t in member.targets:
+                                            if isinstance(t, ast.Name) and t.id == leaf:
+                                                found_impl = True
+                                                break
+                                    if isinstance(member, ast.AnnAssign) and isinstance(member.target, ast.Name) and member.target.id == leaf:
                                         found_impl = True
                     else:
                         for node in ast.walk(tree):
