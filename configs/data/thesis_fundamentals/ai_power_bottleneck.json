@@ -21,7 +21,7 @@
     }
   },
   "valuation": {
-    "vehicle_ticker": "GRID",
+    "vehicle_ticker": "PAVE",
     "benchmark_ticker": "QQQ",
     "trailing_sessions": 1260,
     "rich_percentile": 80,
@@ -31,29 +31,29 @@
     "collapse_return_pct": -15.0
   },
   "crowding": {
-    "vehicle_ticker": "GRID",
+    "vehicle_ticker": "PAVE",
     "top_n": 5,
     "concentrated_hhi_threshold": 0.18,
     "concentrated_top5_pct": 60.0
   },
   "purity": {
-    "vehicle_ticker": "GRID",
+    "vehicle_ticker": "PAVE",
     "incumbent_ticker": "QQQ",
     "pure_min_pct": 70,
     "impure_max_pct": 40,
     "exposure_notes": [
-      {"isin": "IE00B8KQN827", "role": "grid_equipment", "note": "Eaton - power management and grid components"},
-      {"isin": "CH0012221716", "role": "grid_equipment", "note": "ABB - electrification and grid automation"},
-      {"isin": "FR0000121972", "role": "grid_equipment", "note": "Schneider Electric - energy management and grid solutions"},
-      {"isin": "IT0004176001", "role": "cable_manufacturer", "note": "Prysmian - power and telecom cables for grid"},
-      {"isin": "US74762E1029", "role": "grid_contractor", "note": "Quanta Services - grid construction and maintenance"},
-      {"isin": "GB00BDR05C01", "role": "transmission_operator", "note": "National Grid - UK/US transmission owner"},
-      {"isin": "IT0003242622", "role": "transmission_operator", "note": "TERNA - Italian transmission system operator"},
-      {"isin": "BE0003822393", "role": "transmission_operator", "note": "Elia Group - Belgian transmission operator"},
-      {"isin": "US4435106079", "role": "grid_equipment", "note": "Hubbell - electrical and utility solutions"},
-      {"isin": "IE00BDVJJQ56", "role": "grid_equipment", "note": "nVent Electric - electrical connection and protection"},
-      {"isin": "US36828A1016", "role": "grid_equipment", "note": "GE Vernova - grid and electrification equipment"},
-      {"isin": "FR0000044448", "role": "cable_manufacturer", "note": "Nexans - advanced cabling for power transmission"}
+      {"isin": "US74762E1029", "role": "grid_contractor", "note": "Quanta Services - grid and power infrastructure construction"},
+      {"isin": "US4435106079", "role": "grid_equipment", "note": "Hubbell - electrical and utility grid components"},
+      {"isin": "IE00B8KQN827", "role": "electrical_equipment", "note": "Eaton - power management and grid electrification"},
+      {"isin": "US2910111044", "role": "electrical_equipment", "note": "Emerson Electric - power and industrial automation"},
+      {"isin": "US8168511090", "role": "transmission_operator", "note": "Sempra - electric and gas transmission infrastructure"},
+      {"isin": "IE00BK9ZQ967", "role": "electrical_equipment", "note": "Trane Technologies - HVAC and building climate systems"},
+      {"isin": "US29084Q1004", "role": "grid_contractor", "note": "EMCOR - electrical and mechanical infrastructure contracting"},
+      {"isin": "US5763231090", "role": "grid_contractor", "note": "MasTec - communications and power infrastructure construction"},
+      {"isin": "IE0001827041", "role": "infrastructure_materials", "note": "CRH - building materials for infrastructure"},
+      {"isin": "US9291601097", "role": "infrastructure_materials", "note": "Vulcan Materials - aggregates for infrastructure buildout"},
+      {"isin": "US2441991054", "role": "infrastructure_materials", "note": "Deere - heavy equipment for infrastructure construction"},
+      {"isin": "US7587501039", "role": "grid_equipment", "note": "Regal Rexnord - power transmission and motion control"}
     ]
   }
 }

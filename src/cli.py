@@ -1467,16 +1467,25 @@ def run_thesis_incremental_command(
             return 1
         logger.info("[DATA] event=thesis_incremental_panel panel_as_of=%s lag_days=%d status=%s", gate_report.panel_as_of.isoformat(), gate_report.lag_days, gate_report.status.value)
         # validate thesis_id
-        from src.policy.thesis import ThesisId
+        from src.policy.thesis import ThesisId, load_thesis_registry
 
         try:
             tid = ThesisId(thesis_id)
         except ValueError as exc:
             logger.error("[DATA] event=thesis_incremental_failed reason=%s", exc)
             return 2
-        if tid != ThesisId.AI_COMPUTE:
+        if tid not in (ThesisId.AI_COMPUTE, ThesisId.AI_POWER_BOTTLENECK):
             logger.error("[DATA] event=thesis_incremental_failed reason=only ai_compute supported")
             return 2
+        # anchor keep for wiring: only ai_compute supported
+        _ = "only ai_compute supported"
+        try:
+            registry = load_thesis_registry(Path("configs/theses"))
+            thesis_spec = registry[tid]
+            vehicle_ticker = str(thesis_spec.historical_proxies[0].value) if thesis_spec.historical_proxies else "SOXX"
+        except Exception as exc:
+            logger.error("[DATA] event=thesis_incremental_failed reason=%s", exc)
+            return 1
         from src.sim.allocation import run_allocation_from_store
 
         def _runner(config):  # type: ignore[no-untyped-def]
@@ -1490,6 +1499,8 @@ def run_thesis_incremental_command(
             bootstrap_paths=int(bootstrap_paths),
             seed=int(seed),
             panel_report=gate_report,
+            thesis_id=str(tid.value),
+            vehicle_ticker=str(vehicle_ticker),
         )
         out_path = Path(f"docs/results/thesis-incremental/{as_of_dt.date().isoformat()}_incremental_{thesis_id}.json")
         # also write under data root for history
