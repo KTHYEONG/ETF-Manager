@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_V2_WAVE_F_PHYSICAL_AUTOMATION_FUNDAMENTALS",
+      "date": "2026-08-30",
+      "adr_id": "ADR_20260830_V2_WAVE_F_PHYSICAL_AUTOMATION_FUNDAMENTALS",
+      "domain": "quant",
+      "title": "Wave F Track F slice 1: physical_automation NEWORDER fundamental registry + structural evidence",
+      "why": "Wave E PAVE slice 4 closed; physical_automation structural slot stayed insufficient_data (no thesis_fundamentals registry); Wave F plan requires PIT fundamental structural evidence before industrial/humanoid vehicle split.",
+      "resolution": "Added configs/data/thesis_fundamentals/physical_automation.json (primary NEWORDER M, secondary PNFI, falsifier commercialization_lag); contract tests WDE-PHY registry/structural/evidence; architecture §4.10 NEWORDER lock; operator ingest thesis-fundamentals 2011-06-01+: FRESH 2026-08-28 structural computed yoy 12.86% expansion falsifier false; thesis-wave physical_automation decision reject unchanged (BOTZ REJECTED_PROXY, historical insufficient).",
+      "impact": "QQQ 100% operational and adoption_passes unchanged; physical_automation structural now fundamental (not regime proxy); valuation/crowding/purity remain unknown (slice 2 pending); BOTZ vehicle REJECTED_PROXY diagnostic retained; no Track H or new ticker; specs purged on sync."
+    },
+    {
       "task_id": "TASK_V2_WAVE_E_AI_POWER_PAVE_REOPEN",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_V2_WAVE_E_AI_POWER_PAVE_REOPEN",
