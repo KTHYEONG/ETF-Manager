@@ -71,8 +71,18 @@ def compute_evidence_vector(
     except Exception as exc:  # noqa: BLE001
         structural = EvidenceSlot(status="insufficient_data", summary=str(exc)[:200], metrics={"error": str(exc)[:200]})
     # wiring anchor: compute_structural_slot(
-    valuation = EvidenceSlot(status="unknown", summary="valuation evidence not yet computed", metrics={})
-    crowding = EvidenceSlot(status="unknown", summary="crowding evidence not yet computed", metrics={})
+    try:
+        from src.analytics.valuation_evidence import compute_valuation_slot
+
+        valuation = compute_valuation_slot(thesis=thesis, settings=settings, as_of=as_of)
+    except Exception as exc:  # noqa: BLE001
+        valuation = EvidenceSlot(status="insufficient_data", summary=str(exc)[:200], metrics={"error": str(exc)[:200]})
+    try:
+        from src.analytics.crowding_evidence import compute_crowding_slot
+
+        crowding = compute_crowding_slot(thesis=thesis, settings=settings, as_of=as_of)
+    except Exception as exc:  # noqa: BLE001
+        crowding = EvidenceSlot(status="insufficient_data", summary=str(exc)[:200], metrics={"error": str(exc)[:200]})
     return EvidenceSnapshot(
         thesis_id=thesis.id,
         as_of=as_of,
