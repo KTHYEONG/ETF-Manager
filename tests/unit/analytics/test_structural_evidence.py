@@ -256,3 +256,97 @@ def test_compute_structural_slot_ai_compute_unchanged(monkeypatch: pytest.Monkey
   assert slot.status == "computed"
   assert "falsifier_capex_structural_slowdown_active" in slot.metrics
   assert isinstance(slot.metrics["falsifier_capex_structural_slowdown_active"], bool)
+
+
+@pytest.mark.parametrize("scenario_id", ["test_resolve_primary_falsifier_physical_automation"])
+def test_resolve_primary_falsifier_physical_automation(scenario_id: str) -> None:
+    """test_resolve_primary_falsifier_physical_automation"""
+    from src.analytics.structural_evidence import resolve_primary_falsifier
+    from src.data.thesis_fundamentals import load_thesis_fundamentals
+
+    spec = load_thesis_fundamentals(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    fals = resolve_primary_falsifier(spec=spec)
+    assert fals is not None
+    assert fals.id == "commercialization_lag"
+    assert fals.series_id == "NEWORDER"
+    # existing ai_power and ai_compute assertions remain true
+    ai_power_spec = load_thesis_fundamentals(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
+    fals_power = resolve_primary_falsifier(spec=ai_power_spec)
+    assert fals_power is not None
+    assert fals_power.id == "backlog_normalization"
+    assert fals_power.series_id == "A35SNO"
+    ai_compute_spec = load_thesis_fundamentals(thesis_id=ThesisId.AI_COMPUTE)
+    fals_compute = resolve_primary_falsifier(spec=ai_compute_spec)
+    assert fals_compute is not None
+    assert fals_compute.id == "capex_structural_slowdown"
+    assert fals_compute.series_id == "PNFI"
+
+
+@pytest.mark.parametrize("scenario_id", ["test_compute_structural_slot_physical_automation_computed"])
+def test_compute_structural_slot_physical_automation_computed(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """test_compute_structural_slot_physical_automation_computed"""
+    import math
+
+    release = datetime(2025, 4, 29, 12, 0, tzinfo=UTC)
+    obs_dates = [
+        date(2023, 1, 15),
+        date(2023, 2, 15),
+        date(2023, 3, 15),
+        date(2023, 4, 15),
+        date(2023, 5, 15),
+        date(2023, 6, 15),
+        date(2023, 7, 15),
+        date(2023, 8, 15),
+        date(2023, 9, 15),
+        date(2023, 10, 15),
+        date(2023, 11, 15),
+        date(2023, 12, 15),
+        date(2024, 1, 15),
+        date(2024, 2, 15),
+        date(2024, 3, 15),
+        date(2024, 4, 15),
+        date(2024, 5, 15),
+        date(2024, 6, 15),
+        date(2024, 7, 15),
+        date(2024, 8, 15),
+    ]
+    values = [100.0 + i * 5.0 for i in range(len(obs_dates))]
+    macro = pl.DataFrame(
+        {
+            "series_id": ["NEWORDER"] * len(obs_dates),
+            "observation_date": obs_dates,
+            "release_date": [release] * len(obs_dates),
+            "value": values,
+        }
+    )
+
+    def fake_load_visible(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+        if dataset == Dataset.MACRO:
+            return macro
+        raise ValueError("unexpected dataset")
+
+    monkeypatch.setattr("src.analytics.structural_evidence.load_visible", fake_load_visible)
+
+    thesis = ThesisSpec(
+        id=ThesisId.PHYSICAL_AUTOMATION,
+        version=1,
+        title="test physical",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["commercialization_lag"],
+        candidate_sleeves=["physical_automation"],
+        historical_proxies=["BOTZ"],
+    )
+    settings = DataSettings(data_root="data")
+    as_of = datetime(2025, 4, 30, tzinfo=UTC)
+    slot = compute_structural_slot(thesis=thesis, settings=settings, as_of=as_of)
+    assert slot.status == "computed"
+    assert slot.summary.startswith("fundamental:")
+    assert slot.metrics["primary_series_id"] == "NEWORDER"
+    assert math.isfinite(float(slot.metrics["primary_yoy_pct"]))
+    assert isinstance(slot.metrics["falsifier_commercialization_lag_active"], bool)
+    assert slot.metrics["regime"] in ("expansion", "slowdown", "unknown")
+    # increasing values => falsifier False and regime expansion
+    assert slot.metrics["falsifier_commercialization_lag_active"] is False
+    assert slot.metrics["regime"] == "expansion"
