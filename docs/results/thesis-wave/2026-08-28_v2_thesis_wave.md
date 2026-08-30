@@ -9,4 +9,4 @@ freshness_status: FRESH
 | --- | --- | --- | --- | --- |
 | ai_compute | continue_research | 1.4116 | 10.6 | research |
 | ai_power_bottleneck | continue_research |  | 0.9 | research |
-| physical_automation | reject |  | 2.0 | research |
+| physical_automation | reject | 0.5569 | 4.7 | research |
