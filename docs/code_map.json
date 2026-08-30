@@ -308,7 +308,8 @@
   },
   "src/etf/sleeves.py": {
     "testing": "tests/unit/etf/test_sleeves.py",
-    "family": "etf"
+    "family": "etf",
+    "architecture": "docs/architecture/02_policy_and_validation.md"
   },
   "src/execution/broker.py": {
     "testing": "tests/unit/execution/test_broker.py",
