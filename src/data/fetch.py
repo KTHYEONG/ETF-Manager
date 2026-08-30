@@ -164,15 +164,21 @@ def fetch_and_persist_prices(
                     _log_done("prices", "tiingo", artifact.manifest.row_count)
                     return artifact
                 raise ProviderError("tiingo returned no prices for any requested ticker")
-            merged = pl.concat(frames, how="vertical")
+            incoming = pl.concat(frames, how="vertical")
             if existing is not None:
                 if fetched_tickers:
                     kept = existing.select(*spec.columns).filter(~pl.col("ticker").is_in(fetched_tickers))
-                    if not kept.is_empty():
-                        merged = pl.concat([kept, merged], how="vertical")
+                    prior_fetched = existing.select(*spec.columns).filter(pl.col("ticker").is_in(fetched_tickers))
+                    refreshed = (
+                        pl.concat([prior_fetched, incoming], how="vertical")
+                        .unique(subset=["ticker", "date"], keep="last")
+                        .sort(["ticker", "date"])
+                    )
+                    merged = pl.concat([kept, refreshed], how="vertical") if not kept.is_empty() else refreshed
                 else:
-                    # No ticker fetched but we already handled all-None above
-                    pass
+                    merged = existing.select(*spec.columns)
+            else:
+                merged = incoming
             merged = merged.select(*spec.columns).cast(pl.Schema(dict(spec.columns)))
             # Use last frame retrieved_at as payload time
             try:
