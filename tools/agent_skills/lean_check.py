@@ -349,6 +349,9 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
             diagnostics.append(d)
             continue
 
+        if kind == "config":
+            # config-kind entries are file-based; existence suffices
+            continue
         with open(fh) as sf:
             sf_content = sf.read()
             if kind in ("field", "dataclass_field"):
