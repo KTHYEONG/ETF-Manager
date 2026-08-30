@@ -217,6 +217,79 @@ def test_load_physical_automation_valuation_crowding_registry(scenario_id: str) 
     assert "commercialization_lag" in spec.falsifiers
 
 
+@pytest.mark.parametrize("scenario_id", ["test_load_physical_automation_purity_spec"])
+def test_load_physical_automation_purity_spec(scenario_id: str) -> None:
+    """test_load_physical_automation_purity_spec"""
+    import json
+    from pathlib import Path
+
+    from src.data.thesis_fundamentals import load_crowding_spec, load_purity_spec, load_valuation_spec
+
+    pspec = load_purity_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    assert pspec is not None
+    assert pspec.vehicle_ticker == "BOTZ"
+    assert pspec.incumbent_ticker == "QQQ"
+    assert pspec.pure_min_pct == 70.0
+    assert pspec.impure_max_pct == 40.0
+    assert len(pspec.exposure_notes) >= 12
+    for note in pspec.exposure_notes:
+        assert note.role.strip()
+        assert note.note.strip()
+        assert note.isin or note.cusip
+    vspec = load_valuation_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    cspec = load_crowding_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    assert vspec is not None
+    assert vspec.vehicle_ticker == "BOTZ"
+    assert cspec is not None
+    assert cspec.vehicle_ticker == "BOTZ"
+    assert load_purity_spec(thesis_id=ThesisId.AI_COMPUTE) is None
+    payload = json.loads(Path("configs/data/thesis_fundamentals/physical_automation.json").read_text(encoding="utf-8"))
+    assert "purity" in payload
+
+
+@pytest.mark.parametrize("scenario_id", ["test_physical_automation_purity_roles_industrial_humanoid"])
+def test_physical_automation_purity_roles_industrial_humanoid(scenario_id: str) -> None:
+    """test_physical_automation_purity_roles_industrial_humanoid"""
+    from src.data.thesis_fundamentals import load_purity_spec
+
+    pspec = load_purity_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    assert pspec is not None
+    allowed_roles = {"industrial_automation", "humanoid_optionality"}
+    roles = {n.role for n in pspec.exposure_notes}
+    assert roles <= allowed_roles
+    assert "industrial_automation" in roles
+    assert "humanoid_optionality" in roles
+    isins = {n.isin for n in pspec.exposure_notes if n.isin}
+    required = {
+        "CH0012221716",
+        "JP3802400006",
+        "JP3236200006",
+        "JP3497400006",
+        "JP3162600005",
+        "JP3932000007",
+        "US1924221039",
+        "JP3197800000",
+        "US87151X1019",
+        "KR7277810008",
+        "CNE100006CQ4",
+        "KR7108490004",
+    }
+    for req in required:
+        assert req in isins
+    dilution = {
+        "US67066G1040",
+        "US46120E6023",
+        "US7055731035",
+        "US2681501092",
+        "US90364P1057",
+        "US7329081084",
+        "US8361001071",
+        "US12468P1049",
+    }
+    for d in dilution:
+        assert d not in isins
+
+
 @pytest.mark.parametrize("scenario_id", ["test_physical_automation_valuation_crowding_purity_absent"])
 def test_physical_automation_valuation_crowding_purity_absent(scenario_id: str) -> None:
     """test_physical_automation_valuation_crowding_purity_absent"""
@@ -227,13 +300,17 @@ def test_physical_automation_valuation_crowding_purity_absent(scenario_id: str) 
 
     vspec = load_valuation_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
     cspec = load_crowding_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
+    pspec = load_purity_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION)
     assert vspec is not None
+    assert vspec.vehicle_ticker == "BOTZ"
     assert cspec is not None
-    assert load_purity_spec(thesis_id=ThesisId.PHYSICAL_AUTOMATION) is None
+    assert cspec.vehicle_ticker == "BOTZ"
+    assert pspec is not None
+    assert pspec.vehicle_ticker == "BOTZ"
     payload = json.loads(Path("configs/data/thesis_fundamentals/physical_automation.json").read_text(encoding="utf-8"))
     assert "valuation" in payload
     assert "crowding" in payload
-    assert "purity" not in payload
+    assert "purity" in payload
 
 
 @pytest.mark.parametrize("scenario_id", ["test_fundamentals_registry_union_includes_neworder"])
