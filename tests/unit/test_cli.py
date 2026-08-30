@@ -2311,8 +2311,28 @@ def test_cli_thesis_incremental_allows_ai_power(scenario_id: str, monkeypatch: p
     assert rc == 0
     assert captured["thesis_id"] == "ai_power_bottleneck"
     assert captured["vehicle_ticker"] == "PAVE"
+
+
+@pytest.mark.parametrize("scenario_id", ["test_thesis_incremental_rejects_physical_automation"])
+def test_thesis_incremental_rejects_physical_automation(scenario_id: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """test_thesis_incremental_rejects_physical_automation"""
+    from datetime import date
+
+    from src.data.panel_freshness import CatalogPanelReport, PanelFreshnessStatus
+
+    fake_panel = CatalogPanelReport(
+        panel_as_of=datetime(2026, 6, 30, 20, 0, tzinfo=UTC),
+        lag_days=10,
+        status=PanelFreshnessStatus.FRESH,
+        ticker_last_session={t: date(2026, 6, 30) for t in ("BOTZ", "GRID", "PAVE", "QQQ", "SOXX")},
+        cpi_last_observation=date(2026, 6, 30),
+        fx_last_observation=date(2026, 6, 30),
+        holdings_last_filing=None,
+    )
+    monkeypatch.setattr(cli, "resolve_catalog_panel_as_of", lambda settings, reference_now=None, tickers=None: fake_panel)
+    rc = main(["run", "thesis-incremental", "--thesis-id", "physical_automation"])
+    assert rc == 2
+    assert "only ai_compute supported" in Path("src/cli.py").read_text(encoding="utf-8")
     # not allowed thesis should exit 2
     rc2 = main(["run", "thesis-incremental", "--thesis-id", "physical_automation"])
     assert rc2 == 2
-    # contains the anchor string
-    assert "only ai_compute supported" in Path("src/cli.py").read_text(encoding="utf-8")
