@@ -199,7 +199,7 @@ def compute_valuation_slot(*, thesis: ThesisSpec, settings: DataSettings, as_of:
         "richness_percentile": float(pctile),
         "richness_label": str(label),
         "trailing_return_pct": float(trailing_ret),
-        "falsifier_semiconductor_pricing_collapse_active": bool(falsifier_active),
+        "falsifier_pricing_collapse_active": bool(falsifier_active),
     }
     summary = f"valuation: {label} richness {pctile:.1f}% ratio {latest_ratio:.4f} return {trailing_ret:.2f}% falsifier {falsifier_active}"
     return EvidenceSlot(status="computed", summary=summary, metrics=metrics)

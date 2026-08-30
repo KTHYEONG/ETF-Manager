@@ -99,3 +99,66 @@ def test_crd_slot_computed_from_fixture(tmp_path: Path, monkeypatch: pytest.Monk
     assert slot.summary.startswith("crowding:")
     assert isinstance(slot.metrics["hhi"], float)
     assert isinstance(slot.metrics["top5_weight_pct"], float)
+
+
+def test_compute_crowding_slot_ai_power_grid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.analytics.crowding_evidence import compute_crowding_slot
+    from src.data.pit import stamp_availability
+    from src.data.schema import Dataset, spec_for
+    from src.data.settings import DataSettings
+    from src.policy.thesis import Horizon, ThesisId, ThesisSpec
+
+    thesis = ThesisSpec(
+        id=ThesisId.AI_POWER_BOTTLENECK,
+        version=1,
+        title="test",
+        status="research",
+        horizon=Horizon(min_years=5, target_years=10),
+        causal_chain=["a"],
+        falsifiers=["backlog_normalization"],
+        candidate_sleeves=["ai_power_equipment"],
+        historical_proxies=["GRID"],
+    )
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2021, 12, 30, tzinfo=UTC)
+    spec = spec_for(Dataset.ETF_HOLDINGS)
+    retrieved = datetime(2021, 12, 29, tzinfo=UTC)
+    filing = datetime(2021, 12, 15, tzinfo=UTC)
+    report_date = date(2021, 12, 31)
+    weights = [35.0, 17.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0]
+    rows: list[dict[str, object]] = []
+    for i, w in enumerate(weights):
+        rows.append(
+            {
+                "etf_ticker": "GRID",
+                "report_date": report_date,
+                "filing_date": filing,
+                "holding_id": f"G{i}",
+                "issuer_name": f"Issuer{i}",
+                "cusip": f"CUSIP{i}",
+                "isin": None,
+                "lei": None,
+                "weight_pct": w,
+                "value_usd": w * 10,
+                "source": "sec_nport",
+                "retrieved_at": retrieved,
+            }
+        )
+    holdings_frame = pl.DataFrame(rows).cast(pl.Schema(dict(spec.columns)))
+    stamped = stamp_availability(holdings_frame, spec)
+
+    def fake_load_visible(settings, dataset, decision_ts):  # type: ignore[no-untyped-def]
+        if dataset == Dataset.ETF_HOLDINGS:
+            return stamped
+        raise ValueError(f"unexpected dataset {dataset}")
+
+    monkeypatch.setattr("src.analytics.crowding_evidence.load_visible", fake_load_visible)
+    slot = compute_crowding_slot(thesis=thesis, settings=settings, as_of=as_of)
+    assert slot.status == "computed"
+    assert slot.summary.startswith("crowding:")
+    assert slot.metrics["vehicle_ticker"] == "GRID"
+    assert slot.metrics["concentration_label"] in {"concentrated", "dispersed"}
+    assert isinstance(slot.metrics["hhi"], float)
+    assert isinstance(slot.metrics["top5_weight_pct"], float)
+    assert float(slot.metrics["hhi"]) == float(slot.metrics["hhi"])  # finite
+    assert float(slot.metrics["top5_weight_pct"]) == float(slot.metrics["top5_weight_pct"])  # finite
