@@ -1,0 +1,55 @@
+{
+  "bundle_id": "PROSPECTIVE_2026_V1",
+  "seen_history_cutoff": "2026-08-28",
+  "contribution_krw": 1000000,
+  "policy": "qqq",
+  "frozen_at": "2026-08-31T05:57:23.142144+00:00",
+  "arms": [
+    {
+      "arm_id": "benchmark_qqq100",
+      "policy": "qqq",
+      "targets": {
+        "QQQ": 1.0
+      },
+      "role": "immutable_benchmark",
+      "adaptive_contribution": null,
+      "kafi_deployment": null,
+      "objective_family": "capital_allocation",
+      "identity_hash": "e015f1d1a058080283b1d87b027354d7741bd0e3d89dc019457be9d4695ad694"
+    },
+    {
+      "arm_id": "incumbent_qqq90_soxx10",
+      "policy": "qqq",
+      "targets": {
+        "QQQ": 0.9,
+        "SOXX": 0.1
+      },
+      "role": "provisional_incumbent",
+      "adaptive_contribution": null,
+      "kafi_deployment": null,
+      "objective_family": "capital_allocation",
+      "identity_hash": "f0a059c2f462ac1edda08c726e1a2d36f9713fc060607da19767d48df6c53020"
+    },
+    {
+      "arm_id": "incumbent_kafi_timing",
+      "policy": "qqq",
+      "targets": {
+        "QQQ": 0.9,
+        "SOXX": 0.1
+      },
+      "role": "deployment_timing",
+      "adaptive_contribution": null,
+      "kafi_deployment": {
+        "equity_ticker": "QQQ",
+        "bond_ticker": "IEF",
+        "credit_series_id": "BAA10Y",
+        "min_multiplier": 0.7,
+        "max_multiplier": 1.3,
+        "rank_window": 252
+      },
+      "objective_family": "deployment_timing",
+      "identity_hash": "c4c6875ba3a99aeee2ef6ef5fad6bf619dc59d88162225d1a49c9339c8fcba53"
+    }
+  ],
+  "git_commit": "b99a021222f4"
+}
