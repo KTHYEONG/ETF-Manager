@@ -2,7 +2,7 @@
   "id": "physical_automation",
   "version": 1,
   "title": "Physical automation and robotics",
-  "status": "research",
+  "status": "dormant",
   "horizon": {
     "min_years": 5,
     "target_years": 10
@@ -31,5 +31,13 @@
     "valuation": "unknown",
     "expectations": "unknown",
     "crowding": "unknown"
+  },
+  "research_role": "watch",
+  "operational_weight": 0,
+  "reopen": {
+    "min_additional_oos_years": 3.0,
+    "requires_structural_evidence": true,
+    "requires_price_evidence": true,
+    "requires_investable_vehicle": true
   }
 }
