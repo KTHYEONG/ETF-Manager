@@ -372,3 +372,67 @@ def test_incremental_grid_unchanged() -> None:
     assert arm_targets(0.10) == {'QQQ': 0.9, 'SOXX': 0.10}
     with pytest.raises(ValueError, match='not in'):
         arm_targets(0.90)
+
+def test_classify_portfolio_status_requires_economic_hurdle() -> None:
+    from src.analytics.thesis.incremental import (
+        BuyOnlyAttribution,
+        IncrementalArmId,
+        IncrementalArmReport,
+        PathBootstrapVerdict,
+        classify_portfolio_status,
+    )
+    from src.analytics.thesis.meaning import PortfolioEvidenceStatus
+
+    def make_arm(*, median: float, ce10: float, ok: bool) -> IncrementalArmReport:
+        return IncrementalArmReport(
+            arm_id=IncrementalArmId.QQQ90_PAVE10,
+            soxx_weight=0.10,
+            median_ratio=float(median),
+            p10_ratio=float(median),
+            worst_ratio=float(median),
+            win_rate=0.56 if ok else 0.40,
+            cohort_count=2,
+            ce_gamma_2=1.0,
+            ce_gamma_5=1.0,
+            ce_gamma_10=float(ce10),
+            attribution=BuyOnlyAttribution(
+                target_soxx_weight=0.10,
+                mean_realized_soxx_weight=0.10,
+                terminal_realized_soxx_weight=0.10,
+                mean_abs_weight_drift=0.0,
+                terminal_weight_drift=0.0,
+                incremental_wealth_ratio=float(median),
+            ),
+            path_bootstrap=PathBootstrapVerdict(
+                n_paths=400,
+                win_rate=0.56 if ok else 0.40,
+                p05_terminal_ratio=0.94,
+                ok=ok,
+            ),
+        )
+
+    pave_like = make_arm(median=1.00074, ce10=0.99913, ok=True)
+    assert classify_portfolio_status([pave_like]) is PortfolioEvidenceStatus.HISTORICALLY_WEAK
+    soxx10 = make_arm(median=1.0199, ce10=1.0024, ok=True)
+    soxx10 = IncrementalArmReport(
+        arm_id=IncrementalArmId.QQQ90_SOXX10,
+        soxx_weight=0.10,
+        median_ratio=1.0199,
+        p10_ratio=1.0070,
+        worst_ratio=0.9938,
+        win_rate=0.90,
+        cohort_count=10,
+        ce_gamma_2=1.0,
+        ce_gamma_5=1.0,
+        ce_gamma_10=1.0024,
+        attribution=pave_like.attribution,
+        path_bootstrap=PathBootstrapVerdict(
+            n_paths=400,
+            win_rate=0.8025,
+            p05_terminal_ratio=0.9772,
+            ok=True,
+        ),
+    )
+    assert classify_portfolio_status([soxx10]) is PortfolioEvidenceStatus.HISTORICALLY_PROMISING
+
+

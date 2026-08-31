@@ -282,3 +282,18 @@ def test_pol_af_operational_v5(scenario_id: str) -> None:
     assert lock.rank_window == 126
     assert lock.max_multiplier == pytest.approx(2.0)
     assert AdaptiveContributionConfig() == lock
+
+def test_frozen_adaptive_v5_params_unchanged() -> None:
+    from src.policy.adaptive_contribution import FROZEN_ADAPTIVE_V5, OPERATIONAL_ADAPTIVE_CONTRIBUTION
+
+    assert FROZEN_ADAPTIVE_V5 is OPERATIONAL_ADAPTIVE_CONTRIBUTION
+    assert FROZEN_ADAPTIVE_V5.rank_window == 126
+    assert FROZEN_ADAPTIVE_V5.downside_power == pytest.approx(4.0)
+    assert FROZEN_ADAPTIVE_V5.upside_power == pytest.approx(0.25)
+    assert FROZEN_ADAPTIVE_V5.neutral_deadband == pytest.approx(5.0)
+    assert FROZEN_ADAPTIVE_V5.dispersion == pytest.approx(1.35)
+    assert FROZEN_ADAPTIVE_V5.include_vol_dampener is False
+    assert FROZEN_ADAPTIVE_V5.min_multiplier == pytest.approx(0.0)
+    assert FROZEN_ADAPTIVE_V5.max_multiplier == pytest.approx(2.0)
+
+
