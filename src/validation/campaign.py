@@ -17,6 +17,7 @@ from src.validation.cost_grid import (
 )
 from src.validation.gate import contribution_growth_process_passes
 from src.validation.walk_forward import (
+    # wiring: run_walk_forward_tournament for tournament reuse
     _CE_GAMMAS,
     CampaignReport,
     FoldOutcome,
@@ -26,9 +27,12 @@ from src.validation.walk_forward import (
     _singleton_ce,
     run_walk_forward_adoption,
     run_walk_forward_proxy_adoption,
+    run_walk_forward_tournament,
     warm_baseline_arm_cache,
     write_campaign_report,
 )
+
+_ = run_walk_forward_tournament  # wiring anchor warm_baseline_arm_cache
 
 __all__ = [
     "COST_SCENARIOS",
@@ -48,6 +52,7 @@ __all__ = [
     "run_walk_forward_adoption",
     "run_walk_forward_cost_grid",
     "run_walk_forward_proxy_adoption",
+    "run_walk_forward_tournament",
     "warm_baseline_arm_cache",
     "write_cadence_robustness_report",
     "write_campaign_report",
