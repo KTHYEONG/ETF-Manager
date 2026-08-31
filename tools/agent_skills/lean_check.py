@@ -367,115 +367,118 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                 owner, _, leaf = name.rpartition(".")
                 target_node: ast.AST | None = None
                 found_impl = False
-                try:
-                    tree = ast.parse(sf_content, filename=fh)
-                    if kind in ("constant", "type alias"):
-                        # 모듈 수준 상수/타입 별칭(AnnAssign/Assign 타깃)를 인식한다.
-                        for node in ast.walk(tree):
-                            if (
-                                isinstance(node, ast.AnnAssign)
-                                and isinstance(node.target, ast.Name)
-                                and node.target.id == name
-                            ):
-                                found_impl = True
-                                break
-                            if isinstance(node, ast.Assign) and any(
-                                isinstance(t, ast.Name) and t.id == name
-                                for t in node.targets
-                            ):
-                                found_impl = True
-                                break
-                    elif kind == "reexport":
-                        imported = any(
-                            isinstance(node, ast.ImportFrom)
-                            and any(
-                                alias.name == name or alias.asname == name
-                                for alias in node.names
-                            )
-                            for node in ast.walk(tree)
-                        )
-                        # 재수출 계약은 __all__ 등재까지 요구한다(인용 문자열 검색).
-                        found_impl = imported and f'"{name}"' in sf_content
-                    elif kind == "cli_argument":
-                        found_impl = bool(
-                            re.search(
-                                rf"add_argument\(\s*['\"]{re.escape(name)}['\"]",
-                                sf_content,
-                            )
-                        )
-                    elif kind == "parameter_add" and owner and "." in name:
-                        # parameter_add: verify the owner function exists and
-                        # the leaf parameter is present in its signature.
-                        for node in ast.walk(tree):
-                            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == owner:
-                                target_node = node
-                                arg_names = [a.arg for a in node.args.args]
-                                found_impl = leaf in arg_names
-                                break
-                    elif kind == "registry_entry":
-                        # 예: NAME['key'] / NAME["key"] 형태의 레지스트리 엔트리.
-                        # 구조(NAME 모듈 수준 dict 할당)와 키 리터럴을 함께 확인한다.
-                        entry_match = re.match(
-                            r"^(?P<owner>\w+)\[(?P<q>['\"])(?P<key>.+?)(?P=q)\]$",
-                            name,
-                        )
-                        if entry_match is None:
-                            # Plain file registry entry (e.g. configs/experiments/*.json): existence already verified above
-                            found_impl = os.path.exists(fh)
-                        else:
-                            reg_owner = entry_match.group("owner")
-                            key_literal = entry_match.group("key")
-                            has_registry = any(
-                                isinstance(node, (ast.Assign, ast.AnnAssign))
+                if fh.endswith(".json") and kind in ("constant", "type alias") and name in sf_content:
+                    found_impl = True
+                if not found_impl:
+                    try:
+                        tree = ast.parse(sf_content, filename=fh)
+                        if kind in ("constant", "type alias"):
+                            # 모듈 수준 상수/타입 별칭(AnnAssign/Assign 타깃)를 인식한다.
+                            for node in ast.walk(tree):
+                                if (
+                                    isinstance(node, ast.AnnAssign)
+                                    and isinstance(node.target, ast.Name)
+                                    and node.target.id == name
+                                ):
+                                    found_impl = True
+                                    break
+                                if isinstance(node, ast.Assign) and any(
+                                    isinstance(t, ast.Name) and t.id == name
+                                    for t in node.targets
+                                ):
+                                    found_impl = True
+                                    break
+                        elif kind == "reexport":
+                            imported = any(
+                                isinstance(node, ast.ImportFrom)
                                 and any(
-                                    isinstance(t, ast.Name) and t.id == reg_owner
-                                    for t in (
-                                        node.targets
-                                        if isinstance(node, ast.Assign)
-                                        else [node.target]
-                                    )
+                                    alias.name == name or alias.asname == name
+                                    for alias in node.names
                                 )
                                 for node in ast.walk(tree)
                             )
-                            # 키 리터럴은 파일의 인용 스타일(' 또는 ")과 무관하게 인정.
-                            found_impl = has_registry and bool(
+                            # 재수출 계약은 __all__ 등재까지 요구한다(인용 문자열 검색).
+                            found_impl = imported and f'"{name}"' in sf_content
+                        elif kind == "cli_argument":
+                            found_impl = bool(
                                 re.search(
-                                    rf"['\"]{re.escape(key_literal)}['\"]",
+                                    rf"add_argument\(\s*['\"]{re.escape(name)}['\"]",
                                     sf_content,
                                 )
                             )
-                    elif owner:
-                        for node in ast.walk(tree):
-                            if isinstance(node, ast.ClassDef) and node.name == owner:
-                                for member in node.body:
-                                    if (
-                                        isinstance(
-                                            member,
-                                            (ast.FunctionDef, ast.AsyncFunctionDef),
+                        elif kind == "parameter_add" and owner and "." in name:
+                            # parameter_add: verify the owner function exists and
+                            # the leaf parameter is present in its signature.
+                            for node in ast.walk(tree):
+                                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == owner:
+                                    target_node = node
+                                    arg_names = [a.arg for a in node.args.args]
+                                    found_impl = leaf in arg_names
+                                    break
+                        elif kind == "registry_entry":
+                            # 예: NAME['key'] / NAME["key"] 형태의 레지스트리 엔트리.
+                            # 구조(NAME 모듈 수준 dict 할당)와 키 리터럴을 함께 확인한다.
+                            entry_match = re.match(
+                                r"^(?P<owner>\w+)\[(?P<q>['\"])(?P<key>.+?)(?P=q)\]$",
+                                name,
+                            )
+                            if entry_match is None:
+                                # Plain file registry entry (e.g. configs/experiments/*.json): existence already verified above
+                                found_impl = os.path.exists(fh)
+                            else:
+                                reg_owner = entry_match.group("owner")
+                                key_literal = entry_match.group("key")
+                                has_registry = any(
+                                    isinstance(node, (ast.Assign, ast.AnnAssign))
+                                    and any(
+                                        isinstance(t, ast.Name) and t.id == reg_owner
+                                        for t in (
+                                            node.targets
+                                            if isinstance(node, ast.Assign)
+                                            else [node.target]
                                         )
-                                        and member.name == leaf
-                                    ):
-                                        target_node = member
-                                        found_impl = True
-                    else:
-                        for node in ast.walk(tree):
-                            if (
-                                isinstance(
-                                    node,
-                                    (
-                                        ast.FunctionDef,
-                                        ast.AsyncFunctionDef,
-                                        ast.ClassDef,
-                                    ),
+                                    )
+                                    for node in ast.walk(tree)
                                 )
-                                and node.name == name
-                            ):
-                                target_node = node
-                                found_impl = True
-                except Exception:
-                    pat = rf"^(?:class|def)\s+{re.escape(name)}\b"
-                    found_impl = bool(re.search(pat, sf_content, re.MULTILINE))
-
+                                # 키 리터럴은 파일의 인용 스타일(' 또는 ")과 무관하게 인정.
+                                found_impl = has_registry and bool(
+                                    re.search(
+                                        rf"['\"]{re.escape(key_literal)}['\"]",
+                                        sf_content,
+                                    )
+                                )
+                        elif owner:
+                            for node in ast.walk(tree):
+                                if isinstance(node, ast.ClassDef) and node.name == owner:
+                                    for member in node.body:
+                                        if (
+                                            isinstance(
+                                                member,
+                                                (ast.FunctionDef, ast.AsyncFunctionDef),
+                                            )
+                                            and member.name == leaf
+                                        ):
+                                            target_node = member
+                                            found_impl = True
+                        else:
+                            for node in ast.walk(tree):
+                                if (
+                                    isinstance(
+                                        node,
+                                        (
+                                            ast.FunctionDef,
+                                            ast.AsyncFunctionDef,
+                                            ast.ClassDef,
+                                        ),
+                                    )
+                                    and node.name == name
+                                ):
+                                    target_node = node
+                                    found_impl = True
+                    except Exception:
+                        pat = rf"^(?:class|def)\s+{re.escape(name)}\b"
+                        found_impl = bool(re.search(pat, sf_content, re.MULTILINE))
+    
                 if not found_impl:
                     msg = f"Spec: {kind} '{name}' not implemented"
                     d = {
