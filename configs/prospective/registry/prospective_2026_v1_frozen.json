@@ -3,7 +3,7 @@
   "seen_history_cutoff": "2026-08-28",
   "contribution_krw": 1000000,
   "policy": "qqq",
-  "frozen_at": "2026-08-31T05:57:23.142144+00:00",
+  "frozen_at": "2026-08-31T11:09:32.430217+00:00",
   "arms": [
     {
       "arm_id": "benchmark_qqq100",
@@ -15,7 +15,7 @@
       "adaptive_contribution": null,
       "kafi_deployment": null,
       "objective_family": "capital_allocation",
-      "identity_hash": "e015f1d1a058080283b1d87b027354d7741bd0e3d89dc019457be9d4695ad694"
+      "identity_hash": "794ff8278752eca30789e79d2f673c3b76a73dc2cce45048f73ece863a68b86d"
     },
     {
       "arm_id": "incumbent_qqq90_soxx10",
@@ -28,7 +28,7 @@
       "adaptive_contribution": null,
       "kafi_deployment": null,
       "objective_family": "capital_allocation",
-      "identity_hash": "f0a059c2f462ac1edda08c726e1a2d36f9713fc060607da19767d48df6c53020"
+      "identity_hash": "e58006dabe2140d951f2e1d8fd08cbd823a184df08447917aaf45dc0c43423dd"
     },
     {
       "arm_id": "incumbent_kafi_timing",
@@ -48,8 +48,10 @@
         "rank_window": 252
       },
       "objective_family": "deployment_timing",
-      "identity_hash": "c4c6875ba3a99aeee2ef6ef5fad6bf619dc59d88162225d1a49c9339c8fcba53"
+      "identity_hash": "50a51459323f87487c2f1abccf06355a21b4f1d71e31cbfb0d778fa013ce9924"
     }
   ],
-  "git_commit": "b99a021222f4"
+  "prospective_start": "2026-09-01",
+  "git_commit": "8201d9ec6d59e277356643bfc51254f18d00880b",
+  "bundle_hash": "23ae97e8e2b83ef4089b94daab752dbac4015b0185327a231bae66946f0a4702"
 }
