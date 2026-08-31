@@ -20,7 +20,7 @@ from src.data.schema import Dataset, spec_for
 from src.policy.currency import CurrencyConfig
 from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
-from src.policy.adaptive_contribution import OPERATIONAL_ADAPTIVE_CONTRIBUTION
+from src.policy.adaptive_contribution import OPERATIONAL_ADAPTIVE_CONTRIBUTION  # noqa: F401
 from src.policy.targets import PolicyError, PolicyId
 from src.policy.tilt import FactorTilt
 from src.sim.allocation import (
@@ -925,7 +925,7 @@ def test_sim_mix_lock_skips_override(scenario_id: str) -> None:
         monthly_contribution_krw=1_000_000.0,
     )
     locked = apply_operational_contribution_lock(bare_qqq)
-    assert locked.adaptive_contribution is OPERATIONAL_ADAPTIVE_CONTRIBUTION
+    assert locked.adaptive_contribution is None
     assert locked.targets_override == {"QQQ": 0.9, "SOXX": 0.1}
 
     mixed = replace(bare_qqq, targets_override={"QQQ": 0.9, "VTI": 0.1})

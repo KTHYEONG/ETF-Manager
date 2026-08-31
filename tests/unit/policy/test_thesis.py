@@ -51,7 +51,6 @@ def test_thesis_01_load_three_seeds(scenario_id: str) -> None:
     }
     for spec in registry.values():
         assert len(spec.falsifiers) >= 1
-        assert spec.status is ThesisStatus.RESEARCH
         assert spec.evidence.source == "declared"
         assert spec.evidence.structural == "unknown"
         assert spec.evidence.historical == "unknown"
@@ -60,6 +59,15 @@ def test_thesis_01_load_three_seeds(scenario_id: str) -> None:
         assert spec.evidence.crowding == "unknown"
         assert spec.horizon.min_years == 5
         assert spec.horizon.target_years == 10
+    # Only ai_compute remains RESEARCH; others are DORMANT watch
+    assert registry[ThesisId.AI_COMPUTE].status is ThesisStatus.RESEARCH
+    assert registry[ThesisId.AI_POWER_BOTTLENECK].status is ThesisStatus.DORMANT
+    assert registry[ThesisId.PHYSICAL_AUTOMATION].status is ThesisStatus.DORMANT
+    from src.policy.thesis import ThesisResearchRole
+
+    assert registry[ThesisId.AI_COMPUTE].research_role is ThesisResearchRole.CHALLENGER
+    assert registry[ThesisId.AI_POWER_BOTTLENECK].research_role is ThesisResearchRole.WATCH
+    assert registry[ThesisId.PHYSICAL_AUTOMATION].research_role is ThesisResearchRole.WATCH
     assert VehicleId.SOXX in registry[ThesisId.AI_COMPUTE].historical_proxies
     assert VehicleId.PAVE in registry[ThesisId.AI_POWER_BOTTLENECK].historical_proxies
     assert VehicleId.ROBO in registry[ThesisId.PHYSICAL_AUTOMATION].historical_proxies
@@ -237,3 +245,51 @@ def test_experiment_map_points_ai_power_to_pave(scenario_id: str) -> None:
         assert "QQQ" in targets
     # ensure legacy grid file still exists but not mapped
     assert Path("configs/experiments/m_thesis_ai_power_bottleneck_grid.json").exists()
+
+def test_thesis_watch_requires_zero_operational_weight() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    from src.policy.thesis import ThesisResearchRole, ThesisSpec
+
+    payload = dict(_SEED_TEMPLATE)
+    payload["research_role"] = ThesisResearchRole.WATCH.value
+    payload["operational_weight"] = 0.0
+    spec = ThesisSpec.model_validate(payload)
+    assert spec.research_role is ThesisResearchRole.WATCH
+    assert spec.operational_weight == pytest.approx(0.0)
+    payload["operational_weight"] = 0.10
+    with pytest.raises(ValidationError, match="operational_weight"):
+        ThesisSpec.model_validate(payload)
+
+
+def test_thesis_power_and_automation_are_watch_dormant() -> None:
+    from pathlib import Path
+
+    import pytest
+
+    from src.policy.thesis import (
+        ThesisId,
+        ThesisResearchRole,
+        ThesisStatus,
+        load_thesis_registry,
+    )
+
+    registry = load_thesis_registry(Path("configs/theses"))
+    compute = registry[ThesisId.AI_COMPUTE]
+    assert compute.status is ThesisStatus.RESEARCH
+    assert compute.research_role is ThesisResearchRole.CHALLENGER
+    assert compute.operational_weight == pytest.approx(0.0)
+    power = registry[ThesisId.AI_POWER_BOTTLENECK]
+    assert power.status is ThesisStatus.DORMANT
+    assert power.research_role is ThesisResearchRole.WATCH
+    assert power.operational_weight == pytest.approx(0.0)
+    assert power.reopen is not None
+    assert power.reopen.min_additional_oos_years >= 3.0
+    automation = registry[ThesisId.PHYSICAL_AUTOMATION]
+    assert automation.status is ThesisStatus.DORMANT
+    assert automation.research_role is ThesisResearchRole.WATCH
+    assert automation.operational_weight == pytest.approx(0.0)
+    assert automation.reopen is not None
+
+
