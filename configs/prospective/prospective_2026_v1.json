@@ -47,5 +47,6 @@
       },
       "objective_family": "deployment_timing"
     }
-  ]
+  ],
+  "prospective_start": "2026-09-01"
 }

@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_VALIDATION_CORRECTNESS_PHASE1",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_VALIDATION_CORRECTNESS_PHASE1",
+      "domain": "validation",
+      "title": "Phase 1 validation correctness (feedback P0)",
+      "why": "Prospective monitor used 30-day reset, weak strategy hash, single 120M cohort, and cashflow-contaminated bootstrap; engine commit gate was not enforced in production CLI.",
+      "resolution": "Added cumulative prospective inception with _allocation_end_within_as_of cap, full arm/bundle identity hashing, runtime git commit fail-closed (CLI wired), earliest-common cohort window for final historical campaign, monthly_unitized_returns bootstrap, and self-contained prospective bundle fields (behavior_preserving_migration, approved_runtime_commits).",
+      "impact": "FINAL_HISTORICAL_CAMPAIGN and PROSPECTIVE_2026_V1 can serve as reproducible evidence; operator monitoring preserves KAFI reserve/compounding state across months."
+    },
+    {
       "task_id": "TASK_PROSPECTIVE_MONITORING",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_PROSPECTIVE_MONITORING",
