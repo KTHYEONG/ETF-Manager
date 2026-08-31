@@ -517,5 +517,10 @@
     "architecture": "docs/architecture/02_policy_and_validation.md",
     "family": "policy",
     "testing": "tests/unit/policy/test_mix_risk_budget.py"
+  },
+  "src/validation/strategy_selection.py": {
+    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "family": "validation",
+    "testing": "tests/unit/validation/test_strategy_selection.py"
   }
 }
