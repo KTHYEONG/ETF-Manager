@@ -49,6 +49,8 @@ Optional policy flags: `--tilt-factor`, `--tilt-intensity`, `--overlay-max-shift
 | `run cadence-robustness --config ... --seed 7` | Growth-first cadence robustness gate |
 | `run accumulation-cohort --config ... --horizon-months 120` | 120M wealth-ratio distribution (reporting only) |
 | `run audit-feasibility --config ... [--write-report]` | Static DCA window / cohort-count audit |
+| `run final-historical-campaign --config configs/experiments/final_historical_campaign_v1.json --seed N` | Frozen B0+C1–C3 SOXX campaign (reporting only) |
+| `run prospective-monitor --bundle PATH --as-of DATE` | Append prospective OOS observations for frozen bundle (`as_of > 2026-08-28`) |
 
 ### Run — diagnostics & thesis (reporting only)
 
@@ -154,7 +156,7 @@ Failures surface as `BaselineDataError` / `AllocationDataError` with explicit mi
 uv run python -m src.cli ingest history \
   --start 2012-06-01 --end 2024-10-31
 
-# 2. Operational policy smoke
+# 2. Operational policy smoke (QQQ90/SOXX10 flat via operational lock)
 uv run python -m src.cli run policy \
   --id qqq --start 2016-07-01 --end 2026-06-30 \
   --contribution-krw 1000000
