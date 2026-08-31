@@ -251,3 +251,47 @@ def test_write_final_historical_campaign_report(tmp_path) -> None:
     assert payload["arm_rows"][0]["arm_id"] == "c2_qqq90_soxx10"
 
 
+def test_resolve_final_campaign_window_requires_multiple_cohorts() -> None:
+    from datetime import date
+
+    import pytest
+
+    from src.policy.targets import PolicyId
+    from src.validation.experiment import BaselineSpec, CandidateSpec, ExperimentSpec
+    from src.validation.historical_campaign import resolve_final_campaign_window
+    from src.validation.research_posture import ObjectiveFamily
+
+    wide_spec = ExperimentSpec(
+        name="final_historical_campaign_v1",
+        start=date(2006, 1, 1),
+        end=date(2026, 6, 30),
+        contribution_krw=1_000_000.0,
+        objective_family=ObjectiveFamily.CAPITAL_ALLOCATION,
+        baseline=BaselineSpec(id="b0", policy=PolicyId.QQQ, modules=0, targets={"QQQ": 1.0}),
+        candidates=(CandidateSpec(id="c2", policy=PolicyId.QQQ, modules=1, targets={"QQQ": 0.9, "SOXX": 0.1}),),
+    )
+    start, end, cohorts = resolve_final_campaign_window(wide_spec, settings=None)
+    assert len(cohorts) >= 10
+    assert start <= cohorts[0][0]
+    narrow_spec = ExperimentSpec(
+        name="final_historical_campaign_v1",
+        start=date(2016, 7, 1),
+        end=date(2026, 6, 30),
+        contribution_krw=1_000_000.0,
+        objective_family=ObjectiveFamily.CAPITAL_ALLOCATION,
+        baseline=BaselineSpec(id="b0", policy=PolicyId.QQQ, modules=0, targets={"QQQ": 1.0}),
+        candidates=(),
+    )
+    with pytest.raises(ValueError, match="cohort"):
+        resolve_final_campaign_window(narrow_spec, settings=None)
+
+def test_final_historical_campaign_uses_unitized_bootstrap(monkeypatch) -> None:
+    import ast
+    from pathlib import Path
+
+    source = Path("src/validation/historical_campaign.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    assert "monthly_unitized_returns" in names
+    assert "monthly_simple_returns" not in source.split("_compute_arm_metrics")[1].split("def run_final_historical_campaign")[0]
+
