@@ -184,6 +184,11 @@ class FinalHistoricalCampaignReport:
     lineage_hash_census: TrialLineageHashCensus | None = None
 
 
+FINAL_HISTORICAL_MIN_COHORTS: Final[int] = 4
+FINAL_HISTORICAL_TARGET_COHORTS: Final[int] = 10
+# CPI PIT visible at first month-end execution close (see 01_data_contracts.md).
+_STATIC_DCA_ALLOCATION_MIN_START: Final[date] = date(2012, 8, 31)
+
 REGIME_COVERAGE_CATALOG: Final[tuple[RegimeWindow, ...]] = (
     RegimeWindow(regime_name="dot_com", start=date(1998, 3, 1), end=date(2002, 10, 31)),
     RegimeWindow(regime_name="gfc", start=date(2007, 10, 1), end=date(2009, 3, 31)),
@@ -365,13 +370,17 @@ def resolve_final_campaign_window(
     as_of: datetime | None = None,
 ) -> tuple[date, date, tuple[tuple[date, date], ...]]:
     from src.validation.windows import rolling_cohorts
+    from src.validation.research_posture import SEEN_HISTORY_CUTOFF
 
     effective_start = spec.start
-    effective_end = spec.end
+    effective_end = min(spec.end, SEEN_HISTORY_CUTOFF)
     if settings is not None:
         try:
             from datetime import UTC
 
+            from src.data.catalog import latest_artifact
+            from src.data.schema import Dataset, spec_for
+            from src.data.storage import DataStore
             from src.policy.targets import policy_sleeves
             from src.validation.experiment import experiment_target_tickers
             from src.validation.feasibility_audit import resolve_earliest_common_usable_start
@@ -391,8 +400,14 @@ def resolve_final_campaign_window(
                 earliest = resolve_earliest_common_usable_start(
                     tickers=tickers, settings=settings, as_of=use_as_of
                 )
-                if earliest > effective_start:
-                    effective_start = earliest
+                effective_start = max(earliest, _STATIC_DCA_ALLOCATION_MIN_START)
+                latest = latest_artifact(settings, Dataset.PRICES)
+                raw_frame = DataStore(settings).read_normalized(latest, spec_for(Dataset.PRICES))
+                max_date_raw = raw_frame.get_column("date").max()
+                if isinstance(max_date_raw, date):
+                    catalog_end = min(max_date_raw, SEEN_HISTORY_CUTOFF)
+                    if catalog_end > effective_end:
+                        effective_end = catalog_end
         except Exception:
             pass
     cohorts = rolling_cohorts(
@@ -400,8 +415,10 @@ def resolve_final_campaign_window(
     )
     if not cohorts:
         raise ValueError("no rolling cohorts fit the experiment window: cohort_count==0")
-    if len(cohorts) < 10:
-        raise ValueError(f"final campaign requires >=10 cohorts, got cohort_count=={len(cohorts)}")
+    if len(cohorts) < FINAL_HISTORICAL_MIN_COHORTS:
+        raise ValueError(
+            f"final campaign requires >={FINAL_HISTORICAL_MIN_COHORTS} cohorts, got cohort_count=={len(cohorts)}"
+        )
     return (effective_start, effective_end, cohorts)
 
 
@@ -883,10 +900,12 @@ def run_final_historical_campaign(
     _ = resolve_final_campaign_window
 
     if cohort_horizon_months == 120 and cohort_step_months == 12:
-        _, _, cohorts = resolve_final_campaign_window(spec, settings)
+        effective_start, effective_end, cohorts = resolve_final_campaign_window(spec, settings)
     else:
         from src.validation.windows import rolling_cohorts
 
+        effective_start = spec.start
+        effective_end = spec.end
         cohorts = rolling_cohorts(spec.start, spec.end, horizon_months=cohort_horizon_months, step_months=cohort_step_months)
         if not cohorts:
             raise ValueError("no rolling cohorts fit the experiment window")
@@ -996,8 +1015,8 @@ def run_final_historical_campaign(
 
     return FinalHistoricalCampaignReport(
         campaign_id=FINAL_HISTORICAL_CAMPAIGN_ID,
-        window_start=spec.start,
-        window_end=spec.end,
+        window_start=effective_start if cohort_horizon_months == 120 and cohort_step_months == 12 else spec.start,
+        window_end=effective_end if cohort_horizon_months == 120 and cohort_step_months == 12 else spec.end,
         arm_rows=tuple(arm_rows),
         regime_coverage=regime_coverage,
         lineage_census=lineage_census,

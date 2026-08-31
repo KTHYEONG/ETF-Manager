@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_PHASE2_FINAL_HISTORICAL_OPERATOR",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_PHASE2_FINAL_HISTORICAL_OPERATOR",
+      "domain": "validation",
+      "title": "Phase 2 operator run: final historical evidence archive",
+      "why": "Phase 1 correctness enabled FINAL_HISTORICAL_CAMPAIGN but operator run failed (cohort_count==1) until resolve_final_campaign_window honored CPI execution floor; feedback required docs/results/final-historical/ artifacts before prospective handoff.",
+      "resolution": "Fixed resolve_final_campaign_window (_STATIC_DCA_ALLOCATION_MIN_START 2012-08-31, catalog end cap, FINAL_HISTORICAL_MIN_COHORTS=4, effective window in report); operator ran audit-feasibility + final-historical-campaign (seed 42, n=4 cohorts); archived FINAL_HISTORICAL_CAMPAIGN_V1_8201d9e to docs/results/final-historical/; re-froze PROSPECTIVE_2026_V1 registry JSON.",
+      "impact": "FRESH 2012-08-31..2026-08-28: C2 QQQ90/SOXX10 median_ratio 1.034, bootstrap_p05 1.012, win_rate 1.0 (thin n=4); operational_unlock=false; flat QQQ90/SOXX10 operational lock unchanged (adaptive +17.5% real_gain in compound_dca diagnostic only); prospective-monitor awaits Sept 2026 catalog (as_of>=prospective_start); specs/scratch purged on sync."
+    },
+    {
       "task_id": "TASK_VALIDATION_P1_REPORTING",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_VALIDATION_P1_REPORTING",
