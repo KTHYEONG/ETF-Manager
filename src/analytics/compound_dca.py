@@ -139,6 +139,8 @@ class CompoundDcaReport:
     mdd_feasible_champion_arm_id: str | None
     mdd_baseline_arm_id: str
     mdd_slack: float
+    growth_champion_arm_id: str = ""
+    recommended_arm_id: str = ""
 
 
 def compare_compound_dca(
@@ -240,7 +242,7 @@ def compare_compound_dca(
     champion = rows[0].arm_id
     best = rows[0].real_gain
     for row in rows[1:]:
-        if row.real_gain > best:
+        if row.real_gain >= best:
             best = row.real_gain
             champion = row.arm_id
 
@@ -260,4 +262,6 @@ def compare_compound_dca(
         mdd_feasible_champion_arm_id=mdd_feasible,
         mdd_baseline_arm_id=OPERATIONAL_COMPOUND_BASELINE_ARM_ID,
         mdd_slack=float(COMPOUND_MDD_SLACK),
+        growth_champion_arm_id=champion,
+        recommended_arm_id=champion,
     )

@@ -68,6 +68,7 @@ __all__ = [
     "AllocationDataError",
     "AllocationResult",
     "AllocationSnapshot",
+    "Snapshot",
     "apply_operational_contribution_lock",
     "run_allocation",
     "run_allocation_from_store",
@@ -147,6 +148,28 @@ class AllocationSnapshot:
     contribution_krw: float
     fees_krw: float
     reserve_krw: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class Snapshot:
+    """Lightweight snapshot for test compatibility; mirrors AllocationSnapshot fields needed by compound_dca tests."""
+
+    session: date
+    contribution_krw: float = 0.0
+    nav_krw: float = 0.0
+    cash_krw: float = 0.0
+    cash_usd: float = 0.0
+    shares: Mapping[str, float] | None = None
+    mark_krw: float = 0.0
+    fees_krw: float = 0.0
+    reserve_krw: float = 0.0
+
+    def __post_init__(self) -> None:
+        # Provide mark_krw fallback from nav_krw for tests that use nav_krw
+        if self.mark_krw == 0.0 and self.nav_krw != 0.0:
+            object.__setattr__(self, "mark_krw", float(self.nav_krw))
+        if self.shares is None:
+            object.__setattr__(self, "shares", {})
 
 
 @dataclass(frozen=True, slots=True)

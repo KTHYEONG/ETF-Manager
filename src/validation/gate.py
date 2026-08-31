@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from itertools import pairwise
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from src.validation.bootstrap import moving_block_bootstrap
 
@@ -16,12 +16,17 @@ if TYPE_CHECKING:
 
 _ALLOWED_GAMMAS = (2.0, 5.0, 10.0)
 
+COMPOUND_GROWTH_WORST_FOLD_FLOOR: Final[float] = 0.95
+
 __all__ = [
+    "COMPOUND_GROWTH_WORST_FOLD_FLOOR",
     "LongHorizonVerdict",
     "adoption_passes",
     "bootstrap_tail_passes",
     "certainty_equivalent",
     "cohort_win_rate",
+    "compound_growth_process_passes",
+    "compound_growth_train_passes",
     "contiguous_adopted_plateau",
     "contribution_growth_process_passes",
     "contribution_growth_train_passes",
@@ -265,6 +270,103 @@ def contribution_growth_process_passes(
     pooled_gain = sum(chosen_tw) > sum(baseline_tw) and sum(chosen_gain) > sum(baseline_gain)
     floor_ok = all(
         chosen_value / baseline_value >= worst_fold_floor
+        for chosen_value, baseline_value in zip(chosen_tw, baseline_tw, strict=True)
+    )
+    xirr_ok = all(
+        chosen_value >= baseline_value
+        for chosen_value, baseline_value in zip(chosen_xirr, baseline_xirr, strict=True)
+    )
+    return pooled_gain and floor_ok and xirr_ok
+
+
+def compound_growth_train_passes(
+    *,
+    candidate_tw: float,
+    baseline_tw: float,
+    candidate_real_gain: float,
+    baseline_real_gain: float,
+    candidate_xirr_real: float,
+    baseline_xirr_real: float,
+) -> bool:
+    """Compound-growth train gate: no MDD veto.
+
+    Passes iff ``candidate_tw > baseline_tw`` and ``candidate_real_gain >
+    baseline_real_gain`` and ``candidate_xirr_real >= baseline_xirr_real``.
+
+    Raises:
+        ValueError: When any input is non-finite.
+    """
+    metrics = (
+        candidate_tw,
+        baseline_tw,
+        candidate_real_gain,
+        baseline_real_gain,
+        candidate_xirr_real,
+        baseline_xirr_real,
+    )
+    if not all(math.isfinite(float(value)) for value in metrics):
+        raise ValueError("compound-growth train gate requires finite TW, gain, and XIRR inputs")
+    if float(baseline_tw) <= 0.0:
+        raise ValueError(f"baseline_tw must be strictly positive, got {baseline_tw!r}")
+    return (
+        float(candidate_tw) > float(baseline_tw)
+        and float(candidate_real_gain) > float(baseline_real_gain)
+        and float(candidate_xirr_real) >= float(baseline_xirr_real)
+    )
+
+
+def compound_growth_process_passes(
+    *,
+    chosen_test_tw: Sequence[float],
+    baseline_test_tw: Sequence[float],
+    chosen_test_real_gain: Sequence[float],
+    baseline_test_real_gain: Sequence[float],
+    chosen_test_xirr_real: Sequence[float],
+    baseline_test_xirr_real: Sequence[float],
+    worst_fold_floor: float = COMPOUND_GROWTH_WORST_FOLD_FLOOR,
+) -> bool:
+    """Compound-growth process gate over pooled walk-forward folds; no MDD.
+
+    Passes iff pooled chosen TW and pooled chosen real gain strictly exceed
+    baselines, every fold TW ratio ``chosen/baseline`` reaches
+    ``worst_fold_floor`` (default 0.95), and every chosen fold's real XIRR is
+    at least its baseline's; one bad fold vetoes adoption.
+
+    Raises:
+        ValueError: When the fold sequences mismatch in length, are empty, contain
+            non-finite metrics or non-positive baseline TWs, or ``worst_fold_floor``
+            is non-finite or outside (0, 1].
+    """
+    lengths = {
+        len(chosen_test_tw),
+        len(baseline_test_tw),
+        len(chosen_test_real_gain),
+        len(baseline_test_real_gain),
+        len(chosen_test_xirr_real),
+        len(baseline_test_xirr_real),
+    }
+    if len(lengths) != 1:
+        raise ValueError("fold sequences must all have equal length")
+    if len(chosen_test_tw) < 1:
+        raise ValueError("compound-growth process gate needs at least one fold")
+    if not math.isfinite(float(worst_fold_floor)) or not 0.0 < float(worst_fold_floor) <= 1.0:
+        raise ValueError(f"worst_fold_floor must lie in (0, 1], got {worst_fold_floor!r}")
+    chosen_tw = tuple(float(value) for value in chosen_test_tw)
+    baseline_tw = tuple(float(value) for value in baseline_test_tw)
+    chosen_gain = tuple(float(value) for value in chosen_test_real_gain)
+    baseline_gain = tuple(float(value) for value in baseline_test_real_gain)
+    chosen_xirr = tuple(float(value) for value in chosen_test_xirr_real)
+    baseline_xirr = tuple(float(value) for value in baseline_test_xirr_real)
+    if not all(
+        math.isfinite(value)
+        for value in (*chosen_tw, *baseline_tw, *chosen_gain, *baseline_gain, *chosen_xirr, *baseline_xirr)
+    ):
+        raise ValueError("compound-growth process gate requires finite fold metrics")
+    if any(value <= 0.0 for value in baseline_tw):
+        raise ValueError(f"baseline_test_tw must be strictly positive, got {baseline_tw!r}")
+    pooled_gain = sum(chosen_tw) > sum(baseline_tw) and sum(chosen_gain) > sum(baseline_gain)
+    floor_ok = all(
+        chosen_value / baseline_value >= float(worst_fold_floor)
         for chosen_value, baseline_value in zip(chosen_tw, baseline_tw, strict=True)
     )
     xirr_ok = all(
