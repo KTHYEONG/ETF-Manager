@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_STRATEGY_SELECTION_VALIDATION",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_STRATEGY_SELECTION_VALIDATION",
+      "domain": "quant",
+      "title": "Walk-forward tournament strategy selection (OOS operational gate)",
+      "why": "compound_dca in-sample champion (SOXX100) failed OOS WF; walk-forward allowed only one candidate; no unified fair multi-arm OOS selection with shared simulation cache.",
+      "resolution": "Added strategy_selection.py (run_strategy_selection, select_recommended_arm, make_selection_runner), run_walk_forward_tournament with shared warm_baseline_arm_cache, CLI run strategy-select, wf_compound_dca_tournament + wf_qqq85/qqq95 JSONs; walk-forward fails closed on multi-candidate; architecture §4.14; contract tests SEL/WF-TOURN.",
+      "impact": "FRESH 2016-07-01–2026-06-30: strategy-select recommends qqq85_soxx15_adaptive_v5 OOS-only; SOXX100 in-sample champion rejected (fold3 XIRR veto); cost grid qqq85 all_scenarios_adopted=false at low cost; qqq95 fails all scenarios; operational QQQ90/SOXX10+adaptive v5 lock unchanged; specs/scratch purged on sync."
+    },
+    {
       "task_id": "TASK_COMPOUND_GROWTH_OBJECTIVE_REALIGNMENT",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_COMPOUND_GROWTH_OBJECTIVE_REALIGNMENT",
