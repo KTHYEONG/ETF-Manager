@@ -526,5 +526,13 @@
   "src/validation/research_posture.py": {
     "architecture": "docs/architecture/00_system_overview.md",
     "testing": "tests/unit/validation/test_research_posture.py"
+  },
+  "src/validation/historical_campaign.py": {
+    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "testing": "tests/unit/validation/test_historical_campaign.py"
+  },
+  "src/validation/prospective_registry.py": {
+    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "testing": "tests/unit/validation/test_prospective_registry.py"
   }
 }
