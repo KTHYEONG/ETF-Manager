@@ -280,7 +280,7 @@ def test_resolve_final_campaign_window_requires_multiple_cohorts() -> None:
         contribution_krw=1_000_000.0,
         objective_family=ObjectiveFamily.CAPITAL_ALLOCATION,
         baseline=BaselineSpec(id="b0", policy=PolicyId.QQQ, modules=0, targets={"QQQ": 1.0}),
-        candidates=(),
+        candidates=(CandidateSpec(id="c2", policy=PolicyId.QQQ, modules=1, targets={"QQQ": 0.9, "SOXX": 0.1}),),
     )
     with pytest.raises(ValueError, match="cohort"):
         resolve_final_campaign_window(narrow_spec, settings=None)

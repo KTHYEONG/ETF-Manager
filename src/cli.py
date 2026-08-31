@@ -8,63 +8,34 @@ import logging
 from datetime import UTC, date
 
 from src.cli_commands.campaign import (
-    run_ablation_command,
-    run_accumulation_cohort_command,
-    run_audit_feasibility_command,
-    run_cadence_robustness_command,
-    run_final_historical_campaign_command,
-    run_prospective_monitor_command,
-    run_strategy_selection_command,
-    run_validate_command,
-    run_walk_forward_command,
-    run_walk_forward_costs_command,
-    run_walk_forward_proxy_command,
+    run_ablation_command, run_accumulation_cohort_command, run_audit_feasibility_command,
+    run_cadence_robustness_command, run_final_historical_campaign_command, run_prospective_monitor_command,
+    run_strategy_selection_command, run_validate_command, run_walk_forward_command,
+    run_walk_forward_costs_command, run_walk_forward_proxy_command,
 )
 from src.cli_commands.diagnose import (
-    run_diagnose_compound_dca_command,
-    run_diagnose_qqq_accumulation_alpha_command,
-    run_diagnose_qqq_adaptive_hp_command,
-    run_diagnose_qqq_blends_command,
-    run_diagnose_qqq_cadence_command,
-    run_diagnose_qqq_kafi_command,
-    run_diagnose_qqq_regimes_command,
-    run_diagnose_qqq_reserve_command,
+    run_diagnose_compound_dca_command, run_diagnose_qqq_accumulation_alpha_command,
+    run_diagnose_qqq_adaptive_hp_command, run_diagnose_qqq_blends_command,
+    run_diagnose_qqq_cadence_command, run_diagnose_qqq_kafi_command,
+    run_diagnose_qqq_regimes_command, run_diagnose_qqq_reserve_command,
     run_diagnose_us_vehicles_command,
 )
 from src.cli_commands.ingest import (
-    _HISTORY_FX_PROVIDER,
-    _SMOKE_DATA_ROOT,
-    _SMOKE_END,
-    _SMOKE_FX_PROVIDER,
-    _SMOKE_START,
-    _SMOKE_TICKER,
-    run_ingest_history,
-    run_ingest_smoke,
-    run_ingest_static_dca,
+    _HISTORY_FX_PROVIDER, _SMOKE_DATA_ROOT, _SMOKE_END, _SMOKE_FX_PROVIDER,
+    _SMOKE_START, _SMOKE_TICKER, run_ingest_history, run_ingest_smoke, run_ingest_static_dca,
 )
 from src.cli_commands.parser import _UsageError, _build_parser
 from src.cli_commands.resolvers import (
-    _resolve_currency,
-    _resolve_mapping,
-    _resolve_overlay,
-    _resolve_reserve,
-    _resolve_tilt,
+    _resolve_currency, _resolve_mapping, _resolve_overlay, _resolve_reserve, _resolve_tilt,
 )
 from src.cli_commands.sim_run import run_baseline_command, run_paper_command, run_policy_command
 from src.cli_commands.thesis import (
-    run_diagnose_overlap_command,
-    run_thesis_command,
-    run_thesis_incremental_command,
-    run_thesis_report_command,
-    run_thesis_wave_command,
+    run_diagnose_overlap_command, run_thesis_command, run_thesis_incremental_command,
+    run_thesis_report_command, run_thesis_wave_command,
 )
 from src.data.fetch import (
-    fetch_and_persist_cpi,
-    fetch_and_persist_factors,
-    fetch_and_persist_fx,
-    fetch_and_persist_macro,
-    fetch_and_persist_prices,
-    fetch_and_persist_research_returns,
+    fetch_and_persist_cpi, fetch_and_persist_factors, fetch_and_persist_fx,
+    fetch_and_persist_macro, fetch_and_persist_prices, fetch_and_persist_research_returns,
 )
 from src.data.nport_ingest import fetch_and_persist_nport_quarter, fetch_and_persist_nport_quarters
 from src.data.providers.base import ProviderError

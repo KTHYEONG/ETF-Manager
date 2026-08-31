@@ -184,7 +184,7 @@ def test_compute_crowding_slot_physical_automation_botz(
         causal_chain=["a"],
         falsifiers=["commercialization_lag"],
         candidate_sleeves=["physical_automation"],
-        historical_proxies=["BOTZ"],
+        historical_proxies=["ROBO"],
     )
     settings = DataSettings(data_root=tmp_path / "data")
     as_of = datetime(2021, 12, 30, tzinfo=UTC)
@@ -197,7 +197,7 @@ def test_compute_crowding_slot_physical_automation_botz(
     for i, w in enumerate(weights):
         rows.append(
             {
-                "etf_ticker": "BOTZ",
+                "etf_ticker": "ROBO",
                 "report_date": report_date,
                 "filing_date": filing,
                 "holding_id": f"B{i}",
@@ -223,7 +223,7 @@ def test_compute_crowding_slot_physical_automation_botz(
     slot = compute_crowding_slot(thesis=thesis, settings=settings, as_of=as_of)
     assert slot.status == "computed"
     assert slot.summary.startswith("crowding:")
-    assert slot.metrics["vehicle_ticker"] == "BOTZ"
+    assert slot.metrics["vehicle_ticker"] == "ROBO"
     assert slot.metrics["concentration_label"] in {"concentrated", "dispersed"}
     assert isinstance(slot.metrics["hhi"], float)
     assert isinstance(slot.metrics["top5_weight_pct"], float)
