@@ -1,0 +1,350 @@
+{
+  "campaign_id": "FINAL_HISTORICAL_CAMPAIGN_V1",
+  "window_start": "2012-08-31",
+  "window_end": "2026-08-28",
+  "window": {
+    "start": "2012-08-31",
+    "end": "2026-08-28"
+  },
+  "arm_rows": [
+    {
+      "arm_id": "b0_qqq100",
+      "targets": {
+        "QQQ": 1.0
+      },
+      "cohort_count": 4,
+      "median_ratio": 1.0,
+      "p10_ratio": 1.0,
+      "worst_ratio": 1.0,
+      "win_rate": 1.0,
+      "ce_gamma_10": 1.0,
+      "bootstrap_win_rate": 1.0,
+      "bootstrap_p05": 1.0,
+      "xirr_real": 0.23339300640142147,
+      "cost_stress_worst_ratio": 0.9889093369183074,
+      "fx_stress_worst_ratio": 0.9899431166739651,
+      "cohort_starts": [
+        "2012-08-31",
+        "2013-08-31",
+        "2014-08-31",
+        "2015-08-31"
+      ],
+      "cohort_ends": [
+        "2022-08-30",
+        "2023-08-30",
+        "2024-08-30",
+        "2025-08-30"
+      ],
+      "paired_cost_stress": []
+    },
+    {
+      "arm_id": "c1_qqq95_soxx5",
+      "targets": {
+        "QQQ": 0.95,
+        "SOXX": 0.05
+      },
+      "cohort_count": 4,
+      "median_ratio": 1.0110237098278256,
+      "p10_ratio": 1.0069479422147332,
+      "worst_ratio": 1.005836934182069,
+      "win_rate": 1.0,
+      "ce_gamma_10": 1.011233004894606,
+      "bootstrap_win_rate": 0.9825,
+      "bootstrap_p05": 1.0046866514886044,
+      "xirr_real": 0.23687466308389069,
+      "cost_stress_worst_ratio": 0.9887659567100935,
+      "fx_stress_worst_ratio": 0.9903651878582369,
+      "cohort_starts": [
+        "2012-08-31",
+        "2013-08-31",
+        "2014-08-31",
+        "2015-08-31"
+      ],
+      "cohort_ends": [
+        "2022-08-30",
+        "2023-08-30",
+        "2024-08-30",
+        "2025-08-30"
+      ],
+      "paired_cost_stress": [
+        {
+          "scenario_id": "ideal",
+          "candidate_over_baseline_ratio": 1.0191541305479859
+        },
+        {
+          "scenario_id": "low",
+          "candidate_over_baseline_ratio": 1.0194682182835038
+        },
+        {
+          "scenario_id": "base",
+          "candidate_over_baseline_ratio": 1.0212514333572782
+        },
+        {
+          "scenario_id": "stress",
+          "candidate_over_baseline_ratio": 1.0190063652008656
+        }
+      ]
+    },
+    {
+      "arm_id": "c2_qqq90_soxx10",
+      "targets": {
+        "QQQ": 0.9,
+        "SOXX": 0.1
+      },
+      "cohort_count": 4,
+      "median_ratio": 1.0335665097027773,
+      "p10_ratio": 1.025648373344638,
+      "worst_ratio": 1.0223552203082487,
+      "win_rate": 1.0,
+      "ce_gamma_10": 1.033537700737926,
+      "bootstrap_win_rate": 0.9725,
+      "bootstrap_p05": 1.0122874969331852,
+      "xirr_real": 0.2468066760109122,
+      "cost_stress_worst_ratio": 0.9913986843264024,
+      "fx_stress_worst_ratio": 0.987293481278429,
+      "cohort_starts": [
+        "2012-08-31",
+        "2013-08-31",
+        "2014-08-31",
+        "2015-08-31"
+      ],
+      "cohort_ends": [
+        "2022-08-30",
+        "2023-08-30",
+        "2024-08-30",
+        "2025-08-30"
+      ],
+      "paired_cost_stress": [
+        {
+          "scenario_id": "ideal",
+          "candidate_over_baseline_ratio": 1.0758169311129115
+        },
+        {
+          "scenario_id": "low",
+          "candidate_over_baseline_ratio": 1.0764340303801265
+        },
+        {
+          "scenario_id": "base",
+          "candidate_over_baseline_ratio": 1.0748773366617037
+        },
+        {
+          "scenario_id": "stress",
+          "candidate_over_baseline_ratio": 1.078525048014099
+        }
+      ]
+    },
+    {
+      "arm_id": "c3_qqq85_soxx15",
+      "targets": {
+        "QQQ": 0.85,
+        "SOXX": 0.15
+      },
+      "cohort_count": 4,
+      "median_ratio": 1.0556460350290635,
+      "p10_ratio": 1.04157171641514,
+      "worst_ratio": 1.036751196785675,
+      "win_rate": 1.0,
+      "ce_gamma_10": 1.0546084933790938,
+      "bootstrap_win_rate": 0.965,
+      "bootstrap_p05": 1.0120477650858286,
+      "xirr_real": 0.2596022462111951,
+      "cost_stress_worst_ratio": 0.9911265989240408,
+      "fx_stress_worst_ratio": 0.9935923054280408,
+      "cohort_starts": [
+        "2012-08-31",
+        "2013-08-31",
+        "2014-08-31",
+        "2015-08-31"
+      ],
+      "cohort_ends": [
+        "2022-08-30",
+        "2023-08-30",
+        "2024-08-30",
+        "2025-08-30"
+      ],
+      "paired_cost_stress": [
+        {
+          "scenario_id": "ideal",
+          "candidate_over_baseline_ratio": 1.1534297761423824
+        },
+        {
+          "scenario_id": "low",
+          "candidate_over_baseline_ratio": 1.1577468893306755
+        },
+        {
+          "scenario_id": "base",
+          "candidate_over_baseline_ratio": 1.1544784559137142
+        },
+        {
+          "scenario_id": "stress",
+          "candidate_over_baseline_ratio": 1.1560159141465918
+        }
+      ]
+    }
+  ],
+  "regime_coverage": {
+    "rows": [
+      {
+        "regime_name": "dot_com",
+        "covered": false,
+        "overlap_months": 0,
+        "coverage_tier": "none",
+        "coverage_fraction": 0.0
+      },
+      {
+        "regime_name": "gfc",
+        "covered": false,
+        "overlap_months": 0,
+        "coverage_tier": "none",
+        "coverage_fraction": 0.0
+      },
+      {
+        "regime_name": "low_rate_2010s",
+        "covered": true,
+        "overlap_months": 89,
+        "coverage_tier": "substantial",
+        "coverage_fraction": 0.7416666666666667
+      },
+      {
+        "regime_name": "covid",
+        "covered": true,
+        "overlap_months": 3,
+        "coverage_tier": "full",
+        "coverage_fraction": 1.0
+      },
+      {
+        "regime_name": "inflation_2022",
+        "covered": true,
+        "overlap_months": 12,
+        "coverage_tier": "full",
+        "coverage_fraction": 1.0
+      },
+      {
+        "regime_name": "ai_boom_2023",
+        "covered": true,
+        "overlap_months": 32,
+        "coverage_tier": "substantial",
+        "coverage_fraction": 0.7619047619047619
+      }
+    ],
+    "independent_sample_warning": true
+  },
+  "lineage_census": {
+    "total_experiments": 39,
+    "families": [
+      {
+        "family_id": "adaptive",
+        "experiment_count": 6,
+        "active_count": 2,
+        "archived_count": 4
+      },
+      {
+        "family_id": "cadence",
+        "experiment_count": 3,
+        "active_count": 3,
+        "archived_count": 0
+      },
+      {
+        "family_id": "currency",
+        "experiment_count": 1,
+        "active_count": 1,
+        "archived_count": 0
+      },
+      {
+        "family_id": "grid",
+        "experiment_count": 1,
+        "active_count": 0,
+        "archived_count": 1
+      },
+      {
+        "family_id": "mapping",
+        "experiment_count": 1,
+        "active_count": 1,
+        "archived_count": 0
+      },
+      {
+        "family_id": "overlay",
+        "experiment_count": 2,
+        "active_count": 2,
+        "archived_count": 0
+      },
+      {
+        "family_id": "pave",
+        "experiment_count": 3,
+        "active_count": 3,
+        "archived_count": 0
+      },
+      {
+        "family_id": "proxy",
+        "experiment_count": 1,
+        "active_count": 0,
+        "archived_count": 1
+      },
+      {
+        "family_id": "qqq_vti",
+        "experiment_count": 9,
+        "active_count": 7,
+        "archived_count": 2
+      },
+      {
+        "family_id": "reserve",
+        "experiment_count": 5,
+        "active_count": 2,
+        "archived_count": 3
+      },
+      {
+        "family_id": "robo",
+        "experiment_count": 3,
+        "active_count": 3,
+        "archived_count": 0
+      },
+      {
+        "family_id": "soxx",
+        "experiment_count": 4,
+        "active_count": 4,
+        "archived_count": 0
+      }
+    ]
+  },
+  "lineage_hash_census": {
+    "unique_config_hashes": 0,
+    "total_run_records": 0
+  },
+  "pre_history_mix_proxy": [
+    {
+      "evidence_tier": "proxy_stress_only",
+      "status": "unavailable",
+      "regime_name": "dot_com",
+      "baseline_terminal_real_krw": null,
+      "candidate_terminal_real_krw": null,
+      "candidate_over_baseline_ratio": null,
+      "window_start": "1998-03-01",
+      "window_end": "2002-10-31",
+      "reason": "Parameter `start` receieved as '1998-03-01 00:00:00' although cannot be earlier than the first session of calendar 'XNYS' ('2006-08-31 00:00:00')."
+    },
+    {
+      "evidence_tier": "proxy_stress_only",
+      "status": "unavailable",
+      "regime_name": "gfc",
+      "baseline_terminal_real_krw": null,
+      "candidate_terminal_real_krw": null,
+      "candidate_over_baseline_ratio": null,
+      "window_start": "2007-10-01",
+      "window_end": "2009-03-30",
+      "reason": "missing research_returns series: ['NDX100', 'SOX']"
+    }
+  ],
+  "operational_unlock": false,
+  "tax_sensitivity": {
+    "status": "not_modelled",
+    "rationale": "buy_only_accumulation_defers_realization_tax_until_sale; no PIT tax ledger model"
+  },
+  "pre_history_proxy": {
+    "status": "available",
+    "reason": "ff_proxy_from_2016-07-01",
+    "proxy_window_start": "2016-07-01",
+    "proxy_window_end": "2026-06-29",
+    "terminal_wealth_real_krw": 129216530.9753848,
+    "xirr_real": 0.031775426163332586
+  }
+}
