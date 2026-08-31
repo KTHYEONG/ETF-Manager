@@ -34,7 +34,9 @@ Task-oriented file lists for bounded AI context. See also `docs/code_map.json`.
 - `src/validation/cost_grid.py`
 - `src/validation/cadence_robustness.py`
 - `src/validation/accumulation_cohort.py`
+- `src/validation/historical_campaign.py`
 - `src/validation/feasibility_audit.py`
+- `src/validation/prospective_registry.py`
 - `src/validation/gate.py`
 - `src/validation/ablation.py`
 - `configs/experiments/INDEX.json`
