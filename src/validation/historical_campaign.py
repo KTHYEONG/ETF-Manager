@@ -369,8 +369,8 @@ def resolve_final_campaign_window(
     *,
     as_of: datetime | None = None,
 ) -> tuple[date, date, tuple[tuple[date, date], ...]]:
-    from src.validation.windows import rolling_cohorts
     from src.validation.research_posture import SEEN_HISTORY_CUTOFF
+    from src.validation.windows import rolling_cohorts
 
     effective_start = spec.start
     effective_end = min(spec.end, SEEN_HISTORY_CUTOFF)

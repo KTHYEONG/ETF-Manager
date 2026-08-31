@@ -6,6 +6,7 @@ Curated narrative and summary JSON for operator review. Machine outputs from CLI
 
 | Directory | Contents |
 |-----------|----------|
+| [`final-historical/`](final-historical/) | Frozen final historical campaign report (B0 QQQ100 + C1–C3 flat SOXX mixes) |
 | [`thesis-wave/`](thesis-wave/) | Batch thesis-wave markdown + methodology deep-dives; `data/` holds flat JSON tables |
 | [`thesis-incremental/`](thesis-incremental/) | Track H incremental portfolio JSON (`QQQ95/90/85` vs `QQQ100`) |
 | [`catalog-waves/`](catalog-waves/) | Historical catalog ingest and satellite-matrix reports (Wave 2–3) |
@@ -15,6 +16,7 @@ Curated narrative and summary JSON for operator review. Machine outputs from CLI
 
 | Report | Path |
 |--------|------|
+| Final Historical Campaign Freeze | [`final-historical/FINAL_HISTORICAL_CAMPAIGN_V1_8201d9e.md`](final-historical/FINAL_HISTORICAL_CAMPAIGN_V1_8201d9e.md) |
 | Thesis wave summary | [`thesis-wave/2024-08-31_v2_thesis_wave.md`](thesis-wave/2024-08-31_v2_thesis_wave.md) |
 | Track H incremental | [`thesis-incremental/2024-08-31_incremental_ai_compute.json`](thesis-incremental/2024-08-31_incremental_ai_compute.json) |
 | Full pipeline write-up | [`thesis-wave/20260830_ai_compute_research_pipeline.md`](thesis-wave/20260830_ai_compute_research_pipeline.md) |
