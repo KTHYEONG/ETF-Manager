@@ -2,28 +2,21 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import FrozenInstanceError
 from datetime import date
 
 import pytest
 
-import src.validation.cost_grid  # co-mod anchor for lean_check AST linkage
 
-from src.data.settings import DataSettings
-from src.policy.adaptive_contribution import AdaptiveContributionConfig
 from src.policy.targets import PolicyId
 from src.sim.allocation import AllocationConfig, AllocationResult
 from src.validation.campaign import (
     COST_SCENARIOS,
-    run_cadence_robustness,
     run_walk_forward_adoption,
     run_walk_forward_cost_grid,
     run_walk_forward_proxy_adoption,
-    write_campaign_report,
 )
 from src.validation.experiment import (
-    AdaptiveContributionSpec,
     CadenceSpec,
     CandidateSpec,
     CurrencySpec,
@@ -31,9 +24,6 @@ from src.validation.experiment import (
     MappingSpec,
     OverlaySpec,
     ReserveSpec,
-    load_experiment_config,
-    resolve_adaptive_contribution,
-    resolve_baseline_adaptive_contribution,
 )
 
 
@@ -110,7 +100,7 @@ def test_wf_b_grid_four_scenarios(scenario_id: str) -> None:
         COST_SCENARIOS[0].id = "mutated"  # type: ignore[misc]
 
     fold_count = len(grid.outcomes[0].campaign.folds)
-    configs_per_scenario = 5 * fold_count
+    configs_per_scenario = 4 * fold_count
     for index, outcome in enumerate(grid.outcomes):
         chunk = runner.configs[index * configs_per_scenario : (index + 1) * configs_per_scenario]
         assert chunk
@@ -180,11 +170,11 @@ def test_wf_g_overlay_same_policy(scenario_id: str) -> None:
     assert all(fold.train_adopted is True for fold in report.folds)
     assert report.process_adopted_vs_baseline is True
     for fold_index in range(len(report.folds)):
-        chunk = runner.configs[fold_index * 5 : (fold_index + 1) * 5]
-        assert len(chunk) == 5
+        chunk = runner.configs[fold_index * 4 : (fold_index + 1) * 4]
+        assert len(chunk) == 4
         overlay_states = [config.overlay is not None for config in chunk]
         # Baseline train/test stay un-overlayed; candidate and chosen arms carry it.
-        assert overlay_states == [False, True, False, True, True]
+        assert overlay_states == [False, True, False, True]
         for config in chunk:
             if config.overlay is not None:
                 assert config.overlay.max_shift == pytest.approx(0.10)
@@ -241,11 +231,11 @@ def test_wf_h_reserve_same_policy(scenario_id: str) -> None:
     assert all(fold.train_adopted is True for fold in report.folds)
     assert report.process_adopted_vs_baseline is True
     for fold_index in range(len(report.folds)):
-        chunk = runner.configs[fold_index * 5 : (fold_index + 1) * 5]
-        assert len(chunk) == 5
+        chunk = runner.configs[fold_index * 4 : (fold_index + 1) * 4]
+        assert len(chunk) == 4
         reserve_states = [config.reserve is not None for config in chunk]
         # Baseline train/test stay un-reserved; candidate and chosen arms carry it.
-        assert reserve_states == [False, True, False, True, True]
+        assert reserve_states == [False, True, False, True]
         for config in chunk:
             if config.reserve is not None:
                 assert config.reserve.max_withhold == pytest.approx(0.10)
@@ -303,11 +293,11 @@ def test_wf_j_mapping_same_policy(scenario_id: str) -> None:
     assert all(fold.train_adopted is True for fold in report.folds)
     assert report.process_adopted_vs_baseline is True
     for fold_index in range(len(report.folds)):
-        chunk = runner.configs[fold_index * 5 : (fold_index + 1) * 5]
-        assert len(chunk) == 5
+        chunk = runner.configs[fold_index * 4 : (fold_index + 1) * 4]
+        assert len(chunk) == 4
         mapping_states = [config.mapping is not None for config in chunk]
         # Baseline train/test stay unmapped; candidate and chosen arms carry it.
-        assert mapping_states == [False, True, False, True, True]
+        assert mapping_states == [False, True, False, True]
         for config in chunk:
             if config.mapping is not None:
                 assert config.mapping.min_improvement == pytest.approx(0.02)
@@ -368,11 +358,11 @@ def test_wf_k_currency_same_policy(scenario_id: str) -> None:
     assert all(fold.train_adopted is True for fold in report.folds)
     assert report.process_adopted_vs_baseline is True
     for fold_index in range(len(report.folds)):
-        chunk = runner.configs[fold_index * 5 : (fold_index + 1) * 5]
-        assert len(chunk) == 5
+        chunk = runner.configs[fold_index * 4 : (fold_index + 1) * 4]
+        assert len(chunk) == 4
         currency_states = [config.currency is not None for config in chunk]
         # Baseline train/test stay undeferred; candidate and chosen arms carry it.
-        assert currency_states == [False, True, False, True, True]
+        assert currency_states == [False, True, False, True]
         for config in chunk:
             if config.currency is not None:
                 assert config.currency.max_defer == pytest.approx(0.10)
@@ -391,13 +381,13 @@ def test_wf_k_currency_cost_grid(scenario_id: str) -> None:
     fold_count = len(grid.outcomes[0].campaign.folds)
     cursor = 0
     for outcome in grid.outcomes:
-        block = runner.configs[cursor : cursor + 5 * fold_count]
+        block = runner.configs[cursor : cursor + 4 * fold_count]
         cursor += len(block)
-        assert len(block) == 5 * fold_count
+        assert len(block) == 4 * fold_count
         for index, config in enumerate(block):
             assert config.commission_bps == pytest.approx(outcome.scenario.commission_bps)
             assert config.fx_spread_bps == pytest.approx(outcome.scenario.fx_spread_bps)
-            carries_currency = index % 5 in (1, 3, 4)
+            carries_currency = index % 4 in (1, 3)
             assert (config.currency is not None) is carries_currency
             if config.currency is not None:
                 assert config.currency.max_defer == pytest.approx(0.10)
@@ -462,14 +452,13 @@ def test_wf_l_cadence_candidate(scenario_id: str) -> None:
     assert all(fold.train_adopted is True for fold in report.folds)
     assert report.process_adopted_vs_baseline is True
     for fold_index in range(len(report.folds)):
-        chunk = runner.configs[fold_index * 5 : (fold_index + 1) * 5]
-        assert len(chunk) == 5
+        chunk = runner.configs[fold_index * 4 : (fold_index + 1) * 4]
+        assert len(chunk) == 4
         # Baseline train/test stay monthly; the adopted chosen arm opens the month.
         assert [config.cadence for config in chunk] == [
             "monthly",
             "month_open",
             "monthly",
-            "month_open",
             "month_open",
         ]
 
@@ -478,15 +467,14 @@ def test_wf_l_cadence_candidate(scenario_id: str) -> None:
 
     assert all(fold.train_adopted is False for fold in flat_report.folds)
     for fold_index in range(len(flat_report.folds)):
-        chunk = flat_runner.configs[fold_index * 5 : (fold_index + 1) * 5]
-        assert len(chunk) == 5
+        chunk = flat_runner.configs[fold_index * 4 : (fold_index + 1) * 4]
+        assert len(chunk) == 4
         # Without train adoption the chosen arm falls back to the monthly cadence.
         assert [config.cadence for config in chunk] == [
             "monthly",
             "month_open",
             "monthly",
             "month_open",
-            "monthly",
         ]
 
     etf_runner = _RecordingRunner(dict.fromkeys(PolicyId, 100.0))

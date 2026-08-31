@@ -95,8 +95,8 @@ def test_wf_a_select_on_train(scenario_id: str) -> None:
         assert config.commission_bps == pytest.approx(0.0)
         assert config.tilt is None
     assert [config.policy for config in first_train_pair] == [PolicyId.VT, PolicyId.VTI]
-    # Baseline, candidate, and chosen all run on test even when chosen repeats an arm.
-    assert len(runner.configs) == 5 * len(report.folds)
+    # Baseline and candidate run on train and test; chosen reuses arm (4 per fold).
+    assert len(runner.configs) == 4 * len(report.folds)
 
 
 @pytest.mark.parametrize("scenario_id", ["WF-A-keep-baseline"])

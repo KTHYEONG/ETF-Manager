@@ -12,7 +12,7 @@ import src.policy.adaptive_contribution as adaptive_module
 from src.data.calendar import load_calendar
 from src.data.pipeline import ingest
 from src.data.schema import Dataset, spec_for
-from src.policy.adaptive_contribution import AdaptiveContributionConfig, OPERATIONAL_ADAPTIVE_CONTRIBUTION
+from src.policy.adaptive_contribution import AdaptiveContributionConfig  # noqa: F401
 from src.policy.contribution_shape import ContributionShapeConfig
 from src.policy.kafi_deployment import KafiDeploymentConfig
 from src.policy.overlay import OverlayConfig
@@ -197,14 +197,8 @@ def test_sim_acg_operational_lock(scenario_id: str) -> None:
         monthly_contribution_krw=_CONTRIBUTION_KRW,
     )
     locked = apply_operational_contribution_lock(bare_qqq)
-    assert locked.adaptive_contribution is OPERATIONAL_ADAPTIVE_CONTRIBUTION
     assert locked.targets_override == {"QQQ": 0.9, "SOXX": 0.1}
-    assert locked.adaptive_contribution.rank_window == 126
-    assert locked.adaptive_contribution.downside_power == pytest.approx(4.0)
-    assert locked.adaptive_contribution.upside_power == pytest.approx(0.25)
-    assert locked.adaptive_contribution.neutral_deadband == pytest.approx(5.0)
-    assert locked.adaptive_contribution.dispersion == pytest.approx(1.35)
-    assert locked.adaptive_contribution.include_vol_dampener is False
+    assert locked.adaptive_contribution is None
 
     vti = apply_operational_contribution_lock(
         AllocationConfig(
@@ -238,9 +232,36 @@ def test_sim_acg_operational_lock_v5(scenario_id: str) -> None:
         monthly_contribution_krw=_CONTRIBUTION_KRW,
     )
     locked = apply_operational_contribution_lock(bare_qqq)
-    assert locked.adaptive_contribution is OPERATIONAL_ADAPTIVE_CONTRIBUTION
     assert locked.targets_override == {"QQQ": 0.9, "SOXX": 0.1}
-    assert locked.adaptive_contribution.neutral_deadband == pytest.approx(5.0)
-    assert locked.adaptive_contribution.dispersion == pytest.approx(1.35)
-    assert locked.adaptive_contribution.rank_window == 126
-    assert locked.adaptive_contribution.include_vol_dampener is False
+    assert locked.adaptive_contribution is None
+
+def test_apply_operational_lock_is_flat_qqq90_soxx10() -> None:
+    from datetime import date
+
+    from src.policy.targets import OPERATIONAL_POLICY_ID, OPERATIONAL_TARGETS_OVERRIDE, PolicyId
+    from src.sim.allocation import AllocationConfig, apply_operational_contribution_lock
+
+    bare = AllocationConfig(
+        policy=OPERATIONAL_POLICY_ID,
+        start=date(2024, 1, 2),
+        end=date(2024, 3, 28),
+        monthly_contribution_krw=1_000_000.0,
+    )
+    locked = apply_operational_contribution_lock(bare)
+    assert locked.targets_override == {"QQQ": 0.9, "SOXX": 0.1}
+    assert locked.targets_override == OPERATIONAL_TARGETS_OVERRIDE
+    assert locked.adaptive_contribution is None
+    assert locked.kafi_deployment is None
+    assert locked.contribution_shape is None
+    skipped = apply_operational_contribution_lock(
+        AllocationConfig(
+            policy=PolicyId.VTI,
+            start=date(2024, 1, 2),
+            end=date(2024, 3, 28),
+            monthly_contribution_krw=1_000_000.0,
+        )
+    )
+    assert skipped.targets_override is None
+    assert skipped.adaptive_contribution is None
+
+
