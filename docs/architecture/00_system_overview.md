@@ -156,7 +156,7 @@ they must not call `adoption_passes` or change `OPERATIONAL_POLICY_ID`.
 
 | Path | Responsibility |
 | --- | --- |
-| `data/*` | Providers, PIT catalog, quality, manifests, panel freshness, prune |
+| `data/*` | Providers, PIT catalog, quality, manifests, panel freshness, retention |
 | `features/*` | PIT-safe returns, vol, drawdown, factor OLS, KAFI |
 | `policy/targets.py` | `PolicyId`, `resolve_targets`, sleeve universe, `OPERATIONAL_POLICY_ID` |
 | `policy/thesis.py` | `ThesisId`, `ThesisSpec`, registry, lifecycle |

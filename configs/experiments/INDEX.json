@@ -214,6 +214,31 @@
       "status": "active",
       "kind": "final_historical",
       "notes": "final historical campaign 2016-07-01..2026-06-30 QQQ/SOXX 5/10/15"
+    },
+    "wf_compound_dca_tournament.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "compound DCA tournament multi-arm walk-forward screen"
+    },
+    "wf_qqq85_soxx15_adaptive_v5.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "QQQ 85 / SOXX 15 adaptive v5 walk-forward"
+    },
+    "wf_qqq95_soxx5_adaptive_v5.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "QQQ 95 / SOXX 5 adaptive v5 walk-forward"
+    },
+    "wf_qqq_soxx_intensity_mdd.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "QQQ SOXX intensity screen with MDD slack"
+    },
+    "wf_soxx100_compound_growth.json": {
+      "status": "active",
+      "kind": "wf",
+      "notes": "SOXX 100 compound growth walk-forward screen"
     }
   }
 }

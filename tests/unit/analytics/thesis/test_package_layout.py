@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 def test_thesis_package_modules_exist() -> None:
     from src.analytics.thesis import THESIS_MODULES
@@ -21,7 +23,7 @@ def test_thesis_package_modules_exist() -> None:
         "wave_d_exit",
         "incremental",
     )
-    assert THESIS_MODULES == expected
+    assert expected == THESIS_MODULES
     for stem in expected:
         assert stem in THESIS_MODULES
     # each file exists
@@ -116,13 +118,13 @@ def test_thesis_package_no_import_of_shims() -> None:
                     # check if legacy import without thesis. exists separately
                     # look for "from src.analytics.wave_d_exit" specifically
                     if "from src.analytics.wave_d_exit" in text or "import src.analytics.wave_d_exit" in text:
-                        assert False, f"{p} imports legacy shim via {needle}"
+                        pytest.fail(f"{p} imports legacy shim via {needle}")
                     continue
                 if "src.analytics.thesis.incremental" in text and needle == "src.analytics.incremental_portfolio":
                     if "from src.analytics.incremental_portfolio" in text or "import src.analytics.incremental_portfolio" in text:
-                        assert False, f"{p} imports legacy shim via {needle}"
+                        pytest.fail(f"{p} imports legacy shim via {needle}")
                     continue
-                assert False, f"{p} imports legacy shim via {needle!r}: found {needle}"
+                pytest.fail(f"{p} imports legacy shim via {needle!r}: found {needle}")
 
 
 def test_ev_no_adoption_import() -> None:

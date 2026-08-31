@@ -1,7 +1,6 @@
 """Tests for thesis evidence vector."""
 from __future__ import annotations
 
-import math
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -11,14 +10,13 @@ import pytest
 from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
 from src.policy.thesis import ThesisId, ThesisSpec, Horizon
-from src.policy.targets import PolicyId
-from src.sim.allocation import AllocationConfig, AllocationResult, AllocationSnapshot
+from src.sim.allocation import AllocationConfig, AllocationResult
 
 
 
 def test_overlap_slot_uses_purity_when_configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from src.analytics.thesis_evidence import EvidenceSlot, _overlap_slot
-    from src.data.schema import Dataset, spec_for
+    from src.data.schema import Dataset
     from src.data.pit import stamp_availability
 
     # AI_POWER_BOTTLENECK with mocked purity slot
@@ -86,7 +84,7 @@ def test_thesis_evidence_physical_automation_overlap_uses_purity(
 ) -> None:
     """test_thesis_evidence_physical_automation_overlap_uses_purity"""
     from src.analytics.thesis_evidence import EvidenceSlot, _overlap_slot
-    from src.data.schema import Dataset, spec_for
+    from src.data.schema import Dataset
     from src.data.pit import stamp_availability
 
     thesis_physical = ThesisSpec(
@@ -214,7 +212,7 @@ def test_thesis_evidence_physical_automation_valuation_crowding_not_unknown(
     from src.analytics.thesis_evidence import compute_evidence_vector
     from src.data.calendar import load_calendar
     from src.data.pit import stamp_availability
-    from src.data.schema import Dataset, spec_for
+    from src.data.schema import Dataset
 
     thesis = ThesisSpec(
         id=ThesisId.PHYSICAL_AUTOMATION,

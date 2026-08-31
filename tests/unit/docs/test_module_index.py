@@ -62,7 +62,8 @@ def test_code_map_covers_all_src_py() -> None:
         entry = code_map[rel]
         assert isinstance(entry, dict)
         family = entry.get("family")
-        assert isinstance(family, str) and family
+        assert isinstance(family, str)
+        assert bool(family)
 
 
 def test_overview_links_module_index() -> None:

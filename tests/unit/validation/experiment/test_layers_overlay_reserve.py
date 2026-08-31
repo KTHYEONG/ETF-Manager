@@ -7,39 +7,16 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
-from src.etf.mapping import DEFAULT_CANDIDATES, MappingConfig
-from src.policy.adaptive_contribution import AdaptiveContributionConfig
-from src.policy.contribution_shape import ContributionShapeConfig
-from src.policy.kafi_deployment import KafiDeploymentConfig
-from src.policy.currency import CurrencyConfig
 from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
 from src.policy.targets import PolicyId
-from src.policy.thesis import ThesisId, load_thesis_registry
-from src.sim.allocation import AllocationConfig
 from src.validation.experiment import (
-    AdaptiveContributionSpec,
-    CadenceSpec,
-    CandidateSpec,
     ExperimentSpec,
-    PreregistrationSpec,
-    assert_experiment_preregistration,
-    experiment_target_tickers,
     load_experiment_config,
-    resolve_adaptive_contribution,
-    resolve_arm_targets,
-    resolve_baseline_adaptive_contribution,
-    resolve_cadence,
-    resolve_contribution_shape,
-    resolve_currency,
-    resolve_kafi_deployment,
-    resolve_mapping,
     resolve_overlay,
     resolve_reserve,
 )
-from src.validation.registry import make_experiment
 
 
 def _payload() -> dict[str, object]:

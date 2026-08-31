@@ -1,7 +1,6 @@
 """Tests for thesis evidence vector."""
 from __future__ import annotations
 
-import math
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -11,8 +10,7 @@ import pytest
 from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
 from src.policy.thesis import ThesisId, ThesisSpec, Horizon
-from src.policy.targets import PolicyId
-from src.sim.allocation import AllocationConfig, AllocationResult, AllocationSnapshot
+from src.sim.allocation import AllocationConfig, AllocationResult
 
 
 
@@ -177,7 +175,7 @@ def test_ev_valuation_crowding_ai_compute(tmp_path: Path, monkeypatch: pytest.Mo
     settings = DataSettings(data_root=tmp_path / "data")
     as_of = datetime(2025, 4, 30, tzinfo=UTC)
     # Build PRICES: SOXX and QQQ 300 sessions
-    from src.data.schema import Dataset, spec_for
+    from src.data.schema import Dataset
     from src.data.calendar import load_calendar
     from src.data.pit import stamp_availability
 
@@ -371,7 +369,7 @@ def test_thesis_evidence_ai_power_valuation_crowding_not_unknown(tmp_path: Path,
     from src.analytics.thesis_evidence import compute_evidence_vector
     from src.data.calendar import load_calendar
     from src.data.pit import stamp_availability
-    from src.data.schema import Dataset, spec_for
+    from src.data.schema import Dataset
 
     thesis = ThesisSpec(
         id=ThesisId.AI_POWER_BOTTLENECK,
