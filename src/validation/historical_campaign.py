@@ -10,8 +10,9 @@ from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal
 
+from src.policy.targets import PolicyId
 from src.validation.experiment import ExperimentSpec
 
 if TYPE_CHECKING:
@@ -26,12 +27,15 @@ __all__ = [
     "FinalHistoricalArmMetrics",
     "FinalHistoricalArmSpec",
     "FinalHistoricalCampaignReport",
+    "PreHistoryProxyStressReport",
     "RegimeCoverageReport",
     "RegimeCoverageRow",
     "RegimeWindow",
+    "TaxSensitivityMilestone",
     "TrialLineageCensusReport",
     "TrialLineageFamilyRow",
     "assert_final_campaign_spec",
+    "audit_pre_history_proxy_stress",
     "audit_regime_coverage",
     "build_trial_lineage_census",
     "run_final_historical_campaign",
@@ -84,6 +88,22 @@ class RegimeCoverageReport:
 
 
 @dataclass(frozen=True, slots=True)
+class TaxSensitivityMilestone:
+    status: Literal["not_modelled"]
+    rationale: str
+
+
+@dataclass(frozen=True, slots=True)
+class PreHistoryProxyStressReport:
+    status: Literal["available", "unavailable"]
+    reason: str
+    proxy_window_start: date | None = None
+    proxy_window_end: date | None = None
+    terminal_wealth_real_krw: float | None = None
+    xirr_real: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class TrialLineageFamilyRow:
     family_id: str
     experiment_count: int
@@ -111,6 +131,7 @@ class FinalHistoricalArmMetrics:
     bootstrap_p05: float
     xirr_real: float
     cost_stress_worst_ratio: float
+    fx_stress_worst_ratio: float
     cohort_starts: tuple[date, ...]
     cohort_ends: tuple[date, ...]
 
@@ -123,6 +144,8 @@ class FinalHistoricalCampaignReport:
     arm_rows: tuple[FinalHistoricalArmMetrics, ...]
     regime_coverage: RegimeCoverageReport
     lineage_census: TrialLineageCensusReport
+    tax_sensitivity: TaxSensitivityMilestone
+    pre_history_proxy: PreHistoryProxyStressReport
     operational_unlock: bool
 
 
@@ -308,6 +331,286 @@ def build_trial_lineage_census(
     return TrialLineageCensusReport(total_experiments=total, families=rows)
 
 
+_TAX_SENSITIVITY_MILESTONE: Final[TaxSensitivityMilestone] = TaxSensitivityMilestone(
+    status="not_modelled",
+    rationale="buy_only_accumulation_defers_realization_tax_until_sale; no PIT tax ledger model",
+)
+
+
+def _catalog_research_returns_min_date(settings: DataSettings) -> date | None:
+    from src.data.catalog import latest_artifact
+    from src.data.schema import Dataset, spec_for
+    from src.data.storage import DataStore
+
+    latest = latest_artifact(settings, Dataset.RESEARCH_RETURNS)
+    df = DataStore(settings).read_normalized(latest, spec_for(Dataset.RESEARCH_RETURNS))
+    if df.is_empty():
+        return None
+    min_val = df.get_column("date").min()
+    if min_val is None:
+        return None
+    return min_val if isinstance(min_val, date) else date.fromisoformat(str(min_val))
+
+
+def audit_pre_history_proxy_stress(
+    settings: DataSettings,
+    *,
+    proxy_start: date,
+    proxy_end: date,
+    contribution_krw: float,
+    fallback_starts: Sequence[date] = (),
+) -> PreHistoryProxyStressReport:
+    from src.sim.allocation import AllocationConfig
+    from src.sim.research_proxy import run_research_proxy_from_store
+    from src.validation.prospective_registry import _allocation_end_within_as_of
+
+    catalog_min = _catalog_research_returns_min_date(settings)
+    start_candidates: list[date] = [proxy_start]
+    if catalog_min is not None:
+        start_candidates.append(catalog_min)
+    for fb in fallback_starts:
+        if fb not in start_candidates:
+            start_candidates.append(fb)
+    last_error = "no_proxy_window_attempted"
+    for effective_start in start_candidates:
+        if effective_start > proxy_end:
+            last_error = "proxy_start_after_end"
+            continue
+        reason_tag = (
+            f"ff_proxy_catalog_min_{effective_start.isoformat()}"
+            if catalog_min is not None and effective_start == catalog_min and proxy_start < catalog_min
+            else f"ff_proxy_from_{effective_start.isoformat()}"
+        )
+        try:
+            effective_end = _allocation_end_within_as_of(
+                start=effective_start,
+                as_of=proxy_end,
+                fill_delay_sessions=1,
+            )
+            cfg = AllocationConfig(
+                policy=PolicyId.FF_PROXY,
+                start=effective_start,
+                end=effective_end,
+                monthly_contribution_krw=float(contribution_krw),
+                fill_delay_sessions=1,
+                commission_bps=0.0,
+                fx_spread_bps=0.0,
+            )
+            result = run_research_proxy_from_store(cfg, settings)
+            tw = float(result.terminal_wealth_real_krw)
+            if not math.isfinite(tw) or tw <= 0.0:
+                raise ValueError(f"non-positive proxy terminal wealth {tw!r}")
+            xirr = float(result.xirr_real) if math.isfinite(float(result.xirr_real)) else None
+            return PreHistoryProxyStressReport(
+                status="available",
+                reason=reason_tag,
+                proxy_window_start=effective_start,
+                proxy_window_end=effective_end,
+                terminal_wealth_real_krw=tw,
+                xirr_real=xirr,
+            )
+        except Exception as exc:
+            last_error = str(exc)
+    return PreHistoryProxyStressReport(
+        status="unavailable",
+        reason=last_error,
+        proxy_window_start=start_candidates[0],
+        proxy_window_end=proxy_end,
+    )
+
+
+def _stress_worst_ratio(
+    runner: Callable[[AllocationConfig], AllocationResult],
+    *,
+    policy: PolicyId,
+    start: date,
+    end: date,
+    contribution_krw: float,
+    commission_bps: float,
+    fx_spread_bps: float,
+    targets_override: dict[str, float] | None,
+    scenarios: Sequence[tuple[str, float, float]],
+) -> float:
+    from src.sim.allocation import AllocationConfig
+
+    ideal_wealth: float | None = None
+    wealths: list[float] = []
+    for scenario_id, comm, fx in scenarios:
+        cfg = AllocationConfig(
+            policy=policy,
+            start=start,
+            end=end,
+            monthly_contribution_krw=float(contribution_krw),
+            fill_delay_sessions=1,
+            commission_bps=float(comm),
+            fx_spread_bps=float(fx),
+            targets_override=targets_override,
+        )
+        w = float(runner(cfg).terminal_wealth_real_krw)
+        wealths.append(w)
+        if scenario_id in ("ideal", "fx_ideal"):
+            ideal_wealth = w
+    if ideal_wealth is None or not math.isfinite(ideal_wealth) or ideal_wealth <= 0:
+        return 1.0
+    ratios = [w / ideal_wealth for w in wealths if math.isfinite(w) and w > 0]
+    return min(ratios) if ratios else 1.0
+
+
+def _compute_arm_metrics(
+    runner: Callable[[AllocationConfig], AllocationResult],
+    spec: ExperimentSpec,
+    *,
+    arm_id: str,
+    policy: PolicyId,
+    targets: dict[str, float] | None,
+    cohorts: Sequence[tuple[date, date]],
+    baseline_wealths: Sequence[float],
+    idx: int,
+    seed: int,
+    bootstrap_paths: int,
+    vs_baseline: bool,
+) -> FinalHistoricalArmMetrics:
+    from src.sim.allocation import AllocationConfig
+    from src.validation.cost_grid import COST_SCENARIOS, fx_stress_scenarios
+    from src.validation.gate import certainty_equivalent, cohort_win_rate, wealth_quantile
+
+    candidate_targets = dict(targets) if targets is not None else None
+    candidate_wealths: list[float] = []
+    for c_start, c_end in cohorts:
+        cand_cfg = AllocationConfig(
+            policy=policy,
+            start=c_start,
+            end=c_end,
+            monthly_contribution_krw=float(spec.contribution_krw),
+            fill_delay_sessions=1,
+            commission_bps=float(spec.commission_bps),
+            fx_spread_bps=float(spec.fx_spread_bps),
+            targets_override=candidate_targets,
+        )
+        cand_res = runner(cand_cfg)
+        cw = float(cand_res.terminal_wealth_real_krw)
+        if not math.isfinite(cw) or cw <= 0:
+            raise ValueError(f"wealths must be finite positive, got {cw!r}")
+        candidate_wealths.append(cw)
+
+    if vs_baseline:
+        ratios = tuple(float(c) / float(b) for c, b in zip(candidate_wealths, baseline_wealths, strict=True))
+        median_ratio = wealth_quantile(ratios, 0.5)
+        p10_ratio = wealth_quantile(ratios, 0.1)
+        worst_ratio = min(ratios) if ratios else 0.0
+        win_rate = cohort_win_rate(candidate_wealths, list(baseline_wealths))
+    else:
+        median_ratio = 1.0
+        p10_ratio = 1.0
+        worst_ratio = 1.0
+        win_rate = 1.0
+
+    try:
+        ce_cand = certainty_equivalent(candidate_wealths, gamma=10.0)
+        ce_base = certainty_equivalent(list(baseline_wealths), gamma=10.0)
+        ce_gamma_10 = float(ce_cand / ce_base) if vs_baseline and ce_base != 0 else 1.0
+    except Exception:
+        ce_gamma_10 = 1.0 if not vs_baseline else 0.0
+
+    cand_full_cfg = AllocationConfig(
+        policy=policy,
+        start=spec.start,
+        end=spec.end,
+        monthly_contribution_krw=float(spec.contribution_krw),
+        fill_delay_sessions=1,
+        commission_bps=float(spec.commission_bps),
+        fx_spread_bps=float(spec.fx_spread_bps),
+        targets_override=candidate_targets,
+    )
+    base_full_cfg = AllocationConfig(
+        policy=spec.baseline.policy,
+        start=spec.start,
+        end=spec.end,
+        monthly_contribution_krw=float(spec.contribution_krw),
+        fill_delay_sessions=1,
+        commission_bps=float(spec.commission_bps),
+        fx_spread_bps=float(spec.fx_spread_bps),
+        targets_override=dict(spec.baseline.targets) if spec.baseline.targets is not None else None,
+    )
+    cand_full = runner(cand_full_cfg)
+    base_full = runner(base_full_cfg)
+    xirr_real = float(cand_full.xirr_real) if math.isfinite(float(cand_full.xirr_real)) else 0.0
+
+    bootstrap_win_rate = 0.0
+    bootstrap_p05 = 0.0
+    try:
+        if (
+            base_full.snapshots
+            and cand_full.snapshots
+            and len(base_full.snapshots) >= 2
+            and len(cand_full.snapshots) >= 2
+        ):
+            from src.analytics.thesis.incremental import monthly_simple_returns, paired_path_block_bootstrap
+
+            cand_rets = monthly_simple_returns(cand_full)
+            base_rets = monthly_simple_returns(base_full)
+            if cand_rets and base_rets and len(cand_rets) == len(base_rets) and len(cand_rets) >= 1:
+                block_size = 12 if len(cand_rets) >= 12 else len(cand_rets)
+                verdict = paired_path_block_bootstrap(
+                    cand_rets,
+                    base_rets,
+                    block_size=block_size,
+                    n_paths=int(bootstrap_paths),
+                    seed=int(seed) + idx,
+                )
+                bootstrap_win_rate = float(verdict.win_rate)
+                bootstrap_p05 = float(verdict.p05_terminal_ratio)
+    except Exception:
+        bootstrap_win_rate = 0.0
+        bootstrap_p05 = 0.0
+
+    cost_scenarios = [(sc.id, sc.commission_bps, sc.fx_spread_bps) for sc in COST_SCENARIOS]
+    cost_stress_worst_ratio = _stress_worst_ratio(
+        runner,
+        policy=policy,
+        start=spec.start,
+        end=spec.end,
+        contribution_krw=float(spec.contribution_krw),
+        commission_bps=float(spec.commission_bps),
+        fx_spread_bps=float(spec.fx_spread_bps),
+        targets_override=candidate_targets,
+        scenarios=cost_scenarios,
+    )
+    fx_scenarios = [(sc.id, sc.commission_bps, sc.fx_spread_bps) for sc in fx_stress_scenarios(float(spec.commission_bps))]
+    fx_stress_worst_ratio = _stress_worst_ratio(
+        runner,
+        policy=policy,
+        start=spec.start,
+        end=spec.end,
+        contribution_krw=float(spec.contribution_krw),
+        commission_bps=float(spec.commission_bps),
+        fx_spread_bps=float(spec.fx_spread_bps),
+        targets_override=candidate_targets,
+        scenarios=fx_scenarios,
+    )
+
+    cohort_starts = tuple(c[0] for c in cohorts)
+    cohort_ends = tuple(c[1] for c in cohorts)
+
+    return FinalHistoricalArmMetrics(
+        arm_id=arm_id,
+        targets=dict(candidate_targets) if candidate_targets is not None else {},
+        cohort_count=len(cohorts),
+        median_ratio=float(median_ratio),
+        p10_ratio=float(p10_ratio),
+        worst_ratio=float(worst_ratio),
+        win_rate=float(win_rate),
+        ce_gamma_10=float(ce_gamma_10),
+        bootstrap_win_rate=float(bootstrap_win_rate),
+        bootstrap_p05=float(bootstrap_p05),
+        xirr_real=float(xirr_real),
+        cost_stress_worst_ratio=float(cost_stress_worst_ratio),
+        fx_stress_worst_ratio=float(fx_stress_worst_ratio),
+        cohort_starts=cohort_starts,
+        cohort_ends=cohort_ends,
+    )
+
+
 def run_final_historical_campaign(
     spec: ExperimentSpec,
     runner: Callable[[AllocationConfig], AllocationResult],
@@ -316,183 +619,69 @@ def run_final_historical_campaign(
     bootstrap_paths: int = 400,
     cohort_horizon_months: int = 120,
     cohort_step_months: int = 12,
+    settings: DataSettings | None = None,
 ) -> FinalHistoricalCampaignReport:
     assert_final_campaign_spec(spec)
     from src.sim.allocation import AllocationConfig
-    from src.validation.cost_grid import COST_SCENARIOS
-    from src.validation.gate import certainty_equivalent, cohort_win_rate, wealth_quantile
     from src.validation.windows import rolling_cohorts
 
     cohorts = rolling_cohorts(spec.start, spec.end, horizon_months=cohort_horizon_months, step_months=cohort_step_months)
     if not cohorts:
         raise ValueError("no rolling cohorts fit the experiment window")
 
-    # Prepare baseline targets
     baseline_targets = dict(spec.baseline.targets) if spec.baseline.targets is not None else None
-
-    arm_rows: list[FinalHistoricalArmMetrics] = []
-
-    for idx, candidate in enumerate(spec.candidates):
-        candidate_targets = dict(candidate.targets) if candidate.targets is not None else None
-        candidate_wealths: list[float] = []
-        baseline_wealths: list[float] = []
-        for c_start, c_end in cohorts:
-            base_cfg = AllocationConfig(
-                policy=spec.baseline.policy,
-                start=c_start,
-                end=c_end,
-                monthly_contribution_krw=float(spec.contribution_krw),
-                fill_delay_sessions=1,
-                commission_bps=float(spec.commission_bps),
-                fx_spread_bps=float(spec.fx_spread_bps),
-                targets_override=baseline_targets,
-            )
-            cand_cfg = AllocationConfig(
-                policy=candidate.policy,
-                start=c_start,
-                end=c_end,
-                monthly_contribution_krw=float(spec.contribution_krw),
-                fill_delay_sessions=1,
-                commission_bps=float(spec.commission_bps),
-                fx_spread_bps=float(spec.fx_spread_bps),
-                targets_override=candidate_targets,
-            )
-            base_res = runner(base_cfg)
-            cand_res = runner(cand_cfg)
-            bw = float(base_res.terminal_wealth_real_krw)
-            cw = float(cand_res.terminal_wealth_real_krw)
-            if not math.isfinite(bw) or bw <= 0 or not math.isfinite(cw) or cw <= 0:
-                raise ValueError(f"wealths must be finite positive, got {cw!r} vs {bw!r}")
-            candidate_wealths.append(cw)
-            baseline_wealths.append(bw)
-
-        ratios = tuple(float(c) / float(b) for c, b in zip(candidate_wealths, baseline_wealths, strict=True))
-        median_ratio = wealth_quantile(ratios, 0.5)
-        p10_ratio = wealth_quantile(ratios, 0.1)
-        worst_ratio = min(ratios) if ratios else 0.0
-        win_rate = cohort_win_rate(candidate_wealths, baseline_wealths)
-        # CE gamma10 ratio
-        try:
-            ce_cand = certainty_equivalent(candidate_wealths, gamma=10.0)
-            ce_base = certainty_equivalent(baseline_wealths, gamma=10.0)
-            ce_gamma_10 = float(ce_cand / ce_base) if ce_base != 0 else 0.0
-        except Exception:
-            ce_gamma_10 = 0.0
-
-        # Full-span runs for bootstrap and xirr and cost stress
-        base_full_cfg = AllocationConfig(
+    baseline_wealths: list[float] = []
+    for c_start, c_end in cohorts:
+        base_cfg = AllocationConfig(
             policy=spec.baseline.policy,
-            start=spec.start,
-            end=spec.end,
+            start=c_start,
+            end=c_end,
             monthly_contribution_krw=float(spec.contribution_krw),
             fill_delay_sessions=1,
             commission_bps=float(spec.commission_bps),
             fx_spread_bps=float(spec.fx_spread_bps),
             targets_override=baseline_targets,
         )
-        cand_full_cfg = AllocationConfig(
-            policy=candidate.policy,
-            start=spec.start,
-            end=spec.end,
-            monthly_contribution_krw=float(spec.contribution_krw),
-            fill_delay_sessions=1,
-            commission_bps=float(spec.commission_bps),
-            fx_spread_bps=float(spec.fx_spread_bps),
-            targets_override=candidate_targets,
+        bw = float(runner(base_cfg).terminal_wealth_real_krw)
+        if not math.isfinite(bw) or bw <= 0:
+            raise ValueError(f"baseline wealth must be finite positive, got {bw!r}")
+        baseline_wealths.append(bw)
+
+    arm_rows: list[FinalHistoricalArmMetrics] = []
+    arm_rows.append(
+        _compute_arm_metrics(
+            runner,
+            spec,
+            arm_id=str(spec.baseline.id),
+            policy=spec.baseline.policy,
+            targets=baseline_targets,
+            cohorts=cohorts,
+            baseline_wealths=baseline_wealths,
+            idx=0,
+            seed=seed,
+            bootstrap_paths=bootstrap_paths,
+            vs_baseline=False,
         )
-        base_full = runner(base_full_cfg)
-        cand_full = runner(cand_full_cfg)
-        xirr_real = float(cand_full.xirr_real) if math.isfinite(float(cand_full.xirr_real)) else 0.0
-
-        # bootstrap
-        bootstrap_win_rate = 0.0
-        bootstrap_p05 = 0.0
-        try:
-            # reuse incremental monthly_simple_returns when snapshots exist
-            if base_full.snapshots and cand_full.snapshots and len(base_full.snapshots) >= 2 and len(cand_full.snapshots) >= 2:
-                from src.analytics.thesis.incremental import monthly_simple_returns, paired_path_block_bootstrap
-
-                cand_rets = monthly_simple_returns(cand_full)
-                base_rets = monthly_simple_returns(base_full)
-                if cand_rets and base_rets and len(cand_rets) == len(base_rets) and len(cand_rets) >= 1:
-                    block_size = 12 if len(cand_rets) >= 12 else len(cand_rets)
-                    verdict = paired_path_block_bootstrap(
-                        cand_rets,
-                        base_rets,
-                        block_size=block_size,
-                        n_paths=int(bootstrap_paths),
-                        seed=int(seed) + idx,
-                    )
-                    bootstrap_win_rate = float(verdict.win_rate)
-                    bootstrap_p05 = float(verdict.p05_terminal_ratio)
-                else:
-                    bootstrap_win_rate = 0.0
-                    bootstrap_p05 = 0.0
-            else:
-                bootstrap_win_rate = 0.0
-                bootstrap_p05 = 0.0
-        except Exception:
-            bootstrap_win_rate = 0.0
-            bootstrap_p05 = 0.0
-
-        # cost stress worst ratio
-        cost_stress_worst_ratio = 1.0
-        try:
-            ideal_wealth: float | None = None
-            scenario_ratios: list[float] = []
-            # need to map ideal wealth
-            temp_wealths: dict[str, float] = {}
-            for sc in COST_SCENARIOS:
-                cfg = AllocationConfig(
-                    policy=candidate.policy,
-                    start=spec.start,
-                    end=spec.end,
-                    monthly_contribution_krw=float(spec.contribution_krw),
-                    fill_delay_sessions=1,
-                    commission_bps=float(sc.commission_bps),
-                    fx_spread_bps=float(sc.fx_spread_bps),
-                    targets_override=candidate_targets,
-                )
-                res = runner(cfg)
-                w = float(res.terminal_wealth_real_krw)
-                temp_wealths[sc.id] = w
-                if sc.id == "ideal":
-                    ideal_wealth = w
-            if ideal_wealth is not None and ideal_wealth > 0 and math.isfinite(ideal_wealth):
-                for w in temp_wealths.values():  # noqa: PERF401
-                    if math.isfinite(w) and w > 0:
-                        scenario_ratios.append(w / ideal_wealth)
-                if scenario_ratios:
-                    cost_stress_worst_ratio = min(scenario_ratios)
-            else:
-                cost_stress_worst_ratio = 1.0
-        except Exception:
-            cost_stress_worst_ratio = 1.0
-
-        cohort_starts = tuple(c[0] for c in cohorts)
-        cohort_ends = tuple(c[1] for c in cohorts)
-
+    )
+    for idx, candidate in enumerate(spec.candidates):
+        candidate_targets = dict(candidate.targets) if candidate.targets is not None else None
         arm_rows.append(
-            FinalHistoricalArmMetrics(
+            _compute_arm_metrics(
+                runner,
+                spec,
                 arm_id=str(candidate.id),
-                targets=dict(candidate_targets) if candidate_targets is not None else {},
-                cohort_count=len(cohorts),
-                median_ratio=float(median_ratio),
-                p10_ratio=float(p10_ratio),
-                worst_ratio=float(worst_ratio),
-                win_rate=float(win_rate),
-                ce_gamma_10=float(ce_gamma_10),
-                bootstrap_win_rate=float(bootstrap_win_rate),
-                bootstrap_p05=float(bootstrap_p05),
-                xirr_real=float(xirr_real),
-                cost_stress_worst_ratio=float(cost_stress_worst_ratio),
-                cohort_starts=cohort_starts,
-                cohort_ends=cohort_ends,
+                policy=candidate.policy,
+                targets=candidate_targets,
+                cohorts=cohorts,
+                baseline_wealths=baseline_wealths,
+                idx=idx + 1,
+                seed=seed,
+                bootstrap_paths=bootstrap_paths,
+                vs_baseline=True,
             )
         )
 
     regime_coverage = audit_regime_coverage(cohorts=cohorts)
-    # lineage census: default INDEX location
     try:
         lineage_census = build_trial_lineage_census(
             index_path=Path("configs/experiments/INDEX.json"),
@@ -501,6 +690,23 @@ def run_final_historical_campaign(
     except Exception:
         lineage_census = TrialLineageCensusReport(total_experiments=0, families=())
 
+    dot_com = next(r for r in REGIME_COVERAGE_CATALOG if r.regime_name == "dot_com")
+    if settings is not None:
+        pre_history_proxy = audit_pre_history_proxy_stress(
+            settings,
+            proxy_start=dot_com.start,
+            proxy_end=spec.end,
+            contribution_krw=float(spec.contribution_krw),
+            fallback_starts=(spec.start,),
+        )
+    else:
+        pre_history_proxy = PreHistoryProxyStressReport(
+            status="unavailable",
+            reason="settings required for ff_proxy pre-history stress",
+            proxy_window_start=dot_com.start,
+            proxy_window_end=spec.end,
+        )
+
     return FinalHistoricalCampaignReport(
         campaign_id=FINAL_HISTORICAL_CAMPAIGN_ID,
         window_start=spec.start,
@@ -508,6 +714,8 @@ def run_final_historical_campaign(
         arm_rows=tuple(arm_rows),
         regime_coverage=regime_coverage,
         lineage_census=lineage_census,
+        tax_sensitivity=_TAX_SENSITIVITY_MILESTONE,
+        pre_history_proxy=pre_history_proxy,
         operational_unlock=False,
     )
 
@@ -542,6 +750,7 @@ def write_final_historical_campaign_report(
                 "bootstrap_p05": float(row.bootstrap_p05),
                 "xirr_real": float(row.xirr_real),
                 "cost_stress_worst_ratio": float(row.cost_stress_worst_ratio),
+                "fx_stress_worst_ratio": float(row.fx_stress_worst_ratio),
                 "cohort_starts": [d.isoformat() for d in row.cohort_starts],
                 "cohort_ends": [d.isoformat() for d in row.cohort_ends],
             }
@@ -567,6 +776,26 @@ def write_final_historical_campaign_report(
             ],
         },
         "operational_unlock": bool(report.operational_unlock),
+        "tax_sensitivity": {
+            "status": report.tax_sensitivity.status,
+            "rationale": report.tax_sensitivity.rationale,
+        },
+        "pre_history_proxy": {
+            "status": report.pre_history_proxy.status,
+            "reason": report.pre_history_proxy.reason,
+            "proxy_window_start": (
+                report.pre_history_proxy.proxy_window_start.isoformat()
+                if report.pre_history_proxy.proxy_window_start is not None
+                else None
+            ),
+            "proxy_window_end": (
+                report.pre_history_proxy.proxy_window_end.isoformat()
+                if report.pre_history_proxy.proxy_window_end is not None
+                else None
+            ),
+            "terminal_wealth_real_krw": report.pre_history_proxy.terminal_wealth_real_krw,
+            "xirr_real": report.pre_history_proxy.xirr_real,
+        },
     }
     out_dir = experiments_dir(settings)
     out_dir.mkdir(parents=True, exist_ok=True)
