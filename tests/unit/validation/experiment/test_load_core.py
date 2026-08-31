@@ -9,37 +9,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from src.etf.mapping import DEFAULT_CANDIDATES, MappingConfig
-from src.policy.adaptive_contribution import AdaptiveContributionConfig
-from src.policy.contribution_shape import ContributionShapeConfig
-from src.policy.kafi_deployment import KafiDeploymentConfig
-from src.policy.currency import CurrencyConfig
-from src.policy.overlay import OverlayConfig
-from src.policy.reserve import ReserveConfig
 from src.policy.targets import PolicyId
-from src.policy.thesis import ThesisId, load_thesis_registry
-from src.sim.allocation import AllocationConfig
 from src.validation.experiment import (
-    AdaptiveContributionSpec,
-    CadenceSpec,
     CandidateSpec,
     ExperimentSpec,
     PreregistrationSpec,
-    assert_experiment_preregistration,
-    experiment_target_tickers,
     load_experiment_config,
-    resolve_adaptive_contribution,
-    resolve_arm_targets,
-    resolve_baseline_adaptive_contribution,
-    resolve_cadence,
-    resolve_contribution_shape,
-    resolve_currency,
-    resolve_kafi_deployment,
-    resolve_mapping,
-    resolve_overlay,
-    resolve_reserve,
 )
-from src.validation.registry import make_experiment
 
 
 def _payload() -> dict[str, object]:
@@ -259,5 +235,75 @@ def test_exp_wf_b_json_costs(scenario_id: str, tmp_path: Path) -> None:
     negative.update(commission_bps=-0.1)
     with pytest.raises(ValueError, match="commission_bps"):
         load_experiment_config(_write(tmp_path, negative))
+
+
+
+def test_experiment_spec_objective_family_optional_legacy() -> None:
+    from datetime import date
+
+    import pytest
+
+    from src.validation.experiment import ExperimentSpec
+    from src.validation.research_posture import ObjectiveFamily
+
+    legacy = ExperimentSpec(
+        name="legacy_ce",
+        start=date(2012, 4, 1),
+        end=date(2024, 11, 30),
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        baseline=CandidateSpec(id="s0_global", policy="s0_global", modules=0),
+        candidates=[CandidateSpec(id="s1_us", policy="s1_us", modules=1)],
+    )
+    assert legacy.objective_family is None
+    with pytest.raises(ValueError, match="adaptive_contribution"):
+        ExperimentSpec(
+            name="cap_alloc_adaptive",
+            start=date(2012, 4, 1),
+            end=date(2024, 11, 30),
+            contribution_krw=1_000_000.0,
+            delta0=0.02,
+            horizon_months=0,
+            objective="adaptive_growth",
+            objective_family=ObjectiveFamily.CAPITAL_ALLOCATION,
+            adaptive_contribution={},
+            baseline=CandidateSpec(id="s0_global", policy="s0_global", modules=0),
+            candidates=[CandidateSpec(id="cand", policy="vti", modules=1)],
+        )
+
+
+def test_trial_lineage_optional_on_preregistration() -> None:
+    from datetime import date
+
+    import pytest
+
+    from src.validation.experiment import TrialLineageSpec
+
+    bare = PreregistrationSpec(weights_locked=True)
+    assert bare.lineage is None
+    lineage = TrialLineageSpec(
+        research_family_id="soxx",
+        hypothesis_birth_date=date(2026, 6, 1),
+        first_test_date=date(2026, 7, 1),
+        historical_data_used_until=date(2026, 8, 28),
+        parent_experiments=("wf_qqq_soxx10_adaptive_v5",),
+        related_trial_count=12,
+        parameter_variants_tried=3,
+    )
+    locked = PreregistrationSpec(weights_locked=True, universe_locked=True, lineage=lineage)
+    assert locked.lineage is not None
+    assert locked.lineage.research_family_id == "soxx"
+    assert locked.lineage.related_trial_count == 12
+    assert locked.lineage.parameter_variants_tried == 3
+    with pytest.raises(ValidationError):
+        TrialLineageSpec(
+            research_family_id="soxx",
+            hypothesis_birth_date=date(2026, 6, 1),
+            first_test_date=date(2026, 7, 1),
+            historical_data_used_until=date(2026, 8, 28),
+            related_trial_count=0,
+            parameter_variants_tried=1,
+        )
 
 

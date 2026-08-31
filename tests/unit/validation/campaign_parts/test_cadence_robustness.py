@@ -3,33 +3,25 @@
 from __future__ import annotations
 
 import json
-from dataclasses import FrozenInstanceError
 from datetime import date
 
 import pytest
 
-import src.validation.cadence_robustness  # co-mod anchor for lean_check AST linkage
 
 from src.data.settings import DataSettings
 from src.policy.adaptive_contribution import AdaptiveContributionConfig
 from src.policy.targets import PolicyId
 from src.sim.allocation import AllocationConfig, AllocationResult
 from src.validation.campaign import (
-    COST_SCENARIOS,
     run_cadence_robustness,
     run_walk_forward_adoption,
-    run_walk_forward_cost_grid,
-    run_walk_forward_proxy_adoption,
     write_campaign_report,
 )
 from src.validation.experiment import (
     AdaptiveContributionSpec,
     CadenceSpec,
     CandidateSpec,
-    CurrencySpec,
     ExperimentSpec,
-    MappingSpec,
-    OverlaySpec,
     ReserveSpec,
     load_experiment_config,
     resolve_adaptive_contribution,
@@ -319,11 +311,11 @@ def test_wf_acg_adoption(scenario_id: str, tmp_path) -> None:
     assert all(fold.train_adopted is True for fold in report.folds)
     assert report.process_adopted_vs_baseline is True
     for fold_index in range(len(report.folds)):
-        chunk = runner.configs[fold_index * 5 : (fold_index + 1) * 5]
-        assert len(chunk) == 5
+        chunk = runner.configs[fold_index * 4 : (fold_index + 1) * 4]
+        assert len(chunk) == 4
         adaptive_states = [config.adaptive_contribution is not None for config in chunk]
         # Baseline train/test stay flat; candidate and adopted chosen arms carry the module.
-        assert adaptive_states == [False, True, False, True, True]
+        assert adaptive_states == [False, True, False, True]
         assert isinstance(chunk[1].adaptive_contribution, AdaptiveContributionConfig)
         fold = report.folds[fold_index]
         # Every arm records TW, total real contribution, real gain, and real XIRR.
@@ -358,10 +350,10 @@ def test_wf_acg_rejection_and_delegation(scenario_id: str, monkeypatch: pytest.M
     assert all(fold.train_adopted is False for fold in rejected.folds)
     assert rejected.process_adopted_vs_baseline is False
     for fold_index in range(len(rejected.folds)):
-        chunk = losing.configs[fold_index * 5 : (fold_index + 1) * 5]
+        chunk = losing.configs[fold_index * 4 : (fold_index + 1) * 4]
         adaptive_states = [config.adaptive_contribution is not None for config in chunk]
         # Without train adoption the chosen arm falls back to the flat baseline.
-        assert adaptive_states == [False, True, False, True, False]
+        assert adaptive_states == [False, True, False, True]
 
     # Process adoption delegates to contribution_growth_process_passes.
     monkeypatch.setattr(
@@ -391,7 +383,7 @@ def test_wf_ag_baseline_arm(scenario_id: str) -> None:
     assert isinstance(resolved_baseline, AdaptiveContributionConfig)
     assert len(report.folds) > 0
     for fold_index in range(len(report.folds)):
-        chunk = runner.configs[fold_index * 5 : (fold_index + 1) * 5]
+        chunk = runner.configs[fold_index * 4 : (fold_index + 1) * 4]
         # Baseline train/test carry the locked adaptive config; candidate keeps its own.
         assert chunk[0].adaptive_contribution == resolved_baseline
         assert chunk[2].adaptive_contribution == resolved_baseline
@@ -399,8 +391,8 @@ def test_wf_ag_baseline_arm(scenario_id: str) -> None:
 
     flat_runner = _AdaptiveWealthRunner()
     run_walk_forward_adoption(_acg_spec(), flat_runner)
-    for fold_index in range(len(flat_runner.configs) // 5):
-        flat_chunk = flat_runner.configs[fold_index * 5 : (fold_index + 1) * 5]
+    for fold_index in range(len(flat_runner.configs) // 4):
+        flat_chunk = flat_runner.configs[fold_index * 4 : (fold_index + 1) * 4]
         assert flat_chunk[0].adaptive_contribution is None
         assert flat_chunk[2].adaptive_contribution is None
 
@@ -495,4 +487,80 @@ def test_cam_mix_override_wired(scenario_id: str) -> None:
     assert baseline_configs
     assert candidate_configs
     assert all(config.adaptive_contribution is None for config in runner.configs)
+
+
+def test_wf_rejected_adaptive_baseline_keeps_full_identity() -> None:
+    from datetime import date
+
+    from src.policy.targets import PolicyId
+    from src.sim.allocation import AllocationResult
+    from src.validation.experiment import AdaptiveContributionSpec, CandidateSpec, ExperimentSpec
+    from src.validation.walk_forward import run_walk_forward_adoption
+
+    class _LosingAdaptiveRunner:
+        def __init__(self) -> None:
+            self.configs: list[AllocationConfig] = []
+
+        def __call__(self, config: AllocationConfig) -> AllocationResult:
+            self.configs.append(config)
+            if config.adaptive_contribution is not None:
+                wealth, contribution, xirr_real = 90.0, 90.0, 0.05
+            else:
+                wealth, contribution, xirr_real = 100.0, 90.0, 0.10
+            return AllocationResult(
+                config=config,
+                snapshots=(),
+                terminal_wealth_krw=wealth,
+                xirr=0.0,
+                max_drawdown=-0.25,
+                terminal_wealth_real_krw=wealth,
+                xirr_real=xirr_real,
+                total_contribution_real_krw=contribution,
+            )
+
+    spec = ExperimentSpec(
+        name="wf_adaptive_baseline_reject",
+        start=date(2012, 4, 1),
+        end=date(2024, 11, 30),
+        contribution_krw=1_000_000.0,
+        delta0=0.02,
+        horizon_months=0,
+        objective="adaptive_growth",
+        train_months=60,
+        test_months=36,
+        adaptive_contribution=AdaptiveContributionSpec(),
+        baseline_adaptive_contribution=AdaptiveContributionSpec(),
+        baseline=CandidateSpec(
+            id="qqq90_soxx10_adaptive_v5",
+            policy=PolicyId.QQQ,
+            modules=0,
+            targets={"QQQ": 0.9, "SOXX": 0.1},
+        ),
+        candidates=[
+            CandidateSpec(
+                id="qqq90_soxx10_adaptive_challenger",
+                policy=PolicyId.QQQ,
+                modules=1,
+                targets={"QQQ": 0.9, "SOXX": 0.1},
+            )
+        ],
+    )
+    runner = _LosingAdaptiveRunner()
+    report = run_walk_forward_adoption(spec, runner)
+    assert len(report.folds) > 0
+    assert all(fold.train_adopted is False for fold in report.folds)
+    assert len(runner.configs) == 4 * len(report.folds)
+    for fold in report.folds:
+        assert fold.chosen_policy is PolicyId.QQQ
+        assert fold.chosen_test_wealth == fold.baseline_test_wealth
+        assert fold.chosen_total_contribution_real_krw == fold.baseline_total_contribution_real_krw
+        assert fold.chosen_xirr_real == fold.baseline_xirr_real
+        assert fold.chosen_test_wealth == pytest.approx(90.0)
+        assert fold.chosen_xirr_real == pytest.approx(0.05)
+        assert fold.chosen_total_contribution_real_krw == pytest.approx(90.0)
+    for fold_index in range(len(report.folds)):
+        chunk = runner.configs[fold_index * 4 : (fold_index + 1) * 4]
+        assert len(chunk) == 4
+        assert all(cfg.adaptive_contribution is not None for cfg in chunk)
+
 
