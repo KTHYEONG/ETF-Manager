@@ -143,3 +143,26 @@ def test_i9_c_proxy_rejects_non_r1_policy(scenario_id: str) -> None:
     rets = _returns_frame("us_mkt_ff_daily", {date(2024, 2, 1): 0.01, date(2024, 2, 2): -0.005})
     with pytest.raises(ValueError, match=r"research_proxy|FF_PROXY"):
         run_research_proxy(_config(PolicyId.VT), rets, fx, cpi)
+
+
+def test_synthesize_proxy_mix_returns_weighted_blend() -> None:
+    from datetime import date
+
+    import polars as pl
+
+    from src.sim.research_proxy import synthesize_proxy_mix_returns
+
+    frame = pl.DataFrame(
+        {
+            "date": [date(2000, 1, 31), date(2000, 1, 31), date(2000, 2, 29), date(2000, 2, 29)],
+            "series_id": ["NDX100", "SOX", "NDX100", "SOX"],
+            "simple_return": [0.10, 0.20, 0.0, 0.0],
+            "available_at": [date(2000, 1, 31)] * 4,
+        }
+    )
+    mixed = synthesize_proxy_mix_returns(frame, {"NDX100": 0.9, "SOX": 0.1})
+    assert mixed.height == 2
+    assert mixed.get_column("series_id").unique().to_list() == ["PROXY_MIX"]
+    jan = mixed.filter(pl.col("date") == date(2000, 1, 31)).item(0, "simple_return")
+    assert abs(float(jan) - 0.11) < 1e-9
+

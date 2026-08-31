@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Final
 
 import polars as pl
@@ -25,6 +26,7 @@ from src.sim.allocation import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from datetime import date, datetime
 
     from src.data.settings import DataSettings
@@ -38,6 +40,8 @@ _BASE_INDEX_LEVEL: Final[float] = 1.0
 __all__ = [
     "run_research_proxy",
     "run_research_proxy_from_store",
+    "run_research_proxy_from_store_with_returns",
+    "synthesize_proxy_mix_returns",
 ]
 
 
@@ -173,6 +177,43 @@ def run_research_proxy_from_store(config: AllocationConfig, settings: DataSettin
     fx = load_visible(settings, Dataset.FX, cutoff)
     cpi = load_visible(settings, Dataset.CPI, cutoff)
     return run_research_proxy(config, returns, fx, cpi)
+
+
+def run_research_proxy_from_store_with_returns(
+    config: AllocationConfig,
+    settings: DataSettings,
+    returns: pl.DataFrame,
+) -> AllocationResult:
+    """Simulate with a caller-supplied RESEARCH_RETURNS slice (single series_id per frame)."""
+    for dataset in (Dataset.RESEARCH_RETURNS, Dataset.FX, Dataset.CPI):
+        latest_artifact(settings, dataset)
+    schedule = build_decision_schedule(config.start, config.end, fill_delay_sessions=config.fill_delay_sessions)
+    if not schedule:
+        raise AllocationDataError(f"empty decision schedule over [{config.start.isoformat()}, {config.end.isoformat()}]")
+    cutoff = load_calendar(DEFAULT_CALENDAR_NAME).close_ts(schedule[-1].execution_session)
+    fx = load_visible(settings, Dataset.FX, cutoff)
+    cpi = load_visible(settings, Dataset.CPI, cutoff)
+    return run_research_proxy(config, returns, fx, cpi)
+
+
+def synthesize_proxy_mix_returns(returns: pl.DataFrame, weights: Mapping[str, float]) -> pl.DataFrame:
+    if returns.is_empty():
+        return returns
+    if not weights:
+        raise ValueError("weights must not be empty")
+    # normalize weights copy
+    w = {str(k): float(v) for k, v in weights.items()}
+    # weighted blend per date
+    dates = returns.get_column("date").unique().sort()
+    rows: list[dict[str, object]] = []
+    for d in dates.to_list():
+        sub = returns.filter(pl.col("date") == d)
+        weighted = 0.0
+        for sid, ret in zip(sub.get_column("series_id").to_list(), sub.get_column("simple_return").to_list(), strict=False):
+            weighted += float(w.get(str(sid), 0.0)) * float(ret)
+        avail_val = sub.get_column("available_at")[0] if "available_at" in sub.columns else d
+        rows.append({"date": d, "series_id": "PROXY_MIX", "simple_return": float(weighted), "available_at": avail_val})
+    return pl.DataFrame(rows)
 
 
 def _resolve_series_identity(returns: pl.DataFrame) -> str:

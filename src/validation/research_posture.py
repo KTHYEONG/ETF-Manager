@@ -131,7 +131,15 @@ def assert_objective_family_invariants(
     baseline_adaptive_set: bool,
     kafi_deployment_set: bool,
     reserve_set: bool,
+    contribution_shape_set: bool = False,
 ) -> None:
+    if family is ObjectiveFamily.CAPITAL_ALLOCATION:
+        if kafi_deployment_set:
+            raise ValueError("capital_allocation: kafi_deployment not allowed for capital_allocation")
+        if reserve_set:
+            raise ValueError("capital_allocation: reserve not allowed for capital_allocation")
+        if contribution_shape_set:
+            raise ValueError("capital_allocation: contribution_shape not allowed for capital_allocation")
     if adaptive_contribution_set or baseline_adaptive_set:
         raise ValueError("adaptive_contribution not allowed for objective_family")
     if family is ObjectiveFamily.DEPLOYMENT_TIMING and not (
