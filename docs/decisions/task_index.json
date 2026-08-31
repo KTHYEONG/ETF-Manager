@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_COMPOUND_MDD_FEASIBLE_SOXX_INTENSITY",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_COMPOUND_MDD_FEASIBLE_SOXX_INTENSITY",
+      "domain": "policy",
+      "title": "Compound DCA: MDD-feasible SOXX intensity (5/10/15 preregistered grid)",
+      "why": "SOXX100+adaptive v5 topped unconstrained real_gain but MDD -29.4% vs operational QQQ90/SOXX10+adaptive v5 -20.6%; user needed a governed next direction separating reporting champion from MDD-feasible satellite intensity on the preregistered INCREMENTAL_SATELLITE_WEIGHTS lattice without operational unlock.",
+      "resolution": "Added COMPOUND_MDD_SLACK, OPERATIONAL_COMPOUND_BASELINE_ARM_ID, qqq_soxx_intensity_targets, select_mdd_feasible_champion; CompoundDcaReport dual champions; compound_dca 12-arm tournament (+qqq95_soxx5_adaptive_v5, qqq85_soxx15_adaptive_v5); diagnose-compound-dca logs mdd_feasible_champion; wf_qqq_soxx_intensity_mdd.json (train36/test24); architecture §4.12; contract tests; ExperimentSpec allows ≥1 WF candidate for JSON load.",
+      "impact": "FRESH 2016-07-01–2026-06-30: champion=soxx100_adaptive_v5 operational_unlock=false; mdd_feasible_champion=qqq85_soxx15_adaptive_v5 (+0.32억 vs qqq90_soxx10_adaptive_v5 within 2%p MDD slack); QQQ90/SOXX10+adaptive v5 operational lock unchanged; WF JSON loads but walk-forward CLI still requires exactly-one-candidate at runtime — follow-up needed; specs/scratch purged on sync."
+    },
+    {
       "task_id": "TASK_COMPOUND_SOXX_MAIN_RISKBUDGET_DIAG",
       "date": "2026-08-30",
       "adr_id": "ADR_20260830_COMPOUND_SOXX_MAIN_RISKBUDGET_DIAG",
