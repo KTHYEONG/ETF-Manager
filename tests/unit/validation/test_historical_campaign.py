@@ -123,6 +123,8 @@ def test_build_trial_lineage_census_from_index() -> None:
 
 
 def test_run_final_historical_campaign_synthetic() -> None:
+    import pytest
+
     from datetime import date
 
     from src.policy.targets import PolicyId
@@ -173,8 +175,12 @@ def test_run_final_historical_campaign_synthetic() -> None:
         cohort_step_months=12,
     )
     assert report.campaign_id == "FINAL_HISTORICAL_CAMPAIGN_V1"
-    assert len(report.arm_rows) == 3
+    assert len(report.arm_rows) == 4
+    assert report.arm_rows[0].arm_id == "b0_qqq100"
+    assert report.arm_rows[0].median_ratio == pytest.approx(1.0)
     assert report.operational_unlock is False
+    assert report.tax_sensitivity.status == "not_modelled"
+    assert report.pre_history_proxy.status == "unavailable"
     assert report.lineage_census.total_experiments >= 1
     assert len(report.regime_coverage.rows) >= 5
     assert all(row.cohort_count >= 1 for row in report.arm_rows)
@@ -189,8 +195,10 @@ def test_write_final_historical_campaign_report(tmp_path) -> None:
     from src.validation.historical_campaign import (
         FinalHistoricalArmMetrics,
         FinalHistoricalCampaignReport,
+        PreHistoryProxyStressReport,
         RegimeCoverageReport,
         RegimeCoverageRow,
+        TaxSensitivityMilestone,
         TrialLineageCensusReport,
         TrialLineageFamilyRow,
         write_final_historical_campaign_report,
@@ -214,6 +222,7 @@ def test_write_final_historical_campaign_report(tmp_path) -> None:
                 bootstrap_p05=0.97,
                 xirr_real=0.05,
                 cost_stress_worst_ratio=0.98,
+                fx_stress_worst_ratio=0.99,
                 cohort_starts=(date(2016, 7, 1),),
                 cohort_ends=(date(2026, 6, 30),),
             ),
@@ -226,6 +235,11 @@ def test_write_final_historical_campaign_report(tmp_path) -> None:
             total_experiments=20,
             families=(TrialLineageFamilyRow(family_id="soxx", experiment_count=5, active_count=3, archived_count=2),),
         ),
+        tax_sensitivity=TaxSensitivityMilestone(
+            status="not_modelled",
+            rationale="buy_only_accumulation_defers_realization_tax_until_sale; no PIT tax ledger model",
+        ),
+        pre_history_proxy=PreHistoryProxyStressReport(status="unavailable", reason="test"),
         operational_unlock=False,
     )
     settings = DataSettings(data_root=str(tmp_path))
