@@ -35,6 +35,7 @@ from src.validation.gate import (
 from src.validation.gate import (
     contribution_growth_process_passes as _orig_contribution_growth_process_passes,
 )
+from src.validation.research_posture import select_chosen_test_arm
 from src.validation.windows import walk_forward_windows
 
 
@@ -301,12 +302,6 @@ def run_walk_forward_adoption(
                 _singleton_ce(baseline_train_arm.terminal_wealth_real_krw),
                 delta0=spec.hurdle, modules=candidate.modules,
             )
-        chosen_policy = candidate.policy if train_adopted else spec.baseline.policy
-        keep_extras = (candidate_overlay, candidate_reserve, candidate_mapping, candidate_currency) if train_adopted else (None, None, None, None)
-        chosen_contribution_shape = candidate_contribution_shape if train_adopted else None
-        chosen_kafi_deployment = candidate_kafi_deployment if train_adopted else None
-        chosen_adaptive_contribution = candidate_adaptive_contribution if train_adopted else None
-        chosen_cadence = candidate_cadence if train_adopted else "monthly"
         baseline_test_arm = _baseline_arm(test_start, test_end)
         candidate_test_arm = arm_result(
             candidate.policy, test_start, test_end, candidate_overlay, candidate_reserve,
@@ -314,12 +309,12 @@ def run_walk_forward_adoption(
             candidate_kafi_deployment, candidate_adaptive_contribution, candidate_cadence,
             targets_override=candidate_targets_override,
         )
-        chosen_targets_override = candidate_targets_override if train_adopted else baseline_targets_override
-        chosen_test_arm = arm_result(
-            chosen_policy, test_start, test_end, *keep_extras,
-            chosen_contribution_shape, chosen_kafi_deployment, chosen_adaptive_contribution,
-            chosen_cadence, targets_override=chosen_targets_override,
+        chosen_test_arm = select_chosen_test_arm(
+            train_adopted=train_adopted,
+            candidate_test_arm=candidate_test_arm,
+            baseline_test_arm=baseline_test_arm,
         )
+        chosen_policy = chosen_test_arm.config.policy
         baseline_test = baseline_test_arm.terminal_wealth_real_krw
         candidate_test = candidate_test_arm.terminal_wealth_real_krw
         chosen_test = chosen_test_arm.terminal_wealth_real_krw

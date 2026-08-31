@@ -299,8 +299,14 @@ def attribute_buy_only_soxx(
 def classify_portfolio_status(arms: Sequence[IncrementalArmReport]) -> PortfolioEvidenceStatus:
     if not arms:
         raise ValueError("arms must be non-empty")
+    from src.validation.research_posture import economic_effect_passes
+
     for arm in arms:
-        if float(arm.median_ratio) >= 1.0 and bool(arm.path_bootstrap.ok):
+        if economic_effect_passes(
+            median_ratio=float(arm.median_ratio),
+            ce_gamma_10=float(arm.ce_gamma_10),
+            bootstrap_ok=bool(arm.path_bootstrap.ok),
+        ):
             return PortfolioEvidenceStatus.HISTORICALLY_PROMISING
     return PortfolioEvidenceStatus.HISTORICALLY_WEAK
 
