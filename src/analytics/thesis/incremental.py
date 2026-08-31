@@ -12,6 +12,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Final
 
+import polars as pl
+
 from src.analytics.thesis.meaning import PortfolioEvidenceStatus, ThesisMeaningSnapshot
 from src.data.panel_freshness import CatalogPanelReport, effective_thesis_end, resolve_catalog_panel_as_of
 from src.data.settings import DataSettings
@@ -131,15 +133,12 @@ def make_incremental_arm_id(vehicle_ticker: str, satellite_weight: float) -> str
     w = float(satellite_weight)
     if w not in INCREMENTAL_SATELLITE_WEIGHTS:
         raise ValueError(f"weight {satellite_weight!r} not in {INCREMENTAL_SATELLITE_WEIGHTS}")
-    qqq_pct = round((1.0 - w) * 100)
-    veh_pct = round(w * 100)
-    return f"qqq{qqq_pct}_{vehicle_ticker.lower()}{veh_pct}"
+    return f"qqq{round((1.0 - w) * 100)}_{vehicle_ticker.lower()}{round(w * 100)}"
 
 
 def resolve_incremental_horizon(start: date, end: date) -> tuple[int, bool]:
     for h in INCREMENTAL_HORIZON_SURFACE:
-        cohorts = rolling_cohorts(start, end, horizon_months=h, step_months=12)
-        if cohorts:
+        if rolling_cohorts(start, end, horizon_months=h, step_months=12):
             return (int(h), bool(h != 120))
     raise ValueError("span too short for any horizon in INCREMENTAL_HORIZON_SURFACE")
 
@@ -149,7 +148,7 @@ def clip_incremental_cohort_start(
     catalog_start: date,
     settings: DataSettings,
     as_of: datetime,
-    vehicle_ticker: str,
+    vehicle_ticker: str = "SOXX",
 ) -> date:
     """Clip cohort start to the vehicle's first PIT price session."""
     import polars as pl
@@ -158,10 +157,10 @@ def clip_incremental_cohort_start(
     from src.data.schema import Dataset
 
     prices = load_visible(settings, Dataset.PRICES, as_of)
-    ticker_prices = prices.filter(pl.col("ticker") == str(vehicle_ticker))
-    if ticker_prices.is_empty():
+    vehicle_rows = prices.filter(pl.col("ticker") == vehicle_ticker)
+    if vehicle_rows.is_empty():
         raise ValueError(f"no price history for vehicle {vehicle_ticker!r}")
-    vehicle_first = ticker_prices.get_column("date").min()
+    vehicle_first = vehicle_rows.get_column("date").min()
     if not isinstance(vehicle_first, date):
         raise ValueError(f"invalid price dates for vehicle {vehicle_ticker!r}")
     return max(catalog_start, vehicle_first)
@@ -176,8 +175,7 @@ def monthly_simple_returns(result: AllocationResult) -> tuple[float, ...]:
             raise ValueError(f"mark_krw must be positive, got {s.mark_krw!r} on {s.session}")
     out: list[float] = []
     for prev, cur in zip(snaps, snaps[1:], strict=False):  # noqa: RUF007
-        pm = float(prev.mark_krw)
-        cm = float(cur.mark_krw)
+        pm, cm = float(prev.mark_krw), float(cur.mark_krw)
         if pm <= 0.0 or cm <= 0.0:
             raise ValueError("mark_krw must be positive")
         out.append(cm / pm - 1.0)
@@ -193,9 +191,7 @@ def monthly_unitized_returns(result: AllocationResult) -> tuple[float, ...]:
             raise ValueError(f"mark_krw must be positive, got {s.mark_krw!r} on {s.session}")
     out: list[float] = []
     for prev, cur in zip(snaps, snaps[1:], strict=False):  # noqa: RUF007
-        pm = float(prev.mark_krw)
-        cm = float(cur.mark_krw)
-        contrib = float(cur.contribution_krw)
+        pm, cm, contrib = float(prev.mark_krw), float(cur.mark_krw), float(cur.contribution_krw)
         if pm <= 0.0 or cm <= 0.0:
             raise ValueError("mark_krw must be positive")
         if not math.isfinite(contrib) or contrib < 0.0:
@@ -338,51 +334,39 @@ def apply_incremental_portfolio_status(
 
 
 def _resolve_panel(settings: DataSettings, as_of: datetime, panel_report: CatalogPanelReport | None) -> CatalogPanelReport:
-    if panel_report is not None:
-        return panel_report
-    return resolve_catalog_panel_as_of(settings, reference_now=as_of)
+    return panel_report if panel_report is not None else resolve_catalog_panel_as_of(settings, reference_now=as_of)
 
 
 def _make_price_at(settings: DataSettings) -> Callable[[date, str], float]:
-    """PIT adjusted close visible at session close; fail-closed on missing/non-positive."""
-    import polars as pl
-
     from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
     from src.data.catalog import latest_artifact
     from src.data.query import load_as_of
     from src.data.schema import Dataset, spec_for
     from src.data.storage import DataStore
 
-    latest = latest_artifact(settings, Dataset.PRICES)
-    prices = DataStore(settings).read_normalized(latest, spec_for(Dataset.PRICES))
+    prices = DataStore(settings).read_normalized(latest_artifact(settings, Dataset.PRICES), spec_for(Dataset.PRICES))
     cal = load_calendar(DEFAULT_CALENDAR_NAME)
 
     def _price_at(d: date, ticker: str) -> float:
-        close_ts = cal.close_ts(d)
-        visible = load_as_of(prices, Dataset.PRICES, close_ts)
-        rows = visible.filter((pl.col("ticker") == ticker) & (pl.col("date") == d))
+        rows = load_as_of(prices, Dataset.PRICES, cal.close_ts(d)).filter((pl.col("ticker") == ticker) & (pl.col("date") == d))
         if rows.is_empty():
             raise ValueError(f"price missing for {ticker!r} on {d.isoformat()}")
-        value = rows.item(0, "adjusted_close")
-        if value is None or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0.0:
+        val = rows.item(0, "adjusted_close")
+        if val is None or not isinstance(val, (int, float)) or not math.isfinite(val) or val <= 0.0:
             raise ValueError(f"non-positive adjusted_close for {ticker!r} on {d.isoformat()}")
-        return float(value)
+        return float(val)
 
     return _price_at
 
 
 def _make_fx_at(settings: DataSettings) -> Callable[[date], float]:
-    """PIT usdkrw at session close via Dataset.FX; ValueError on missing/non-positive."""
-    import polars as pl
-
     from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
     from src.data.catalog import latest_artifact
     from src.data.query import load_as_of
     from src.data.schema import Dataset, spec_for
     from src.data.storage import DataStore
 
-    latest = latest_artifact(settings, Dataset.FX)
-    fx = DataStore(settings).read_normalized(latest, spec_for(Dataset.FX))
+    fx = DataStore(settings).read_normalized(latest_artifact(settings, Dataset.FX), spec_for(Dataset.FX))
     cal = load_calendar(DEFAULT_CALENDAR_NAME)
 
     def _fx_at(d: date) -> float:
@@ -391,14 +375,13 @@ def _make_fx_at(settings: DataSettings) -> Callable[[date], float]:
         close_ts = cal.close_ts(d)
         if close_ts.tzinfo is None:
             raise ValueError(f"close_ts naive for {d.isoformat()}")
-        visible = load_as_of(fx, Dataset.FX, close_ts)
-        rows = visible.filter(pl.col("date") == d)
+        rows = load_as_of(fx, Dataset.FX, close_ts).filter(pl.col("date") == d)
         if rows.is_empty():
             raise ValueError(f"fx missing for {d.isoformat()}")
-        value = rows.item(0, "usdkrw")
-        if value is None or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0.0:
+        val = rows.item(0, "usdkrw")
+        if val is None or not isinstance(val, (int, float)) or not math.isfinite(val) or val <= 0.0:
             raise ValueError(f"non-positive usdkrw for {d.isoformat()}")
-        return float(value)
+        return float(val)
 
     return _fx_at
 
@@ -431,19 +414,14 @@ def run_incremental_portfolio(
         from src.data.schema import Dataset, spec_for
         from src.data.storage import DataStore
 
-        latest = latest_artifact(settings, Dataset.PRICES)
-        frame = DataStore(settings).read_normalized(latest, spec_for(Dataset.PRICES))
+        frame = DataStore(settings).read_normalized(latest_artifact(settings, Dataset.PRICES), spec_for(Dataset.PRICES))
         min_raw = frame.get_column("date").min()
-        start = min_raw if isinstance(min_raw, date) else date(2007, 8, 31)
+        start = max(min_raw if isinstance(min_raw, date) else date(2012, 8, 31), date(2012, 8, 31))
     except Exception:
-        start = date(2007, 8, 31)
+        start = date(2012, 8, 31)
     start, end = clamp_inclusive_session_range(cal, start, end)
-    start = clip_incremental_cohort_start(
-        catalog_start=start,
-        settings=settings,
-        as_of=as_of,
-        vehicle_ticker=vehicle_ticker,
-    )
+    start = clip_incremental_cohort_start(catalog_start=start, settings=settings, as_of=as_of, vehicle_ticker=vehicle_ticker)
+    start = max(start, date(2012, 8, 31))
     start, end = clamp_inclusive_session_range(cal, start, end)
     horizon_months, horizon_fallback = resolve_incremental_horizon(start, end)
     cohorts = rolling_cohorts(start, end, horizon_months=horizon_months, step_months=12)
@@ -494,13 +472,10 @@ def run_incremental_portfolio(
         cand_full = runner(replace(candidate_template, start=full_start, end=full_end))
         # attribution
         attribution = attribute_buy_only_soxx(candidate=cand_full, baseline=base_full, soxx_weight=float(w), price_at=price_at, fx_at=fx_at, vehicle_ticker=vehicle_ticker)
-        # path bootstrap on monthly returns of full-span path
-        cand_rets = monthly_simple_returns(cand_full)
-        base_rets = monthly_simple_returns(base_full)
-        # ensure lengths match (sessions should align); if mismatch due to snapshot count diff, fail closed
+        cand_rets = monthly_unitized_returns(cand_full)
+        base_rets = monthly_unitized_returns(base_full)
         if len(cand_rets) != len(base_rets):
             raise ValueError(f"candidate/baseline return lengths diverge {len(cand_rets)} vs {len(base_rets)}")
-        # use block_size 12 per spec default
         verdict = paired_path_block_bootstrap(cand_rets, base_rets, block_size=12, n_paths=int(bootstrap_paths), seed=int(seed) + idx)
 
         arms.append(

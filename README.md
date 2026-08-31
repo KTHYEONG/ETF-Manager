@@ -11,13 +11,13 @@
 2. **비현실적인 마찰 비용 누락:** 환전 스프레드(FX Spread), 거래 수수료, 슬리피지, 인플레이션(실질 가치)을 생략하여 과대평가.
 3. **불공정한 현금흐름 비교 (Cashflow Distortion):** 전략마다 임의로 납입액/시점을 다르게 하여 자본 배분의 순수 알파가 아닌 단순 납입금 차이로 인한 왜곡 발생.
 
-**ETF-Manager**는 이러한 오류를 수학적·소프트웨어적으로 원천 차단(Fail-closed)하고, 10년 이상의 장기 적립식(DCA) 환경에서 **"어떤 자산 배분 및 적립 정책이 실질 원화 부를 극대화하면서 꼬리 위험(Tail Risk)을 제어하는가?"**에 대해 명확한 실증적 답을 제공합니다.
+**ETF-Manager**는 이러한 오류를 수학적·소프트웨어적으로 원천 차단(Fail-closed)하고, 10년 이상의 장기 적립식(DCA) 환경에서 **"어떤 자산 배분 및 적립 정책이 실질 원화 부를 극대화하면서 꼬리 위험(Tail Risk)을 제어하는가?"**에 대해 재현 가능한 실증적 근거를 제공합니다.
 
 ---
 
-## 🔒 2. 최종 확정 운영 락 (Operational Lock Convergence)
+## 🔒 2. 현재 운영 락 (Frozen Provisional Incumbent)
 
-수많은 후보군(QQQ, VTI, 글로벌 분산, 다양한 위성 섹터, Dynamic Overlay, Adaptive 비중 조절 등)에 대한 다층 통계 검증을 거쳐 최종 확정된 **운영 락(Operational Lock)** 사양입니다.
+수많은 후보군(QQQ, VTI, 글로벌 분산, 다양한 위성 섹터, Dynamic Overlay, Adaptive 비중 조절 등)에 대한 다층 통계 검증을 거쳐 잠정 표준으로 동결(Freeze)된 **운영 락(Frozen Provisional Incumbent)** 사양입니다.
 
 ```mermaid
 graph LR
@@ -30,18 +30,18 @@ graph LR
 
 | 항목 | 운영 락 사양 | 결정 근거 및 성격 |
 | :--- | :--- | :--- |
-| **운용 자산 배분 (Mix)** | **QQQ 90% / SOXX 10%** | 반도체(AI Compute) 테마를 위성으로 결합하여 QQQ 단독 대비 실질 초과수익 달성 |
+| **운용 자산 배분 (Mix)** | **QQQ 90% / SOXX 10%** | 반도체(AI Compute) 테마를 위성으로 결합하여 QQQ 단독 대비 실질 초과수익 확보 |
 | **납입 방식 (Contribution)** | **Flat 월 100만 원 고정** | 가변 납입(Adaptive)의 현금흐름 왜곡을 배제하고 실운용 제약조건 준수 |
 | **실행 메커니즘 (Execution)** | **월말 Signal $\rightarrow$ 익거래일 Buy-Only** | Look-ahead bias 없는 비동기 체결, 매도 없이 신규 유입금만으로 비중 추종 |
 | **부가 모듈 (Modules)** | **전부 OFF (`modules = 1`)** | 불필요한 마켓 타이밍, 리밸런싱 밴드, 오버레이 제거로 복잡도 비용 최소화 |
-| **전략 역할 (Role)** | `provisional_incumbent` | 3중 교차 검증 통과 잠정 표준 (불변 벤치마크: `QQQ 100%`) |
+| **전략 역할 (Role)** | `provisional_incumbent` | 다층 교차 검증을 통과해 동결된 잠정 표준 (불변 벤치마크: `QQQ 100%`) |
 
 ### 💡 운영 락 선정 4대 근거
-1. **3중 검증 체계 교차 통과:** `Compound DCA`(120개월 전체 경로), `Final Historical Campaign`(4 cohort × 120M 롤링), `Thesis Incremental`(10 cohort 패널)에서 동일한 조건으로 유의성을 입증한 유일한 Flat 조합.
-2. **위성 비중 최적화 (Economic Hurdle vs Tail Risk):**
-   - **5% 비중:** 경제적 유의성 허들(`median ≥ 1.01`) 미달로 탈락.
-   - **15% 비중:** 중간값 수익률은 높으나 Worst, p10, Bootstrap p05(0.963) 등 하방 꼬리 위험 악화로 배제.
-   - **10% 비중:** 경제적 유효성과 하방 안정성(Bootstrap p05 0.977, Win Rate 100%)의 최적 균형점.
+1. **3중 검증 체계 교차 통과:** `Compound DCA`(120개월 전체 경로), `Final Historical Campaign`(4 cohort × 120M 롤링), `Thesis Incremental`(4 cohort 패널)에서 동일한 조건으로 채택 기준을 충족해 freeze된 Flat 조합.
+2. **위성 비중 선택 (Hurdle vs Concentration):**
+   - **5% 비중:** 경제적 유의성 허들(`median ≥ 1.01`) 대비 마진이 좁음.
+   - **15% 비중:** 과거 시뮬레이션 지표는 우수하나, 단일 반도체 섹터에 대한 과도한 집중(Concentration) 위험을 방지하기 위해 배제.
+   - **10% 비중:** QQQ 대비 유의미한 실질 초과수익을 확보하면서도 과도한 섹터 편중을 피하도록 보수적으로 선택한 운영 균형점.
 3. **납입 규칙의 현실성 (Flat vs Adaptive):** Adaptive(v5)는 인샘플 수익률이 높았으나 평균 납입액 증가(+18%)로 인한 현금흐름 왜곡 발생 $\rightarrow$ 실운용 단순성을 위해 Flat 채택.
 4. **자연 승격 방지 장치 (`operational_unlock=false`):** 단순 백테스트 1위라 할지라도 사전 등록된 게이트웨이를 공식 통과하지 않으면 운영 사양을 변경할 수 없도록 통제.
 
@@ -213,4 +213,20 @@ uv run mypy src
 - [Operator CLI Reference](docs/architecture/03_operator_cli.md) — 전체 명령어 및 JSON 스펙 가이드
 - [Module Index](docs/architecture/04_module_index.md) — 서브시스템별 핵심 소스코드 맵
 - [Research Results Archive](docs/results/README.md) — 연구 및 캠페인 결과 아카이브
+
+---
+
+## ⚠️ 9. 연구 한계 및 알려진 제약 (Known Limitations)
+
+본 연구 플랫폼의 결과는 아래와 같은 데이터 및 모델링 제약 조건 하에서 산출되었으며, 운영 시 이를 인지하고 보수적으로 접근해야 합니다:
+
+1. **표본 크기 및 코호트 중첩 (Thin-Sample & Overlapping Cohorts):**
+   - CPI 가용성(2012-08-31~) 제약으로 120개월 롤링 코호트는 총 4개(`cohort_count=4 < 10 target`)로 제한되며, 각 코호트 구간이 서로 상당 부분 중첩되어 완전한 독립 표본이 아닙니다 (`independent_sample_warning=true`).
+2. **과거 극단 국면(Dot-Com / GFC) 실제 ETF 시계열 부재:**
+   - 2000년대 닷컴 버블 및 2008년 금융위기(GFC) 구간은 실제 ETF의 상장 시점 및 PIT 가용 데이터 부재로 인해 과거 실제 체결 기반 시뮬레이션에 포함되지 않았습니다 (`pre_history_mix_proxy: unavailable`).
+3. **세금 모델 미반영 (Tax Not Modelled):**
+   - Buy-Only DCA 적립식 특성상 매도 전까지 과세가 이연(`buy_only_accumulation_defers_realization_tax_until_sale`)되므로 전략 간 상대 순위 왜곡 가능성은 낮으나, 최종 청산/환급 시의 실질 세후 수익률 모델은 포함하지 않습니다.
+4. **과거 레거시 실행 계보 (Lineage Hash Census):**
+   - 39개의 실험 설정(Config Census)은 온전히 보존되어 있으나, 초기 레거시 실행들에 대한 고유 Config Hash 역추적(`unique_config_hashes=0`)은 생략되었습니다.
+
 

@@ -233,7 +233,7 @@ def test_compute_valuation_slot_physical_automation_botz(
         causal_chain=["a"],
         falsifiers=["f1"],
         candidate_sleeves=["physical_automation"],
-        historical_proxies=["BOTZ"],
+        historical_proxies=["ROBO"],
     )
     settings = DataSettings(data_root=tmp_path / "data")
     as_of = datetime(2021, 12, 30, tzinfo=UTC)
@@ -243,12 +243,12 @@ def test_compute_valuation_slot_physical_automation_botz(
     n = 300
     assert len(sessions) >= n
     price_dates = list(sessions[:n])
-    botz_prices = [100.0 * (1.001 ** i) for i in range(n)]
+    robo_prices = [100.0 * (1.001 ** i) for i in range(n)]
     qqq_prices = [100.0] * n
     retrieved = datetime(2021, 12, 29, tzinfo=UTC)
     rows: list[dict[str, object]] = []
     for i, d in enumerate(price_dates):
-        for ticker, px in [("BOTZ", botz_prices[i]), ("QQQ", qqq_prices[i])]:
+        for ticker, px in [("ROBO", robo_prices[i]), ("QQQ", qqq_prices[i])]:
             rows.append(
                 {
                     "ticker": ticker,
@@ -277,7 +277,7 @@ def test_compute_valuation_slot_physical_automation_botz(
     slot = compute_valuation_slot(thesis=thesis, settings=settings, as_of=as_of)
     assert slot.status == "computed"
     assert slot.summary.startswith("valuation:")
-    assert slot.metrics["vehicle_ticker"] == "BOTZ"
+    assert slot.metrics["vehicle_ticker"] == "ROBO"
     assert slot.metrics["benchmark_ticker"] == "QQQ"
     assert slot.metrics["richness_label"] in {"rich", "fair", "cheap"}
     assert isinstance(slot.metrics["falsifier_pricing_collapse_active"], bool)
