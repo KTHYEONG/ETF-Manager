@@ -436,3 +436,36 @@ def test_classify_portfolio_status_requires_economic_hurdle() -> None:
     assert classify_portfolio_status([soxx10]) is PortfolioEvidenceStatus.HISTORICALLY_PROMISING
 
 
+def test_monthly_unitized_returns_excludes_contribution() -> None:
+    from datetime import date
+
+    from src.policy.targets import PolicyId
+    from src.sim.allocation import AllocationConfig, AllocationResult, Snapshot
+    from src.analytics.thesis.incremental import monthly_simple_returns, monthly_unitized_returns
+
+    cfg = AllocationConfig(
+        policy=PolicyId.QQQ,
+        start=date(2020, 1, 1),
+        end=date(2020, 3, 31),
+        monthly_contribution_krw=1_000_000.0,
+    )
+    snaps = (
+        Snapshot(session=date(2020, 1, 31), mark_krw=1_000_000.0, contribution_krw=1_000_000.0),
+        Snapshot(session=date(2020, 2, 29), mark_krw=2_000_000.0, contribution_krw=1_000_000.0),
+        Snapshot(session=date(2020, 3, 31), mark_krw=3_000_000.0, contribution_krw=1_000_000.0),
+    )
+    result = AllocationResult(
+        config=cfg,
+        snapshots=snaps,
+        terminal_wealth_krw=3_000_000.0,
+        xirr=0.0,
+        max_drawdown=0.0,
+        terminal_wealth_real_krw=3_000_000.0,
+        xirr_real=0.0,
+    )
+    naive = monthly_simple_returns(result)
+    unitized = monthly_unitized_returns(result)
+    assert naive[0] > 0.9
+    assert abs(unitized[0]) < 1e-9
+    assert abs(unitized[1]) < 1e-9
+
