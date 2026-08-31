@@ -236,6 +236,7 @@ def run_prospective_monitor_command(*, bundle_path: str, as_of: str | date, sett
             runner=lambda cfg: run_allocation_from_store(cfg, settings),
             settings=settings,
             registry_dir=rdir,
+            runtime_git_commit=_resolve_git_commit(),
         )
         logger.info(
             "[DATA] event=prospective_monitor_cli_done bundle=%s as_of=%s observations=%d registry=%s",

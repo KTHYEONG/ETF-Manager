@@ -184,6 +184,26 @@ def monthly_simple_returns(result: AllocationResult) -> tuple[float, ...]:
     return tuple(out)
 
 
+def monthly_unitized_returns(result: AllocationResult) -> tuple[float, ...]:
+    snaps = result.snapshots
+    if len(snaps) < 1:
+        return ()
+    for s in snaps:
+        if float(s.mark_krw) <= 0.0 or not math.isfinite(float(s.mark_krw)):
+            raise ValueError(f"mark_krw must be positive, got {s.mark_krw!r} on {s.session}")
+    out: list[float] = []
+    for prev, cur in zip(snaps, snaps[1:], strict=False):  # noqa: RUF007
+        pm = float(prev.mark_krw)
+        cm = float(cur.mark_krw)
+        contrib = float(cur.contribution_krw)
+        if pm <= 0.0 or cm <= 0.0:
+            raise ValueError("mark_krw must be positive")
+        if not math.isfinite(contrib) or contrib < 0.0:
+            raise ValueError(f"contribution_krw must be finite nonnegative, got {contrib!r}")
+        out.append((cm - contrib) / pm - 1.0)
+    return tuple(out)
+
+
 def paired_path_block_bootstrap(
     candidate_returns: Sequence[float],
     baseline_returns: Sequence[float],
