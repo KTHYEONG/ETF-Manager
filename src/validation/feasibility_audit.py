@@ -142,6 +142,25 @@ def audit_ticker_coverage(
     return tuple(rows)
 
 
+def resolve_earliest_common_usable_start(
+    *, tickers: Sequence[str], settings: DataSettings, as_of: datetime
+) -> date:
+    if not tickers:
+        raise ValueError("tickers must be nonempty")
+    if as_of.tzinfo is None:
+        raise ValueError(f"as_of must be timezone-aware, got naive {as_of!r}")
+    coverage = audit_ticker_coverage(settings, tickers, as_of=as_of)
+    if len(coverage) != len(tickers):
+        missing = set(tickers) - {row.ticker for row in coverage}
+        raise ValueError(f"missing ticker coverage for {missing!r}")
+    max_first = max(row.first_session for row in coverage)
+    dataset_rows = _audit_dataset_coverage(settings, as_of)
+    for dr in dataset_rows:
+        if dr.first_observation is not None and dr.first_observation > max_first:
+            max_first = dr.first_observation
+    return max_first
+
+
 def _finite_positive(value: object) -> bool:
     return isinstance(value, (int, float)) and math.isfinite(float(value)) and float(value) > 0.0
 
