@@ -586,6 +586,7 @@ def run_final_historical_campaign_command(
             lambda config: run_allocation_from_store(config, settings),
             seed=seed,
             bootstrap_paths=bootstrap_paths,
+            settings=settings,
         )
         record = make_experiment(
             config=AllocationConfig(

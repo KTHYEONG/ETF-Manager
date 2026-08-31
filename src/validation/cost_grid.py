@@ -22,6 +22,7 @@ __all__ = [
     "CostGridReport",
     "CostScenario",
     "ScenarioOutcome",
+    "fx_stress_scenarios",
     "run_walk_forward_cost_grid",
     "write_cost_grid_report",
 ]
@@ -40,6 +41,17 @@ COST_SCENARIOS: Final[tuple[CostScenario, ...]] = (
     CostScenario(id="base", commission_bps=10.0, fx_spread_bps=20.0),
     CostScenario(id="stress", commission_bps=50.0, fx_spread_bps=50.0),
 )
+
+
+def fx_stress_scenarios(base_commission_bps: float) -> tuple[CostScenario, ...]:
+    """FX-only spread grid at fixed commission (reporting stress, not adoption)."""
+    base = float(base_commission_bps)
+    return (
+        CostScenario(id="fx_ideal", commission_bps=base, fx_spread_bps=0.0),
+        CostScenario(id="fx_base", commission_bps=base, fx_spread_bps=20.0),
+        CostScenario(id="fx_stress", commission_bps=base, fx_spread_bps=50.0),
+        CostScenario(id="fx_severe", commission_bps=base, fx_spread_bps=100.0),
+    )
 
 
 @dataclass(frozen=True, slots=True)
