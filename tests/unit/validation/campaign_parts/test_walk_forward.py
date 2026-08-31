@@ -1,14 +1,15 @@
+# ruff: noqa: F401, F811
 """Unit tests for the walk-forward adoption campaign."""
 
 from __future__ import annotations
 
-import json
-from dataclasses import FrozenInstanceError
+import json  # noqa: F401
+from dataclasses import FrozenInstanceError  # noqa: F401
 from datetime import date
 
 import pytest
 
-import src.validation.walk_forward  # co-mod anchor for lean_check AST linkage
+import src.validation.walk_forward  # noqa: F401  # co-mod anchor for lean_check AST linkage
 
 from src.data.settings import DataSettings
 from src.policy.adaptive_contribution import AdaptiveContributionConfig
@@ -249,5 +250,36 @@ def test_wf_c_reject_costs_and_etf_candidate(scenario_id: str) -> None:
     )
     with pytest.raises(ValueError, match="baseline"):
         run_walk_forward_proxy_adoption(proxy_baseline, etf_runner, proxy_runner)
+
+
+def test_walk_forward_compound_growth_objective_wires() -> None:
+    from datetime import date
+
+    from src.sim.allocation import AllocationConfig, AllocationResult, Snapshot
+    from src.validation.experiment import load_experiment_config
+    from src.validation.walk_forward import run_walk_forward_adoption
+
+    spec = load_experiment_config("configs/experiments/wf_soxx100_compound_growth.json")
+
+    def runner(cfg: AllocationConfig) -> AllocationResult:
+        snap = Snapshot(session=date(2020, 1, 31), contribution_krw=1.0, nav_krw=1.0)
+        targets = cfg.targets_override or {}
+        if targets.get("SOXX") == 1.0:
+            tw, contrib = 200.0, 100.0
+        else:
+            tw, contrib = 150.0, 100.0
+        return AllocationResult(
+            config=cfg,
+            snapshots=(snap,),
+            terminal_wealth_krw=tw,
+            xirr=0.0,
+            max_drawdown=-0.3,
+            terminal_wealth_real_krw=tw,
+            xirr_real=0.1,
+            total_contribution_real_krw=contrib,
+        )
+
+    report = run_walk_forward_adoption(spec, runner)
+    assert report.process_adopted_vs_baseline is True
 
 

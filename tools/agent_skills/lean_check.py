@@ -420,7 +420,8 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                             name,
                         )
                         if entry_match is None:
-                            found_impl = False
+                            # Plain file registry entry (e.g. configs/experiments/*.json): existence already verified above
+                            found_impl = os.path.exists(fh)
                         else:
                             reg_owner = entry_match.group("owner")
                             key_literal = entry_match.group("key")

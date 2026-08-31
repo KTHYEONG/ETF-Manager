@@ -378,3 +378,14 @@ def test_exp_ag_soxx10_adaptive_v5_resolve() -> None:
     assert base.neutral_deadband == pytest.approx(cand.neutral_deadband)
 
 
+def test_wf_soxx100_compound_growth_spec_loads() -> None:
+    from src.validation.experiment import load_experiment_config
+
+    spec = load_experiment_config("configs/experiments/wf_soxx100_compound_growth.json")
+    assert spec.objective == "compound_growth"
+    assert len(spec.candidates) == 1
+    assert spec.candidates[0].id == "soxx100_adaptive_v5"
+    assert spec.baseline.id == "qqq90_soxx10_adaptive_v5"
+    assert spec.candidates[0].targets == {"SOXX": 1.0}
+
+

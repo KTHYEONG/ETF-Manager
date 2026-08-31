@@ -194,7 +194,7 @@ flowchart LR
 Empirical window note: catalog PIT constraints require operator dates roughly
 `2012-06-01` – `2024-10-31` (CPI release lag; last execution session price coverage).
 
-## 6. CE Gate Reference
+## 6. CE Gate Reference & Compound-Growth Gates
 
 ```python
 # validation/gate.py — all γ must pass
@@ -203,6 +203,10 @@ adopted ⟺ ∀γ: CE_ratio(γ) > 1 + delta0 * modules
 ```
 
 Default `delta0 = 0.02`. A one-module challenger needs **> 2%** CE improvement at every γ.
+
+- `contribution_growth_train_passes` / `contribution_growth_process_passes` (risk-bounded, `MDD_slack=0.02`): train `candidate_tw > baseline_tw` and `candidate_real_gain > baseline_real_gain` and `candidate_xirr_real >= baseline_xirr_real` and `candidate_mdd >= baseline_mdd - 0.02`; process `sum(chosen_tw) > sum(baseline_tw)` and `sum(chosen_real_gain) > sum(baseline_real_gain)` with every fold `TW_ratio >= 0.97` and `chosen_xirr >= baseline_xirr`. Preserved unchanged.
+- `compound_growth_train_passes` / `compound_growth_process_passes` (compound-growth, no MDD veto, `worst_fold_floor=0.95`): same TW/gain/XIRR conditions without MDD comparison; process fold floor relaxed to `0.95`. MDD is disclosure-only. `COMPOUND_GROWTH_WORST_FOLD_FLOOR=0.95`.
+- `contrast`: contribution_growth vetoes deeper MDD beyond slack; compound_growth never vetoes on MDD, maximizing inflation-adjusted `real_gain` under fixed monthly contributions over ≥10y. Operator selects objective; operational adoption for accumulation uses WF `objective=compound_growth`.
 
 ## 7. Research Roadmap (code changes)
 
@@ -233,5 +237,11 @@ justify weight retuning without new structural evidence.
 
 - `src/analytics/compound_dca.py:compare_compound_dca` runs twelve arms `qqq_flat`, `qqq_adaptive_v5`, `qqq90_soxx10_flat`, `qqq90_soxx10_adaptive_v5`, `qqq95_soxx5_adaptive_v5`, `qqq85_soxx15_adaptive_v5`, `soxx90_qqq10_flat`, `soxx90_qqq10_adaptive_v5`, `soxx100_flat`, `soxx100_adaptive_v5`, `qqq_soxx_riskbudget_flat`, `qqq_soxx_riskbudget_adaptive_v5` on window `2016-07-01`–`2026-06-30` with `PolicyId.QQQ` and `OPERATIONAL_ADAPTIVE_CONTRIBUTION` only on adaptive arms; `qqq90_soxx10` uses `targets_override {"QQQ": 0.9, "SOXX": 0.1}`, `soxx90_qqq10` role-swap uses `{"SOXX": 0.9, "QQQ": 0.1}`, `soxx100` uses `{"SOXX": 1.0}`, and `qqq_soxx_riskbudget` uses `mix_risk_budget=OPERATIONAL_MIX_RISK_BUDGET` (riskbudget) with `targets_override=None`. Intensity 5/15% arms are adaptive-only via `qqq_soxx_intensity_targets` on preregistered `INCREMENTAL_SATELLITE_WEIGHTS=(0.05, 0.10, 0.15)`; SOXX-main (`soxx100`) remains diagnostic-only, no SOXX-main weight retunes, `INCREMENTAL_SATELLITE_WEIGHTS` unchanged.
 - Champions: unconstrained `champion_arm_id` is max `real_gain`; MDD-feasible champion via `select_mdd_feasible_champion(rows, baseline_arm_id=OPERATIONAL_COMPOUND_BASELINE_ARM_ID='qqq90_soxx10_adaptive_v5', mdd_slack=COMPOUND_MDD_SLACK=0.02)` where feasible iff `candidate.max_drawdown >= baseline.max_drawdown - mdd_slack` (identical to `contribution_growth_train_passes`); among feasible picks max `real_gain` (ties keep first rows order); `operational_unlock` always `False`; never imports `adoption_passes`.
-- Reporting-only; `run diagnose-compound-dca` logs `[DATA] event=compound_dca_arm` per arm and `event=compound_dca_done champion=... mdd_feasible_champion=... mdd_baseline=... mdd_slack=... operational_unlock=false`.
+- Reporting-only; `run diagnose-compound-dca` logs `[DATA] event=compound_dca_arm` per arm and `event=compound_dca_done champion=... growth_champion=... recommended_arm_id=... mdd_feasible_champion=... (disclosure-only) mdd_baseline=... mdd_slack=... operational_unlock=false`; `growth_champion_arm_id` and `recommended_arm_id` equal unconstrained max `real_gain` (compound-growth objective), while `mdd_feasible_champion_arm_id` remains disclosure-only.
 - WF JSONs: `wf_qqq_soxx10_adaptive_v5.json` validated the operational QQQ90/SOXX10 + adaptive v5 lock; `wf_qqq_soxx_intensity_mdd.json` mirrors its adaptive v5 params with `objective=adaptive_growth`, `baseline=qqq90_soxx10_adaptive_v5` (`QQQ 0.9 / SOXX 0.1`), candidates `qqq95_soxx5_adaptive_v5` (`QQQ 0.95 / SOXX 0.05`) and `qqq85_soxx15_adaptive_v5` (`QQQ 0.85 / SOXX 0.15`), `train_months=36` `test_months=24` on `COMPOUND_DCA_WINDOW` (≥2 folds), `thesis_id=ai_compute`, `weights_locked`/`universe_locked` true, never auto-writes `OPERATIONAL_TARGETS_OVERRIDE`.
+- WF `wf_soxx100_compound_growth.json` uses `objective=compound_growth` (no MDD veto) with `baseline=qqq90_soxx10_adaptive_v5` and single candidate `soxx100_adaptive_v5` (`SOXX 1.0`) on `COMPOUND_DCA_WINDOW` (`train_months=36` `test_months=24`), adaptive v5 params identical to `wf_qqq_soxx10_adaptive_v5.json`.
+
+### 4.13 Compound-growth objective (MDD/CE veto removal)
+
+- `objective=compound_growth` aligns to long-horizon DCA accumulation: `compound_growth_train_passes` passes iff `candidate_tw > baseline_tw` and `candidate_real_gain > baseline_real_gain` and `candidate_xirr_real >= baseline_xirr_real` (no MDD comparison); `compound_growth_process_passes` passes iff `sum(chosen_tw) > sum(baseline_tw)` and `sum(chosen_real_gain) > sum(baseline_real_gain)` and every fold `chosen_xirr_real >= baseline_xirr_real` and every fold `TW_ratio >= worst_fold_floor` (default `COMPOUND_GROWTH_WORST_FOLD_FLOOR=0.95`, relaxed vs `0.97`); no MDD input. Fail-closed on non-finite inputs, empty folds, non-positive baseline TW, or `worst_fold_floor` outside `(0,1]`.
+- `objective=contribution_growth` is the risk-bounded variant retaining `MDD slack 0.02` (`candidate_mdd >= baseline_mdd - mdd_slack`) in both train and process gates; preserved unchanged. Operational lock changes only when a WF campaign with `objective=compound_growth` passes its process gate. MDD remains disclosure-only for accumulation strategies.

@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_COMPOUND_GROWTH_OBJECTIVE_REALIGNMENT",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_COMPOUND_GROWTH_OBJECTIVE_REALIGNMENT",
+      "domain": "quant",
+      "title": "Compound growth objective: DCA real_gain primary, MDD disclosure-only",
+      "why": "SOXX100 adaptive topped compound DCA real_gain (+8.71억 vs operational +3.55억) but MDD/CE/contribution_growth gates vetoed adoption; user goal is long-horizon DCA compound maximization not risk-averse CE or path MDD as primary veto.",
+      "resolution": "Added compound_growth objective with compound_growth_train_passes/process_passes (no MDD veto, worst_fold_floor=0.95); wired walk_forward; CompoundDcaReport growth_champion/recommended_arm_id; diagnose-compound-dca logging; wf_soxx100_compound_growth.json; contribution_growth MDD path preserved; architecture §4.12/§6 updated; contract tests GATE-CG/DCA-CG/WF-CG.",
+      "impact": "FRESH 2016-07-01–2026-06-30: recommended_arm=soxx100_adaptive_v5 real_gain +8.71억 vs qqq90_soxx10 +3.55억; mdd_feasible disclosure=qqq85_soxx15; wf_soxx100_compound_growth process_adopted=false (fold3 2023–2025 XIRR veto despite pooled TW/gain lead); OPERATIONAL_TARGETS_OVERRIDE QQQ90/SOXX10 unchanged; specs/scratch purged on sync."
+    },
+    {
       "task_id": "TASK_COMPOUND_MDD_FEASIBLE_SOXX_INTENSITY",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_COMPOUND_MDD_FEASIBLE_SOXX_INTENSITY",
