@@ -286,9 +286,9 @@ class ExperimentSpec(BaseModel):
     start: date
     end: date
     contribution_krw: float = Field(gt=0)
-    hurdle: float = Field(ge=0)
+    hurdle: float = Field(default=0.02, ge=0)
     objective: Literal["ce", "growth_first", "adaptive_growth", "compound_growth", "long_horizon"] = "ce"
-    horizon_months: int = Field(ge=0)
+    horizon_months: int = Field(default=120, ge=0)
     commission_bps: float = Field(default=0.0, ge=0)
     fx_spread_bps: float = Field(default=0.0, ge=0)
     train_months: int | None = Field(default=None, ge=1)
@@ -303,7 +303,7 @@ class ExperimentSpec(BaseModel):
     adaptive_contribution: AdaptiveContributionSpec | None = None
     baseline_adaptive_contribution: AdaptiveContributionSpec | None = None
     baseline: CandidateSpec
-    candidates: list[CandidateSpec] = Field(min_length=1)
+    candidates: list[CandidateSpec] = Field(default_factory=list)
     thesis_id: ThesisId | None = None
     preregistration: PreregistrationSpec | None = None
     objective_family: ObjectiveFamily | None = None
@@ -655,6 +655,9 @@ def resolve_experiment_config_path(path: str | Path) -> Path:
         except Exception:  # noqa: S110
             pass
     raise FileNotFoundError(f"experiment config not found: {path}")
+
+
+BaselineSpec = CandidateSpec
 
 
 def load_experiment_config(path: str | Path) -> ExperimentSpec:
