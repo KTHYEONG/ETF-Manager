@@ -31,5 +31,7 @@
     "valuation": "unknown",
     "expectations": "unknown",
     "crowding": "unknown"
-  }
+  },
+  "research_role": "challenger",
+  "operational_weight": 0
 }
