@@ -307,3 +307,14 @@ def test_trial_lineage_optional_on_preregistration() -> None:
         )
 
 
+def test_load_final_historical_campaign_config() -> None:
+    from src.validation.experiment import load_experiment_config
+    from src.validation.historical_campaign import assert_final_campaign_spec
+    from src.validation.research_posture import ObjectiveFamily
+
+    spec = load_experiment_config("configs/experiments/final_historical_campaign_v1.json")
+    assert spec.name == "final_historical_campaign_v1"
+    assert spec.objective_family is ObjectiveFamily.CAPITAL_ALLOCATION
+    assert len(spec.candidates) == 3
+    assert spec.baseline.targets == {"QQQ": 1.0}
+    assert_final_campaign_spec(spec)
