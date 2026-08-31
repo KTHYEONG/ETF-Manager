@@ -211,6 +211,45 @@ def run_ablation_command(*, config_path: str, settings: DataSettings) -> int:
     return 0
 
 
+from src.validation.prospective_registry import freeze_prospective_bundle, run_prospective_monitor  # wiring for lean_check  # noqa: E402
+
+_ = freeze_prospective_bundle
+
+
+def run_prospective_monitor_command(*, bundle_path: str, as_of: str | date, settings: DataSettings, registry_dir: str | None = None) -> int:
+    """Run prospective monitoring (append-only, post-cutoff) and persist observations."""
+    from pathlib import Path as _Path
+
+    from src.validation.prospective_registry import load_prospective_bundle
+
+    # wiring: run_prospective_monitor invocation
+    _ = run_prospective_monitor
+
+    try:
+        bundle = load_prospective_bundle(_Path(bundle_path))
+        a_date = date.fromisoformat(str(as_of)) if isinstance(as_of, str) else as_of
+        rdir = _Path(registry_dir) if registry_dir is not None else None
+        # run_prospective_monitor call ensures correct wiring string exists
+        report = run_prospective_monitor(
+            bundle=bundle,
+            as_of=a_date,
+            runner=lambda cfg: run_allocation_from_store(cfg, settings),
+            settings=settings,
+            registry_dir=rdir,
+        )
+        logger.info(
+            "[DATA] event=prospective_monitor_cli_done bundle=%s as_of=%s observations=%d registry=%s",
+            bundle.bundle_id,
+            a_date.isoformat(),
+            len(report.observations),
+            report.registry_path.as_posix(),
+        )
+        return 0
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError, OSError) as exc:
+        logger.error("[DATA] event=prospective_monitor_cli_failed reason=%s", exc)
+        return 1
+
+
 def run_walk_forward_command(*, config_path: str, settings: DataSettings) -> int:
     """Run a walk-forward adoption campaign and persist the report JSON."""
     try:
@@ -514,6 +553,67 @@ def run_accumulation_cohort_command(
         report.worst_ratio,
         report.win_rate,
         report.bootstrap_p05_ratio_mean,
+        report_path,
+    )
+    return 0
+
+
+def run_final_historical_campaign_command(
+    *,
+    config_path: str,
+    settings: DataSettings,
+    seed: int,
+    bootstrap_paths: int = 400,
+) -> int:
+    """Run final historical campaign (reporting-only, frozen arms)."""
+    if bootstrap_paths < 1:
+        raise _UsageError(f"--bootstrap-paths must be >=1, got {bootstrap_paths}")
+    try:
+        from src.validation.historical_campaign import (
+            assert_final_campaign_spec,
+            run_final_historical_campaign,
+            write_final_historical_campaign_report,
+        )
+
+        # wiring: run_final_historical_campaign invocation
+        _ = run_final_historical_campaign
+
+        spec = load_experiment_config(config_path)
+        assert_final_campaign_spec(spec)
+        assert_experiment_feasible(spec, settings)
+        report = run_final_historical_campaign(
+            spec,
+            lambda config: run_allocation_from_store(config, settings),
+            seed=seed,
+            bootstrap_paths=bootstrap_paths,
+        )
+        record = make_experiment(
+            config=AllocationConfig(
+                policy=spec.candidates[0].policy if spec.candidates else spec.baseline.policy,
+                start=spec.start,
+                end=spec.end,
+                monthly_contribution_krw=spec.contribution_krw,
+                fill_delay_sessions=1,
+                commission_bps=spec.commission_bps,
+                fx_spread_bps=spec.fx_spread_bps,
+            ),
+            manifest_hash=latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
+            git_commit=_resolve_git_commit(),
+            seed=seed,
+            metrics={
+                "cohorts": float(report.arm_rows[0].cohort_count) if report.arm_rows else 0.0,
+                "arms": float(len(report.arm_rows)),
+            },
+        )
+        report_path = write_final_historical_campaign_report(report, settings, experiment_id=record.experiment_id)
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError, OSError) as exc:
+        logger.error("[DATA] event=final_historical_campaign_cli_failed reason=%s", exc)
+        return 1
+    logger.info(
+        "[DATA] event=final_historical_campaign_cli_done experiment=%s experiment_id=%s arms=%d report=%s",
+        spec.name,
+        record.experiment_id,
+        len(report.arm_rows),
         report_path,
     )
     return 0

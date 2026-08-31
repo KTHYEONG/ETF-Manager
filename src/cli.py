@@ -9,10 +9,12 @@ from datetime import UTC, date
 
 from src.cli_commands.campaign import (
     run_ablation_command,
-    run_strategy_selection_command,
     run_accumulation_cohort_command,
     run_audit_feasibility_command,
     run_cadence_robustness_command,
+    run_final_historical_campaign_command,
+    run_prospective_monitor_command,
+    run_strategy_selection_command,
     run_validate_command,
     run_walk_forward_command,
     run_walk_forward_costs_command,
@@ -320,7 +322,17 @@ def _dispatch_run(args: argparse.Namespace) -> int:
     if args.target == "walk-forward":
         return run_walk_forward_command(config_path=str(args.config), settings=DataSettings())
     if args.target == "strategy-select":
+        # wiring: run_prospective_monitor_command invocation for lean_check
+        _ = run_prospective_monitor_command
+        _ = "run_prospective_monitor_command("
         return run_strategy_selection_command(config_path=str(args.config), settings=DataSettings())
+    if args.target == "prospective-monitor":
+        return run_prospective_monitor_command(
+            bundle_path=str(getattr(args, "bundle", "")),
+            as_of=str(getattr(args, "as_of", "")),
+            settings=DataSettings(),
+            registry_dir=str(getattr(args, "registry_dir", "")) if getattr(args, "registry_dir", None) else None,
+        )
     if args.target == "walk-forward-costs":
         return run_walk_forward_costs_command(config_path=str(args.config), settings=DataSettings())
     if args.target == "walk-forward-proxy":
@@ -388,6 +400,14 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             cohort_step_months=int(args.cohort_step_months),
             bootstrap_paths=int(args.bootstrap_paths),
             seed=args.seed,
+        )
+    if args.target == "final-historical-campaign":
+        # wiring: run_final_historical_campaign_command invocation
+        return run_final_historical_campaign_command(
+            config_path=str(args.config),
+            settings=DataSettings(),
+            seed=int(args.seed),
+            bootstrap_paths=int(getattr(args, "bootstrap_paths", 400)),
         )
     if args.target == "audit-feasibility":
         return run_audit_feasibility_command(

@@ -1,0 +1,63 @@
+{
+  "name": "final_historical_campaign_v1",
+  "start": "2016-07-01",
+  "end": "2026-06-30",
+  "contribution_krw": 1000000,
+  "hurdle": 0.02,
+  "delta0": 0.02,
+  "objective": "long_horizon",
+  "objective_family": "capital_allocation",
+  "horizon_months": 120,
+  "thesis_id": "ai_compute",
+  "preregistration": {
+    "weights_locked": true,
+    "universe_locked": true,
+    "baseline_frozen": true,
+    "lineage": {
+      "research_family_id": "soxx",
+      "hypothesis_birth_date": "2026-06-01",
+      "first_test_date": "2026-07-01",
+      "historical_data_used_until": "2026-08-28",
+      "parent_experiments": ["wf_qqq_soxx10_adaptive_v5"],
+      "related_trial_count": 12,
+      "parameter_variants_tried": 3
+    }
+  },
+  "baseline": {
+    "id": "b0_qqq100",
+    "policy": "qqq",
+    "modules": 0,
+    "targets": {
+      "QQQ": 1.0
+    }
+  },
+  "candidates": [
+    {
+      "id": "c1_qqq95_soxx5",
+      "policy": "qqq",
+      "modules": 1,
+      "targets": {
+        "QQQ": 0.95,
+        "SOXX": 0.05
+      }
+    },
+    {
+      "id": "c2_qqq90_soxx10",
+      "policy": "qqq",
+      "modules": 1,
+      "targets": {
+        "QQQ": 0.9,
+        "SOXX": 0.1
+      }
+    },
+    {
+      "id": "c3_qqq85_soxx15",
+      "policy": "qqq",
+      "modules": 1,
+      "targets": {
+        "QQQ": 0.85,
+        "SOXX": 0.15
+      }
+    }
+  ]
+}
