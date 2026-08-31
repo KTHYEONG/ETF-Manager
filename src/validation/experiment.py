@@ -470,6 +470,7 @@ class ExperimentSpec(BaseModel):
                 baseline_adaptive_set=self.baseline_adaptive_contribution is not None,
                 kafi_deployment_set=self.kafi_deployment is not None,
                 reserve_set=self.reserve is not None,
+                contribution_shape_set=self.contribution_shape is not None,
             )
         seen: set[str] = set()
         for candidate in self.candidates:

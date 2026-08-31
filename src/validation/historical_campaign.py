@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
@@ -13,11 +13,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal
 
 from src.policy.targets import PolicyId
+from src.sim.research_proxy import (
+    run_research_proxy_from_store_with_returns,
+    synthesize_proxy_mix_returns,
+)
+from src.validation.cost_grid import COST_SCENARIOS, CostScenario
 from src.validation.experiment import ExperimentSpec
 
 if TYPE_CHECKING:
     from src.data.settings import DataSettings
     from src.sim.allocation import AllocationConfig, AllocationResult
+    from src.validation.registry import TrialLineageHashCensus
 
 __all__ = [
     "FINAL_HISTORICAL_ARMS",
@@ -27,6 +33,8 @@ __all__ = [
     "FinalHistoricalArmMetrics",
     "FinalHistoricalArmSpec",
     "FinalHistoricalCampaignReport",
+    "PairedCostStressRow",
+    "PreHistoryMixProxyStressReport",
     "PreHistoryProxyStressReport",
     "RegimeCoverageReport",
     "RegimeCoverageRow",
@@ -35,9 +43,12 @@ __all__ = [
     "TrialLineageCensusReport",
     "TrialLineageFamilyRow",
     "assert_final_campaign_spec",
+    "audit_pre_history_mix_proxy_stress",
     "audit_pre_history_proxy_stress",
     "audit_regime_coverage",
     "build_trial_lineage_census",
+    "classify_regime_coverage_tier",
+    "compute_paired_cost_stress_ratios",
     "run_final_historical_campaign",
     "write_final_historical_campaign_report",
 ]
@@ -79,6 +90,8 @@ class RegimeCoverageRow:
     regime_name: str
     covered: bool
     overlap_months: int
+    coverage_tier: str = "none"
+    coverage_fraction: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +107,12 @@ class TaxSensitivityMilestone:
 
 
 @dataclass(frozen=True, slots=True)
+class PairedCostStressRow:
+    scenario_id: str
+    candidate_over_baseline_ratio: float
+
+
+@dataclass(frozen=True, slots=True)
 class PreHistoryProxyStressReport:
     status: Literal["available", "unavailable"]
     reason: str
@@ -101,6 +120,19 @@ class PreHistoryProxyStressReport:
     proxy_window_end: date | None = None
     terminal_wealth_real_krw: float | None = None
     xirr_real: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PreHistoryMixProxyStressReport:
+    evidence_tier: str
+    status: str
+    regime_name: str = ""
+    baseline_terminal_real_krw: float | None = None
+    candidate_terminal_real_krw: float | None = None
+    candidate_over_baseline_ratio: float | None = None
+    window_start: date | None = None
+    window_end: date | None = None
+    reason: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +166,7 @@ class FinalHistoricalArmMetrics:
     fx_stress_worst_ratio: float
     cohort_starts: tuple[date, ...]
     cohort_ends: tuple[date, ...]
+    paired_cost_stress: tuple[PairedCostStressRow, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +180,8 @@ class FinalHistoricalCampaignReport:
     tax_sensitivity: TaxSensitivityMilestone
     pre_history_proxy: PreHistoryProxyStressReport
     operational_unlock: bool
+    pre_history_mix_proxy: tuple[PreHistoryMixProxyStressReport, ...] = ()
+    lineage_hash_census: TrialLineageHashCensus | None = None
 
 
 REGIME_COVERAGE_CATALOG: Final[tuple[RegimeWindow, ...]] = (
@@ -171,6 +206,156 @@ def _overlap_months(a_start: date, a_end: date, b_start: date, b_end: date) -> i
     if inter_start > inter_end:
         return 0
     return _months_between_inclusive(inter_start, inter_end)
+
+
+def classify_regime_coverage_tier(*, overlap_months: int, regime_duration_months: int) -> str:
+    if regime_duration_months <= 0:
+        return "none"
+    fraction = float(overlap_months) / float(regime_duration_months)
+    if fraction >= 0.90:
+        return "full"
+    if fraction >= 0.50:
+        return "substantial"
+    if fraction > 0:
+        return "partial"
+    return "none"
+
+
+def compute_paired_cost_stress_ratios(
+    runner: Callable[[AllocationConfig], AllocationResult],
+    *,
+    spec: ExperimentSpec,
+    baseline_targets: dict[str, float],
+    candidate_targets: dict[str, float],
+    scenarios: Sequence[CostScenario] | None = None,
+) -> tuple[PairedCostStressRow, ...]:
+    from src.sim.allocation import AllocationConfig
+
+    sc_seq: Sequence[CostScenario] = scenarios if scenarios is not None else COST_SCENARIOS
+    rows: list[PairedCostStressRow] = []
+    baseline_policy = spec.baseline.policy
+    candidate_policy = spec.candidates[0].policy if spec.candidates else spec.baseline.policy
+    for sc in sc_seq:
+        base_cfg = AllocationConfig(
+            policy=baseline_policy,
+            start=spec.start,
+            end=spec.end,
+            monthly_contribution_krw=float(spec.contribution_krw),
+            fill_delay_sessions=1,
+            commission_bps=float(sc.commission_bps),
+            fx_spread_bps=float(sc.fx_spread_bps),
+            targets_override=dict(baseline_targets),
+        )
+        cand_cfg = AllocationConfig(
+            policy=candidate_policy,
+            start=spec.start,
+            end=spec.end,
+            monthly_contribution_krw=float(spec.contribution_krw),
+            fill_delay_sessions=1,
+            commission_bps=float(sc.commission_bps),
+            fx_spread_bps=float(sc.fx_spread_bps),
+            targets_override=dict(candidate_targets),
+        )
+        base_wealth = float(runner(base_cfg).terminal_wealth_real_krw)
+        cand_wealth = float(runner(cand_cfg).terminal_wealth_real_krw)
+        ratio = float(cand_wealth / base_wealth) if base_wealth != 0 else 0.0
+        rows.append(PairedCostStressRow(scenario_id=str(sc.id), candidate_over_baseline_ratio=float(ratio)))
+    return tuple(rows)
+
+
+def audit_pre_history_mix_proxy_stress(
+    settings: DataSettings,
+    *,
+    window_start: date,
+    window_end: date,
+    contribution_krw: float,
+    baseline_series: str,
+    candidate_weights: Mapping[str, float],
+    regime_name: str = "",
+) -> PreHistoryMixProxyStressReport:
+    import polars as pl
+
+    from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
+    from src.data.catalog import latest_artifact, load_visible
+    from src.data.schedule import build_decision_schedule
+    from src.data.schema import Dataset
+    from src.sim.allocation import AllocationConfig
+    from src.validation.prospective_registry import _allocation_end_within_as_of
+
+    if not baseline_series or not candidate_weights:
+        return PreHistoryMixProxyStressReport(
+            evidence_tier="proxy_stress_only",
+            status="unavailable",
+            regime_name=str(regime_name),
+            window_start=window_start,
+            window_end=window_end,
+            reason="baseline_series and candidate_weights required",
+        )
+    try:
+        effective_end = _allocation_end_within_as_of(
+            start=window_start,
+            as_of=window_end,
+            fill_delay_sessions=1,
+        )
+    except Exception:
+        effective_end = window_end
+    try:
+        for dataset in (Dataset.RESEARCH_RETURNS, Dataset.FX, Dataset.CPI):
+            latest_artifact(settings, dataset)
+        schedule = build_decision_schedule(window_start, effective_end, fill_delay_sessions=1)
+        if not schedule:
+            raise ValueError(f"empty proxy schedule over [{window_start.isoformat()}, {effective_end.isoformat()}]")
+        cutoff = load_calendar(DEFAULT_CALENDAR_NAME).close_ts(schedule[-1].execution_session)
+        all_returns = load_visible(settings, Dataset.RESEARCH_RETURNS, cutoff)
+        required_series = {str(baseline_series), *(str(k) for k in candidate_weights)}
+        available_series = {str(v) for v in all_returns.get_column("series_id").unique().to_list()}
+        missing = required_series - available_series
+        if missing:
+            raise ValueError(f"missing research_returns series: {sorted(missing)!r}")
+
+        base_returns = all_returns.filter(pl.col("series_id") == str(baseline_series))
+        mix_source = all_returns.filter(pl.col("series_id").is_in(list(candidate_weights.keys())))
+        cand_returns = synthesize_proxy_mix_returns(mix_source, candidate_weights)
+
+        proxy_cfg = AllocationConfig(
+            policy=PolicyId.FF_PROXY,
+            start=window_start,
+            end=effective_end,
+            monthly_contribution_krw=float(contribution_krw),
+            fill_delay_sessions=1,
+            commission_bps=0.0,
+            fx_spread_bps=0.0,
+        )
+        base_res = run_research_proxy_from_store_with_returns(proxy_cfg, settings, base_returns)
+        cand_res = run_research_proxy_from_store_with_returns(proxy_cfg, settings, cand_returns)
+        base_tw = float(base_res.terminal_wealth_real_krw)
+        cand_tw = float(cand_res.terminal_wealth_real_krw)
+        if not math.isfinite(base_tw) or base_tw <= 0.0:
+            raise ValueError(f"non-positive baseline proxy wealth {base_tw!r}")
+        ratio = float(cand_tw / base_tw)
+        return PreHistoryMixProxyStressReport(
+            evidence_tier="proxy_stress_only",
+            status="available",
+            regime_name=str(regime_name),
+            baseline_terminal_real_krw=base_tw,
+            candidate_terminal_real_krw=cand_tw,
+            candidate_over_baseline_ratio=ratio,
+            window_start=window_start,
+            window_end=effective_end,
+            reason="ndx_sox_proxy_mix",
+        )
+    except Exception as exc:
+        return PreHistoryMixProxyStressReport(
+            evidence_tier="proxy_stress_only",
+            status="unavailable",
+            regime_name=str(regime_name),
+            baseline_terminal_real_krw=None,
+            candidate_terminal_real_krw=None,
+            candidate_over_baseline_ratio=None,
+            window_start=window_start,
+            window_end=effective_end if "effective_end" in locals() else window_end,
+            reason=str(exc),
+        )
 
 
 def resolve_final_campaign_window(
@@ -296,7 +481,18 @@ def audit_regime_coverage(
                 covered = True
             if ov > max_overlap:
                 max_overlap = ov
-        rows.append(RegimeCoverageRow(regime_name=regime.regime_name, covered=covered, overlap_months=max_overlap))
+        regime_duration = _months_between_inclusive(regime.start, regime.end)
+        coverage_fraction = float(max_overlap) / float(regime_duration) if regime_duration > 0 else 0.0
+        coverage_tier = classify_regime_coverage_tier(overlap_months=max_overlap, regime_duration_months=regime_duration)
+        rows.append(
+            RegimeCoverageRow(
+                regime_name=regime.regime_name,
+                covered=covered,
+                overlap_months=max_overlap,
+                coverage_tier=coverage_tier,
+                coverage_fraction=float(coverage_fraction),
+            )
+        )
     # independent_sample_warning: step < horizon
     warning = False
     if len(cohorts) >= 2:
@@ -638,6 +834,17 @@ def _compute_arm_metrics(
 
     cohort_starts = tuple(c[0] for c in cohorts)
     cohort_ends = tuple(c[1] for c in cohorts)
+    try:
+        if vs_baseline:
+            baseline_t = dict(spec.baseline.targets) if spec.baseline.targets is not None else {}
+            cand_t = dict(candidate_targets) if candidate_targets is not None else {}
+            paired_cost_stress = compute_paired_cost_stress_ratios(
+                runner, spec=spec, baseline_targets=baseline_t, candidate_targets=cand_t
+            )
+        else:
+            paired_cost_stress = ()
+    except Exception:
+        paired_cost_stress = ()
 
     return FinalHistoricalArmMetrics(
         arm_id=arm_id,
@@ -655,6 +862,7 @@ def _compute_arm_metrics(
         fx_stress_worst_ratio=float(fx_stress_worst_ratio),
         cohort_starts=cohort_starts,
         cohort_ends=cohort_ends,
+        paired_cost_stress=paired_cost_stress,
     )
 
 
@@ -736,6 +944,15 @@ def run_final_historical_campaign(
         )
 
     regime_coverage = audit_regime_coverage(cohorts=cohorts)
+    lineage_hash_census = None
+    if settings is not None:
+        try:
+            from src.data.paths import experiments_dir as _experiments_dir
+            from src.validation.registry import scan_executed_strategy_hash_census
+
+            lineage_hash_census = scan_executed_strategy_hash_census(_experiments_dir(settings))
+        except Exception:
+            lineage_hash_census = None
     try:
         lineage_census = build_trial_lineage_census(
             index_path=Path("configs/experiments/INDEX.json"),
@@ -745,6 +962,8 @@ def run_final_historical_campaign(
         lineage_census = TrialLineageCensusReport(total_experiments=0, families=())
 
     dot_com = next(r for r in REGIME_COVERAGE_CATALOG if r.regime_name == "dot_com")
+    gfc = next(r for r in REGIME_COVERAGE_CATALOG if r.regime_name == "gfc")
+    pre_history_mix_proxy: tuple[PreHistoryMixProxyStressReport, ...] = ()
     if settings is not None:
         pre_history_proxy = audit_pre_history_proxy_stress(
             settings,
@@ -753,6 +972,20 @@ def run_final_historical_campaign(
             contribution_krw=float(spec.contribution_krw),
             fallback_starts=(spec.start,),
         )
+        mix_reports: list[PreHistoryMixProxyStressReport] = []
+        for regime in (dot_com, gfc):
+            mix_reports.append(
+                audit_pre_history_mix_proxy_stress(
+                    settings,
+                    window_start=regime.start,
+                    window_end=regime.end,
+                    contribution_krw=float(spec.contribution_krw),
+                    baseline_series="NDX100",
+                    candidate_weights={"NDX100": 0.9, "SOX": 0.1},
+                    regime_name=regime.regime_name,
+                )
+            )
+        pre_history_mix_proxy = tuple(mix_reports)
     else:
         pre_history_proxy = PreHistoryProxyStressReport(
             status="unavailable",
@@ -770,6 +1003,8 @@ def run_final_historical_campaign(
         lineage_census=lineage_census,
         tax_sensitivity=_TAX_SENSITIVITY_MILESTONE,
         pre_history_proxy=pre_history_proxy,
+        pre_history_mix_proxy=pre_history_mix_proxy,
+        lineage_hash_census=lineage_hash_census,
         operational_unlock=False,
     )
 
@@ -807,12 +1042,22 @@ def write_final_historical_campaign_report(
                 "fx_stress_worst_ratio": float(row.fx_stress_worst_ratio),
                 "cohort_starts": [d.isoformat() for d in row.cohort_starts],
                 "cohort_ends": [d.isoformat() for d in row.cohort_ends],
+                "paired_cost_stress": [
+                    {"scenario_id": p.scenario_id, "candidate_over_baseline_ratio": float(p.candidate_over_baseline_ratio)}
+                    for p in getattr(row, "paired_cost_stress", ())
+                ],
             }
             for row in report.arm_rows
         ],
         "regime_coverage": {
             "rows": [
-                {"regime_name": r.regime_name, "covered": bool(r.covered), "overlap_months": int(r.overlap_months)}
+                {
+                    "regime_name": r.regime_name,
+                    "covered": bool(r.covered),
+                    "overlap_months": int(r.overlap_months),
+                    "coverage_tier": str(r.coverage_tier),
+                    "coverage_fraction": float(r.coverage_fraction),
+                }
                 for r in report.regime_coverage.rows
             ],
             "independent_sample_warning": bool(report.regime_coverage.independent_sample_warning),
@@ -829,6 +1074,28 @@ def write_final_historical_campaign_report(
                 for f in report.lineage_census.families
             ],
         },
+        "lineage_hash_census": (
+            {
+                "unique_config_hashes": int(report.lineage_hash_census.unique_config_hashes),
+                "total_run_records": int(report.lineage_hash_census.total_run_records),
+            }
+            if report.lineage_hash_census is not None
+            else None
+        ),
+        "pre_history_mix_proxy": [
+            {
+                "evidence_tier": row.evidence_tier,
+                "status": row.status,
+                "regime_name": row.regime_name,
+                "baseline_terminal_real_krw": row.baseline_terminal_real_krw,
+                "candidate_terminal_real_krw": row.candidate_terminal_real_krw,
+                "candidate_over_baseline_ratio": row.candidate_over_baseline_ratio,
+                "window_start": row.window_start.isoformat() if row.window_start is not None else None,
+                "window_end": row.window_end.isoformat() if row.window_end is not None else None,
+                "reason": row.reason,
+            }
+            for row in report.pre_history_mix_proxy
+        ],
         "operational_unlock": bool(report.operational_unlock),
         "tax_sensitivity": {
             "status": report.tax_sensitivity.status,
