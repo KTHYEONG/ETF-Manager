@@ -315,8 +315,8 @@ class ExperimentSpec(BaseModel):
         months_set = [name for name in ("train_months", "test_months") if getattr(self, name) is not None]
         if len(months_set) == 1:
             raise ValueError(f"{months_set[0]} alone is invalid; set both train_months and test_months")
-        if len(months_set) == 2 and len(self.candidates) != 1:
-            raise ValueError(f"walk-forward specs require exactly one candidate, got {len(self.candidates)}")
+        if len(months_set) == 2 and len(self.candidates) < 1:
+            raise ValueError(f"walk-forward specs require at least one candidate, got {len(self.candidates)}")
         if self.overlay is not None and any(candidate.modules < 1 for candidate in self.candidates):
             raise ValueError("overlay requires every candidate.modules >= 1")
         if self.reserve is not None:

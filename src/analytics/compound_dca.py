@@ -3,25 +3,31 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Final
 
+from src.analytics.thesis.incremental import INCREMENTAL_SATELLITE_WEIGHTS
 from src.policy.adaptive_contribution import OPERATIONAL_ADAPTIVE_CONTRIBUTION
 from src.policy.mix_risk_budget import OPERATIONAL_MIX_RISK_BUDGET
 from src.policy.targets import PolicyId
 from src.sim.allocation import AllocationConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from src.sim.allocation import AllocationResult
+
+COMPOUND_MDD_SLACK: Final[float] = 0.02
+
+OPERATIONAL_COMPOUND_BASELINE_ARM_ID: Final[str] = "qqq90_soxx10_adaptive_v5"
 
 COMPOUND_DCA_ARM_IDS: Final[tuple[str, ...]] = (
     "qqq_flat",
     "qqq_adaptive_v5",
     "qqq90_soxx10_flat",
     "qqq90_soxx10_adaptive_v5",
+    "qqq95_soxx5_adaptive_v5",
+    "qqq85_soxx15_adaptive_v5",
     "soxx90_qqq10_flat",
     "soxx90_qqq10_adaptive_v5",
     "soxx100_flat",
@@ -37,6 +43,71 @@ COMPOUND_DCA_ROLE_SWAP_TARGETS: Final[dict[str, float]] = {"SOXX": 0.9, "QQQ": 0
 COMPOUND_DCA_SOXX100_TARGETS: Final[dict[str, float]] = {"SOXX": 1.0}
 
 COMPOUND_DCA_WINDOW: Final[tuple[date, date]] = (date(2016, 7, 1), date(2026, 6, 30))
+
+
+def qqq_soxx_intensity_targets(satellite_weight: float) -> dict[str, float]:
+    """Return QQQ/SOXX simplex for preregistered satellite weights.
+
+    Raises:
+        ValueError: When ``satellite_weight`` is not in ``INCREMENTAL_SATELLITE_WEIGHTS``.
+    """
+    w = float(satellite_weight)
+    if w not in INCREMENTAL_SATELLITE_WEIGHTS:
+        raise ValueError(f"satellite_weight {satellite_weight!r} not in INCREMENTAL_SATELLITE_WEIGHTS {INCREMENTAL_SATELLITE_WEIGHTS!r}")
+    qqq = 1.0 - w
+    soxx = w
+    total = qqq + soxx
+    if not math.isfinite(qqq) or not math.isfinite(soxx) or abs(total - 1.0) > 1e-12:
+        raise ValueError(f"weights must sum to 1.0 within 1e-12, got {total!r}")
+    return {"QQQ": qqq, "SOXX": soxx}
+
+
+def select_mdd_feasible_champion(
+    rows: Sequence[CompoundDcaArmRow],
+    *,
+    baseline_arm_id: str = OPERATIONAL_COMPOUND_BASELINE_ARM_ID,
+    mdd_slack: float = COMPOUND_MDD_SLACK,
+) -> str | None:
+    """Select max real_gain arm feasible within MDD slack of baseline.
+
+    An arm is feasible iff ``candidate.max_drawdown >= baseline.max_drawdown - mdd_slack``.
+
+    Raises:
+        ValueError: On non-finite or negative ``mdd_slack``, empty ``rows``, or missing baseline.
+    """
+    if not math.isfinite(float(mdd_slack)) or float(mdd_slack) < 0.0:
+        raise ValueError(f"mdd_slack must be finite and non-negative, got {mdd_slack!r}")
+    if len(rows) == 0:
+        raise ValueError("rows must be non-empty")
+    baseline_row: CompoundDcaArmRow | None = None
+    for r in rows:
+        if r.arm_id == baseline_arm_id:
+            baseline_row = r
+            break
+    if baseline_row is None:
+        raise ValueError(f"baseline_arm_id {baseline_arm_id!r} not found in rows")
+    baseline_mdd = float(baseline_row.max_drawdown)
+    if not math.isfinite(baseline_mdd):
+        raise ValueError(f"baseline max_drawdown must be finite, got {baseline_mdd!r}")
+    feasible: list[CompoundDcaArmRow] = []
+    for r in rows:
+        mdd = float(r.max_drawdown)
+        if not math.isfinite(mdd):
+            raise ValueError(f"max_drawdown must be finite, got {mdd!r} for {r.arm_id!r}")
+        if mdd >= baseline_mdd - float(mdd_slack):
+            feasible.append(r)
+    if not feasible:
+        # Baseline itself is always feasible (mdd >= baseline_mdd - slack), so this branch
+        # is unreachable unless slack is NaN (already rejected) or baseline mdd non-finite.
+        return None
+    best = feasible[0]
+    best_gain = float(best.real_gain)
+    for cand in feasible[1:]:
+        gain = float(cand.real_gain)
+        if gain > best_gain:
+            best = cand
+            best_gain = gain
+    return best.arm_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +128,7 @@ class CompoundDcaArmRow:
 
 @dataclass(frozen=True, slots=True)
 class CompoundDcaReport:
-    """Reporting-only tournament outcome across ten arms."""
+    """Reporting-only tournament outcome across arms."""
 
     rows: tuple[CompoundDcaArmRow, ...]
     champion_arm_id: str
@@ -65,6 +136,9 @@ class CompoundDcaReport:
     start: date
     end: date
     contribution_krw: float
+    mdd_feasible_champion_arm_id: str | None
+    mdd_baseline_arm_id: str
+    mdd_slack: float
 
 
 def compare_compound_dca(
@@ -74,7 +148,7 @@ def compare_compound_dca(
     start: date | None = None,
     end: date | None = None,
 ) -> CompoundDcaReport:
-    """Run ten arms on identical windows with I5 sizing-family checks.
+    """Run arms on identical windows with I5 sizing-family checks.
 
     Raises:
         ValueError: On non-finite or non-positive ``contribution_krw``, diverging
@@ -92,7 +166,11 @@ def compare_compound_dca(
         targets: dict[str, float] | None = None
         mrb = None
         if arm_id.startswith("qqq90_soxx10"):
-            targets = dict(COMPOUND_DCA_MIX_TARGETS)
+            targets = dict(qqq_soxx_intensity_targets(0.10))
+        elif arm_id.startswith("qqq95_soxx5"):
+            targets = dict(qqq_soxx_intensity_targets(0.05))
+        elif arm_id.startswith("qqq85_soxx15"):
+            targets = dict(qqq_soxx_intensity_targets(0.15))
         elif arm_id.startswith("soxx90_qqq10"):
             targets = dict(COMPOUND_DCA_ROLE_SWAP_TARGETS)
         elif arm_id.startswith("soxx100"):
@@ -126,14 +204,15 @@ def compare_compound_dca(
     def credits(arm_id: str) -> tuple[float, ...]:
         return tuple(s.contribution_krw for s in results[arm_id].snapshots)
 
-    # I5 family checks: flat vs adaptive
-    flat_arms = [aid for aid in COMPOUND_DCA_ARM_IDS if not aid.endswith("adaptive_v5")]
-    adaptive_arms = [aid for aid in COMPOUND_DCA_ARM_IDS if aid.endswith("adaptive_v5")]
-    flat_ref = credits(flat_arms[0])
+    # I5 family checks: flat vs adaptive (SOXX100 diagnostic-only excluded from identity check)
+    flat_arms = [aid for aid in COMPOUND_DCA_ARM_IDS if not aid.endswith("adaptive_v5") and not aid.startswith("soxx100")]
+    adaptive_arms = [aid for aid in COMPOUND_DCA_ARM_IDS if aid.endswith("adaptive_v5") and not aid.startswith("soxx100")]
+    # Keep diagnostic arms in counts check but not in credit identity (they share window but SOXX100 is vehicle diagnostic)
+    flat_ref = credits(flat_arms[0]) if flat_arms else ()
     for aid in flat_arms[1:]:
         if credits(aid) != flat_ref:
             raise ValueError(f"I5 flat credits must be identical: {flat_arms[0]!r} vs {aid!r} mismatch {flat_ref!r} vs {credits(aid)!r}")
-    adaptive_ref = credits(adaptive_arms[0])
+    adaptive_ref = credits(adaptive_arms[0]) if adaptive_arms else ()
     for aid in adaptive_arms[1:]:
         if credits(aid) != adaptive_ref:
             raise ValueError(f"I5 adaptive credits must be identical: {adaptive_arms[0]!r} vs {aid!r} mismatch {adaptive_ref!r} vs {credits(aid)!r}")
@@ -165,6 +244,12 @@ def compare_compound_dca(
             best = row.real_gain
             champion = row.arm_id
 
+    mdd_feasible = select_mdd_feasible_champion(
+        rows,
+        baseline_arm_id=OPERATIONAL_COMPOUND_BASELINE_ARM_ID,
+        mdd_slack=COMPOUND_MDD_SLACK,
+    )
+
     return CompoundDcaReport(
         rows=tuple(rows),
         champion_arm_id=champion,
@@ -172,4 +257,7 @@ def compare_compound_dca(
         start=window_start,
         end=window_end,
         contribution_krw=float(contribution_krw),
+        mdd_feasible_champion_arm_id=mdd_feasible,
+        mdd_baseline_arm_id=OPERATIONAL_COMPOUND_BASELINE_ARM_ID,
+        mdd_slack=float(COMPOUND_MDD_SLACK),
     )
