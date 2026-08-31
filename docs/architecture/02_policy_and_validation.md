@@ -17,7 +17,7 @@ are implementation vehicles, not the strategy.
 | --- | --- | --- | --- |
 | `s0_global` | VT 100% | Baseline | Global equity DCA reference |
 | `s1_us` | VTI 100% | CE baseline | US total market; prior operational lock |
-| **`qqq`** | **QQQ 90% / SOXX 10%** | **Operational lock** | Nasdaq-100 + SOXX; adaptive v5 WF adopted 2026-08-30 |
+| **`qqq`** | **QQQ 90% / SOXX 10%** | **Operational lock** | Nasdaq-100 + SOXX; flat (modules=1); adaptive v5 frozen research-only |
 | `s2_regional` | VTI 50 / VEA 30 / VWO 20 | Rejected (M1) | Regional diversification |
 | `s3_global_bond` | VT 70 / BND 30 | Rejected (M1) | Equity + bonds |
 | `s4_defensive` | VT 60 / IEF 20 / TLT 20 | Rejected (M1) | Defensive mix |
@@ -52,14 +52,16 @@ also includes diagnostic-only tickers for operator ingest where not already a po
 | Quality | `PROSPECTIVE_ONLY`→`PARTIAL_HISTORY`→`TARGET_THIN` (`TARGET_ROBUST` only with path bootstrap) |
 | Vehicle | `ACTIVE_PROXY` if median≥1.0; `REJECTED_PROXY` if median<1.0 and (cohort_ce<0.98 or median<0.98) |
 
-Seed theses: `ai_compute` (SOXX proxy), `ai_power_bottleneck` (GRID), `physical_automation`
-(BOTZ). Full v2 evolution roadmap: `docs/plans/v2_thesis_evolution.md`.
+Seed theses: `ai_compute` (SOXX proxy), `ai_power_bottleneck` (PAVE), `physical_automation`
+(ROBO). Full v2 evolution roadmap: `docs/plans/v2_thesis_evolution.md`.
 
 ### Operational incumbent (frozen)
 
-`PolicyId.QQQ` remains operational until a candidate passes the **36M CE** adoption gate
-(`CE_ratio > 1 + 0.02 × modules` at every γ). Post-hoc hurdle lowering is prohibited.
-120M cohort median ratios are **reporting only** and do not override the CE gate.
+`PolicyId.QQQ` (QQQ90/SOXX10 flat, `modules=1`) remains operational until a candidate passes the **36M CE** adoption gate
+(`CE_ratio > 1 + 0.02 × modules` at every γ). QQQ100 is the immutable benchmark (`StrategyRole.IMMUTABLE_BENCHMARK`);
+adaptive v5 (`FROZEN_ADAPTIVE_V5`) is frozen research-only (`FROZEN_RESEARCH`), not attached by `apply_operational_contribution_lock`.
+Post-hoc hurdle lowering is prohibited. 120M cohort median ratios are **reporting only** and do not override the CE gate.
+AI power and physical automation theses are `DORMANT` `WATCH` with `operational_weight=0` (veto/watch, not alpha generators); `reopen.min_additional_oos_years=3`.
 
 ### Satellite research discipline
 

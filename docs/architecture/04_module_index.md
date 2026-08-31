@@ -29,6 +29,7 @@ Task-oriented file lists for bounded AI context. See also `docs/code_map.json`.
 - `src/cli_commands/campaign.py`
 - `src/validation/experiment.py`
 - `src/validation/walk_forward.py`
+- `src/validation/research_posture.py`
 - `src/validation/strategy_selection.py`
 - `src/validation/cost_grid.py`
 - `src/validation/cadence_robustness.py`
