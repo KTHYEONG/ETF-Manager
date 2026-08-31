@@ -1,0 +1,7 @@
+{
+  "current_bundle_id": "PROSPECTIVE_2026_V1",
+  "bundle_path": "configs/prospective/prospective_2026_v1.json",
+  "prospective_start": "2026-09-01",
+  "seen_history_cutoff": "2026-08-28",
+  "CURRENT_OPERATIONAL_BUNDLE_PATH": "configs/prospective/CURRENT_OPERATIONAL_BUNDLE.json"
+}
