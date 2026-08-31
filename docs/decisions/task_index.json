@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_RESEARCH_CONVERGENCE",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_RESEARCH_CONVERGENCE",
+      "domain": "validation",
+      "title": "Research convergence Phase A: posture kernel + economic hurdle + flat operational lock",
+      "why": "Walk-forward rejected arms reconstructed a flattened 5th chosen config; historically_promising used median≥1+bootstrap only (PAVE 1.00074 passed); operational lock attached adaptive v5; ai_power/physical automation lacked watch/dormant posture.",
+      "resolution": "Added research_posture.py (select_chosen_test_arm, economic_effect_passes, SEEN_HISTORY_CUTOFF, StrategyRole/ObjectiveFamily); WF 4-runner reuse (I14); apply_operational_contribution_lock flat QQQ90/SOXX10 only; FROZEN_ADAPTIVE_V5 alias; classify_portfolio_status economic hurdle (median≥1.01, ce_gamma_10≥1.0, bootstrap_ok); ThesisResearchRole/ReopenCondition/TrialLineageSpec; ai_power+physical_automation DORMANT WATCH; architecture I14–I18.",
+      "impact": "PAVE incremental reclassifies historically_weak under I16; QQQ90/SOXX10 flat operational (no adaptive); WF fold runner 5→4; ai_compute challenger only RESEARCH thesis; lean_check PASS; specs/scratch purged on sync."
+    },
+    {
       "task_id": "TASK_STRATEGY_SELECTION_VALIDATION",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_STRATEGY_SELECTION_VALIDATION",
