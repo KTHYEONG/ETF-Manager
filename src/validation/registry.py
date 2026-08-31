@@ -23,9 +23,11 @@ __all__ = [
     "ExperimentRecord",
     "ExperimentRunRecord",
     "ProspectiveFreezeRecord",
+    "TrialLineageHashCensus",
     "build_ablation_arm_outcomes",
     "freeze_baseline_config_hash",
     "make_experiment",
+    "scan_executed_strategy_hash_census",
     "write_ablation_run_record",
     "write_prospective_freeze_record",
 ]
@@ -41,6 +43,15 @@ class ExperimentRecord:
     git_commit: str
     seed: int | None
     metrics: Mapping[str, float]
+    research_family_id: str | None = None
+    parent_experiment_id: str | None = None
+    seen_history_cutoff: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TrialLineageHashCensus:
+    unique_config_hashes: int
+    total_run_records: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,3 +264,27 @@ def write_prospective_freeze_record(
     out_path = out_dir / f"{spec.name}_prospective_{safe_ts}.json"
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return out_path
+
+
+def scan_executed_strategy_hash_census(experiments_dir: Path) -> TrialLineageHashCensus:
+    hashes: list[str] = []
+    total = 0
+    if experiments_dir.exists():
+        for p in experiments_dir.iterdir():
+            if not p.is_file() or p.suffix.lower() != ".json":
+                continue
+            try:
+                payload = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:  # noqa: S112
+                continue
+            if not isinstance(payload, dict) or "config_hash" not in payload:
+                continue
+            ch = payload.get("config_hash")
+            if isinstance(ch, str) and ch:
+                hashes.append(ch)
+                total += 1
+            elif ch is not None:
+                hashes.append(str(ch))
+                total += 1
+    unique = len(set(hashes))
+    return TrialLineageHashCensus(unique_config_hashes=unique, total_run_records=total)

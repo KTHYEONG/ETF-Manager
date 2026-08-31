@@ -227,3 +227,38 @@ def test_objective_family_capital_allocation_forbids_adaptive() -> None:
     )
 
 
+
+
+def test_assert_objective_family_capital_allocation_forbids_timing_modules() -> None:
+    import pytest
+
+    from src.validation.research_posture import ObjectiveFamily, assert_objective_family_invariants
+
+    with pytest.raises(ValueError, match="capital_allocation"):
+        assert_objective_family_invariants(
+            family=ObjectiveFamily.CAPITAL_ALLOCATION,
+            adaptive_contribution_set=False,
+            baseline_adaptive_set=False,
+            kafi_deployment_set=True,
+            reserve_set=False,
+            contribution_shape_set=False,
+        )
+    with pytest.raises(ValueError, match="capital_allocation"):
+        assert_objective_family_invariants(
+            family=ObjectiveFamily.CAPITAL_ALLOCATION,
+            adaptive_contribution_set=False,
+            baseline_adaptive_set=False,
+            kafi_deployment_set=False,
+            reserve_set=True,
+            contribution_shape_set=False,
+        )
+    with pytest.raises(ValueError, match="capital_allocation"):
+        assert_objective_family_invariants(
+            family=ObjectiveFamily.CAPITAL_ALLOCATION,
+            adaptive_contribution_set=False,
+            baseline_adaptive_set=False,
+            kafi_deployment_set=False,
+            reserve_set=False,
+            contribution_shape_set=True,
+        )
+

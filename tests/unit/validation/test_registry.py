@@ -162,3 +162,19 @@ def test_reg_arm_baseline_frozen(scenario_id: str) -> None:
     changed_hash = freeze_baseline_config_hash(changed_spec)
     assert len(base_hash) == 64
     assert base_hash != changed_hash
+
+
+def test_scan_executed_strategy_hash_census_unique(tmp_path) -> None:
+    import json
+
+    from src.validation.registry import scan_executed_strategy_hash_census
+
+    exp_dir = tmp_path / "experiments"
+    exp_dir.mkdir()
+    (exp_dir / "a.json").write_text(json.dumps({"config_hash": "aaa", "experiment_id": "1"}), encoding="utf-8")
+    (exp_dir / "b.json").write_text(json.dumps({"config_hash": "bbb", "experiment_id": "2"}), encoding="utf-8")
+    (exp_dir / "c.json").write_text(json.dumps({"config_hash": "aaa", "experiment_id": "3"}), encoding="utf-8")
+    census = scan_executed_strategy_hash_census(exp_dir)
+    assert census.total_run_records == 3
+    assert census.unique_config_hashes == 2
+
