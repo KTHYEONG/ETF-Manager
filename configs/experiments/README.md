@@ -1,6 +1,6 @@
 # Experiment Config Taxonomy — Index
 
-`configs/experiments/` holds 42 JSON configs. `INDEX.json` is the machine-readable source of truth; this file is the human-readable mirror. Statuses match `INDEX.json` exactly.
+`configs/experiments/` holds 48 JSON configs. `INDEX.json` is the machine-readable source of truth; this file is the human-readable mirror. Statuses match `INDEX.json` exactly.
 
 | File | Status | Kind | Notes | Location |
 |------|--------|------|-------|----------|
@@ -46,6 +46,12 @@
 | wf_vti_overlay.json | active | wf | active vti overlay | configs/experiments/wf_vti_overlay.json |
 | wf_vti_qqq.json | active | wf | active vti qqq | configs/experiments/wf_vti_qqq.json |
 | wf_vti_reserve.json | active | wf | active vti reserve | configs/experiments/wf_vti_reserve.json |
+| final_historical_campaign_v1.json | active | final_historical | final historical campaign 2016-07-01..2026-06-30 QQQ/SOXX 5/10/15 | configs/experiments/final_historical_campaign_v1.json |
+| wf_compound_dca_tournament.json | active | wf | compound DCA tournament multi-arm walk-forward screen | configs/experiments/wf_compound_dca_tournament.json |
+| wf_qqq85_soxx15_adaptive_v5.json | active | wf | QQQ 85 / SOXX 15 adaptive v5 walk-forward | configs/experiments/wf_qqq85_soxx15_adaptive_v5.json |
+| wf_qqq95_soxx5_adaptive_v5.json | active | wf | QQQ 95 / SOXX 5 adaptive v5 walk-forward | configs/experiments/wf_qqq95_soxx5_adaptive_v5.json |
+| wf_qqq_soxx_intensity_mdd.json | active | wf | QQQ SOXX intensity screen with MDD slack | configs/experiments/wf_qqq_soxx_intensity_mdd.json |
+| wf_soxx100_compound_growth.json | active | wf | SOXX 100 compound growth walk-forward screen | configs/experiments/wf_soxx100_compound_growth.json |
 
 ## Conventions
 
