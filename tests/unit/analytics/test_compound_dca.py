@@ -327,3 +327,34 @@ def test_wf_soxx_intensity_mdd_spec_loads() -> None:
     folds = walk_forward_windows(spec.start, spec.end, train_months=int(spec.train_months), test_months=int(spec.test_months))
     assert len(folds) >= 2
     assert spec.start == date(2016, 7, 1)
+
+
+def test_compound_dca_recommended_arm_is_growth_champion() -> None:
+    from datetime import date
+
+    from src.analytics.compound_dca import compare_compound_dca
+    from src.sim.allocation import AllocationConfig, AllocationResult, Snapshot
+
+    def _runner(config: AllocationConfig) -> AllocationResult:
+        snap = Snapshot(session=date(2020, 1, 31), contribution_krw=1.0, nav_krw=1.0)
+        arm = config.targets_override
+        if arm and arm.get("SOXX") == 1.0:
+            tw, contrib, mdd = 598.0, 129.0, -0.294
+        else:
+            tw, contrib, mdd = 485.0, 129.0, -0.207
+        return AllocationResult(
+            config=config,
+            snapshots=(snap,),
+            terminal_wealth_krw=tw,
+            xirr=0.0,
+            max_drawdown=mdd,
+            terminal_wealth_real_krw=tw,
+            xirr_real=0.0,
+            total_contribution_real_krw=contrib,
+        )
+
+    report = compare_compound_dca(runner=_runner, contribution_krw=1000000.0)
+    assert report.growth_champion_arm_id == "soxx100_adaptive_v5"
+    assert report.recommended_arm_id == "soxx100_adaptive_v5"
+    assert report.champion_arm_id == "soxx100_adaptive_v5"
+    assert report.operational_unlock is False

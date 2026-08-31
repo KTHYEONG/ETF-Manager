@@ -270,7 +270,7 @@ class ExperimentSpec(BaseModel):
     end: date
     contribution_krw: float = Field(gt=0)
     hurdle: float = Field(ge=0)
-    objective: Literal["ce", "growth_first", "adaptive_growth", "long_horizon"] = "ce"
+    objective: Literal["ce", "growth_first", "adaptive_growth", "compound_growth", "long_horizon"] = "ce"
     horizon_months: int = Field(ge=0)
     commission_bps: float = Field(default=0.0, ge=0)
     fx_spread_bps: float = Field(default=0.0, ge=0)
@@ -439,11 +439,11 @@ class ExperimentSpec(BaseModel):
                 "objective 'growth_first' requires exactly one of a cadence, reserve, "
                 "contribution_shape, or kafi_deployment module"
             )
-        if self.objective == "adaptive_growth" and self.adaptive_contribution is None:
-            raise ValueError("objective 'adaptive_growth' requires exactly one adaptive_contribution module")
-        if self.baseline_adaptive_contribution is not None and self.objective != "adaptive_growth":
+        if self.objective in ("adaptive_growth", "compound_growth") and self.adaptive_contribution is None:
+            raise ValueError(f"objective {self.objective!r} requires exactly one adaptive_contribution module")
+        if self.baseline_adaptive_contribution is not None and self.objective not in ("adaptive_growth", "compound_growth"):
             raise ValueError(
-                f"baseline_adaptive_contribution requires objective 'adaptive_growth', got {self.objective!r}"
+                f"baseline_adaptive_contribution requires objective 'adaptive_growth' or 'compound_growth', got {self.objective!r}"
             )
         seen: set[str] = set()
         for candidate in self.candidates:

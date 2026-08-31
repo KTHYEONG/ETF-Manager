@@ -446,7 +446,8 @@
   },
   "src/validation/gate.py": {
     "testing": "tests/unit/validation/test_gate.py",
-    "family": "validation"
+    "family": "validation",
+    "architecture": "docs/architecture/02_policy_and_validation.md"
   },
   "src/validation/prospective.py": {
     "testing": "tests/unit/validation/test_prospective.py",
