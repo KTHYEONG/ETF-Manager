@@ -218,6 +218,8 @@ def run_walk_forward_command(*, config_path: str, settings: DataSettings) -> int
         if spec.train_months is None or spec.test_months is None:
             raise ValueError("experiment JSON lacks train_months and test_months")
         assert_experiment_feasible(spec, settings)
+        if len(spec.candidates) > 1:
+            raise ValueError("walk-forward with multiple candidates requires strategy-select; run strategy-select --config PATH instead")
         report = run_walk_forward_adoption(spec, lambda config: run_allocation_from_store(config, settings))
         record = make_experiment(
             config=AllocationConfig(
@@ -247,6 +249,62 @@ def run_walk_forward_command(*, config_path: str, settings: DataSettings) -> int
         record.experiment_id,
         len(report.folds),
         report.process_adopted_vs_baseline,
+        report_path,
+    )
+    return 0
+
+
+
+def run_strategy_selection_command(*, config_path: str, settings: DataSettings) -> int:
+    """Run walk-forward tournament strategy selection and persist report."""
+    try:
+        from pathlib import Path as _Path
+
+        from src.policy.thesis import load_thesis_registry
+
+        from src.validation.strategy_selection import make_selection_runner, run_strategy_selection, write_strategy_selection_report
+
+        # wiring: run_strategy_selection invocation
+        _ = run_strategy_selection
+
+        spec = load_experiment_config(config_path)
+        if spec.train_months is None or spec.test_months is None:
+            raise ValueError("experiment JSON lacks train_months and test_months")
+        assert_experiment_feasible(spec, settings)
+        if spec.thesis_id is not None:
+            registry = load_thesis_registry(_Path("configs/theses"))
+            assert_experiment_preregistration(spec, registry)
+        wf_runner = make_selection_runner(settings, spec)
+        report = run_strategy_selection(spec, wf_runner)
+        record = make_experiment(
+            config=AllocationConfig(
+                policy=spec.candidates[0].policy,
+                start=spec.start,
+                end=spec.end,
+                monthly_contribution_krw=spec.contribution_krw,
+                fill_delay_sessions=1,
+                commission_bps=0.0,
+                targets_override=resolve_arm_targets(spec.candidates[0]),
+            ),
+            manifest_hash=latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
+            git_commit=_resolve_git_commit(),
+            seed=None,
+            metrics={
+                "candidates": float(len(report.rows)),
+                "oos_eligible": float(len(report.oos_eligible_arm_ids)),
+                "recommended": 1.0,
+            },
+        )
+        report_path = write_strategy_selection_report(report, settings, record.experiment_id)
+    except (AllocationDataError, PolicyError, UntrustedDatasetError, XirrError, ValueError, OSError) as exc:
+        logger.error("[DATA] event=strategy_selection_cli_failed reason=%s", exc)
+        return 1
+    logger.info(
+        "[DATA] event=strategy_selection_cli_done experiment=%s experiment_id=%s recommended=%s oos_eligible=%s report=%s",
+        spec.name,
+        record.experiment_id,
+        report.recommended_arm_id,
+        report.oos_eligible_arm_ids,
         report_path,
     )
     return 0

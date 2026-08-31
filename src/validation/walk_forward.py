@@ -67,6 +67,7 @@ __all__ = [
     "FoldOutcome",
     "run_walk_forward_adoption",
     "run_walk_forward_proxy_adoption",
+    "run_walk_forward_tournament",
     "warm_baseline_arm_cache",
     "write_campaign_report",
 ]
@@ -403,6 +404,25 @@ def run_walk_forward_proxy_adoption(
         return runner(config)
 
     return run_walk_forward_adoption(spec, _dispatching_runner)
+
+
+def run_walk_forward_tournament(
+    spec: ExperimentSpec,
+    runner: Callable[[AllocationConfig], AllocationResult],
+    *,
+    baseline_arm_cache: Mapping[tuple[date, date], AllocationResult] | None = None,
+) -> dict[str, CampaignReport]:
+    if len(spec.candidates) < 1:
+        raise ValueError(f"expected at least one candidate, got {len(spec.candidates)}")
+    # shared cache ensures N candidates do not duplicate baseline runs
+    cache = baseline_arm_cache
+    if cache is None:
+        cache = warm_baseline_arm_cache(spec, runner)
+    reports: dict[str, CampaignReport] = {}
+    for candidate in spec.candidates:
+        clone = spec.model_copy(update={"candidates": [candidate]})
+        reports[candidate.id] = run_walk_forward_adoption(clone, runner, baseline_arm_cache=cache)
+    return reports
 
 
 def _fold_records(folds: tuple[FoldOutcome, ...]) -> list[dict[str, object]]:

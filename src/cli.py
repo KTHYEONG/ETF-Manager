@@ -9,6 +9,7 @@ from datetime import UTC, date
 
 from src.cli_commands.campaign import (
     run_ablation_command,
+    run_strategy_selection_command,
     run_accumulation_cohort_command,
     run_audit_feasibility_command,
     run_cadence_robustness_command,
@@ -318,6 +319,8 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         return run_ablation_command(config_path=str(args.config), settings=DataSettings())
     if args.target == "walk-forward":
         return run_walk_forward_command(config_path=str(args.config), settings=DataSettings())
+    if args.target == "strategy-select":
+        return run_strategy_selection_command(config_path=str(args.config), settings=DataSettings())
     if args.target == "walk-forward-costs":
         return run_walk_forward_costs_command(config_path=str(args.config), settings=DataSettings())
     if args.target == "walk-forward-proxy":
