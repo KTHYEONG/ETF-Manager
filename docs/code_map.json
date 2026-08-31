@@ -522,5 +522,9 @@
     "architecture": "docs/architecture/02_policy_and_validation.md",
     "family": "validation",
     "testing": "tests/unit/validation/test_strategy_selection.py"
+  },
+  "src/validation/research_posture.py": {
+    "architecture": "docs/architecture/00_system_overview.md",
+    "testing": "tests/unit/validation/test_research_posture.py"
   }
 }
