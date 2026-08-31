@@ -303,7 +303,7 @@ class ExperimentSpec(BaseModel):
     adaptive_contribution: AdaptiveContributionSpec | None = None
     baseline_adaptive_contribution: AdaptiveContributionSpec | None = None
     baseline: CandidateSpec
-    candidates: list[CandidateSpec] = Field(default_factory=list)
+    candidates: list[CandidateSpec] = Field(min_length=1)
     thesis_id: ThesisId | None = None
     preregistration: PreregistrationSpec | None = None
     objective_family: ObjectiveFamily | None = None
