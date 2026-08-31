@@ -24,9 +24,9 @@ variable external cashflow without an explicit reserve ledger.
 | --- | --- |
 | Policy | `QQQ` — Nasdaq-100 + SOXX satellite |
 | Targets | QQQ 90% / SOXX 10% (`OPERATIONAL_TARGETS_OVERRIDE`) |
-| Contribution | KAFI adaptive v5 (`OPERATIONAL_ADAPTIVE_CONTRIBUTION`) |
+| Contribution | flat (no adaptive) |
 | Rebalancing | Buy-only via `allocate_contribution` |
-| Active modules | Strategic targets + adaptive sizing (`modules = 2`) |
+| Active modules | strategic targets only (`modules = 1`) |
 
 `S1_US` (VTI) remains the CE baseline in walk-forward and ablation configs. All other
 `PolicyId` values and optional layers (tilt, overlay, currency, mapping) remain **research
@@ -146,6 +146,11 @@ they must not call `adoption_passes` or change `OPERATIONAL_POLICY_ID`.
 | I10 | No current metadata applied to past dates | PIT metadata |
 | I11 | Tax basis stamped at trade FX | `sim.tax` (full mode) |
 | I12 | `experiment_id`, manifest hash, git commit on results | `validation.registry` |
+| I14 | `train_adopted is False` => `select_chosen_test_arm` returns `baseline_test_arm` by identity | `validation/research_posture.py` |
+| I15 | `apply_operational_contribution_lock` on bare monthly QQQ attaches `OPERATIONAL_TARGETS_OVERRIDE` only | `sim/allocation.py` |
+| I16 | `historically_promising` requires `economic_effect_passes` (median>=1.01 & ce_gamma_10>=1.0 & bootstrap_ok) | `analytics/thesis/incremental.py` |
+| I17 | `as_of <= 2026-08-28` is `seen_history` and cannot be claimed as `prospective_oos` | `validation/research_posture.py` |
+| I18 | `classify_strategy_role` fails closed on unregistered mixes | `validation/research_posture.py` |
 
 ## 6. Module Map
 
@@ -172,6 +177,7 @@ they must not call `adoption_passes` or change `OPERATIONAL_POLICY_ID`.
 | `validation/feasibility_audit.py` | Static DCA feasibility & window audit |
 | `validation/gate.py` | CE adoption gate & compound/contribution growth gates |
 | `validation/experiment.py` | `ExperimentSpec` JSON, preregistration |
+| `validation/research_posture.py` | Research-convergence kernel (I14-I18, economic hurdle, observed history) |
 | `analytics/us_vehicles.py` | VTI/IVV/QQQ diagnostics (no adoption) |
 | `analytics/compound_dca.py` | Compound DCA tournament |
 | `analytics/thesis/*` | Modular thesis evidence (structural, valuation, crowding, purity, meaning, wave, incremental, report, wave_d_exit) |
