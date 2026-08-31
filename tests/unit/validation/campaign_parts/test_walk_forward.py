@@ -296,3 +296,84 @@ def test_walk_forward_adoption_still_single_candidate_only() -> None:
     with pytest.raises(ValueError, match='exactly one candidate'):
         run_walk_forward_adoption(multi_candidate, _RecordingRunner(dict.fromkeys(PolicyId, 100.0)))
 
+
+def test_wf_reject_preserves_adaptive_baseline_arm_identity() -> None:
+  """I14: train_adopted=False => chosen fold metrics match baseline test arm."""
+  from src.policy.adaptive_contribution import FROZEN_ADAPTIVE_V5
+  from src.policy.targets import PolicyId
+  from src.sim.allocation import AllocationConfig, AllocationResult, AllocationSnapshot
+  from src.validation.experiment import AdaptiveContributionSpec, CandidateSpec, ExperimentSpec
+  from src.validation.walk_forward import run_walk_forward_adoption
+
+  frozen = AdaptiveContributionSpec(
+      rank_window=126,
+      downside_power=4.0,
+      upside_power=0.25,
+      min_multiplier=0.0,
+      max_multiplier=2.0,
+      include_vol_dampener=False,
+      dispersion=1.35,
+      neutral_deadband=5.0,
+  )
+  spec = ExperimentSpec(
+      name="wf_adaptive_baseline_reject",
+      start=date(2016, 7, 1),
+      end=date(2022, 6, 30),
+      contribution_krw=1_000_000.0,
+      delta0=0.02,
+      horizon_months=0,
+      train_months=24,
+      test_months=12,
+      objective="compound_growth",
+      baseline=CandidateSpec(
+          id="qqq90_soxx10_adaptive_v5",
+          policy="qqq",
+          modules=1,
+          targets={"QQQ": 0.9, "SOXX": 0.1},
+      ),
+      candidates=[
+          CandidateSpec(
+              id="qqq95_soxx5_adaptive_v5",
+              policy="qqq",
+              modules=2,
+              targets={"QQQ": 0.95, "SOXX": 0.05},
+          )
+      ],
+      adaptive_contribution=frozen,
+      baseline_adaptive_contribution=frozen,
+  )
+
+  class _AdaptiveAwareRunner:
+      def __call__(self, config: AllocationConfig) -> AllocationResult:
+          adaptive = config.adaptive_contribution is FROZEN_ADAPTIVE_V5
+          tw = 120.0 if adaptive else 100.0
+          contrib = 95.0 if adaptive else 90.0
+          snap = AllocationSnapshot(
+              session=config.start,
+              cash_krw=0.0,
+              cash_usd=0.0,
+              shares={},
+              mark_krw=tw,
+              contribution_krw=1_000_000.0,
+              fees_krw=0.0,
+          )
+          return AllocationResult(
+              config=config,
+              snapshots=(snap,),
+              terminal_wealth_krw=tw,
+              xirr=0.0,
+              max_drawdown=-0.1,
+              terminal_wealth_real_krw=tw,
+              xirr_real=0.10 if adaptive else 0.05,
+              total_contribution_real_krw=contrib,
+          )
+
+  report = run_walk_forward_adoption(spec, _AdaptiveAwareRunner())
+  assert len(report.folds) > 0
+  for fold in report.folds:
+      if not fold.train_adopted:
+          assert fold.chosen_test_wealth == pytest.approx(fold.baseline_test_wealth)
+          assert fold.chosen_total_contribution_real_krw == pytest.approx(fold.baseline_total_contribution_real_krw)
+          assert fold.chosen_xirr_real == pytest.approx(fold.baseline_xirr_real)
+          assert fold.chosen_real_gain == pytest.approx(fold.baseline_real_gain)
+
