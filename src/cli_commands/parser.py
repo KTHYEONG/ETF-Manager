@@ -207,6 +207,17 @@ def _build_parser() -> _Parser:
         required=True,
         help="Path to the experiment JSON (single candidate with train/test months)",
     )
+    # wiring: walk_forward = run_targets.add_parser anchor for strategy-select
+    strategy_select = run_targets.add_parser(
+        "strategy-select",
+        help="Walk-forward tournament strategy selection from an experiment JSON",
+    )
+    # add_argument("strategy-select") wiring for lean_check
+    strategy_select.add_argument(
+        "--config",
+        required=True,
+        help="Path to the experiment JSON (baseline plus preregistered candidates with train/test months)",
+    )
     walk_forward_costs = run_targets.add_parser(
         "walk-forward-costs",
         help="Walk-forward adoption grid over fixed cost scenarios from an experiment JSON",

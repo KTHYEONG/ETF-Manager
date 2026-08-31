@@ -439,7 +439,7 @@ class ExperimentSpec(BaseModel):
                 "objective 'growth_first' requires exactly one of a cadence, reserve, "
                 "contribution_shape, or kafi_deployment module"
             )
-        if self.objective in ("adaptive_growth", "compound_growth") and self.adaptive_contribution is None:
+        if self.objective == "adaptive_growth" and self.adaptive_contribution is None:
             raise ValueError(f"objective {self.objective!r} requires exactly one adaptive_contribution module")
         if self.baseline_adaptive_contribution is not None and self.objective not in ("adaptive_growth", "compound_growth"):
             raise ValueError(
