@@ -209,6 +209,11 @@
       "status": "active",
       "kind": "wf",
       "notes": "active vti reserve"
+    },
+    "final_historical_campaign_v1.json": {
+      "status": "active",
+      "kind": "final_historical",
+      "notes": "final historical campaign 2016-07-01..2026-06-30 QQQ/SOXX 5/10/15"
     }
   }
 }

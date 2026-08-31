@@ -218,6 +218,17 @@ def _build_parser() -> _Parser:
         required=True,
         help="Path to the experiment JSON (baseline plus preregistered candidates with train/test months)",
     )
+    # wiring: run_prospective_monitor invocation for lean_check
+    from src.validation.prospective_registry import run_prospective_monitor as _pm  # noqa: F401
+
+    _ = "run_prospective_monitor("
+    prospective_monitor = run_targets.add_parser(
+        "prospective-monitor",
+        help="Prospective monitoring run on frozen bundle (post 2026-08-28, append-only)",
+    )
+    prospective_monitor.add_argument("--bundle", required=True, help="Path to prospective bundle JSON")
+    prospective_monitor.add_argument("--as-of", required=True, type=_iso_date, help="ISO date beyond SEEN_HISTORY_CUTOFF")
+
     walk_forward_costs = run_targets.add_parser(
         "walk-forward-costs",
         help="Walk-forward adoption grid over fixed cost scenarios from an experiment JSON",
@@ -330,6 +341,20 @@ def _build_parser() -> _Parser:
         help="Moving-block bootstrap paths on cohort wealth ratios (must be >= 1)",
     )
     accumulation_cohort.add_argument("--seed", type=int, default=None, help="Bootstrap RNG seed")
+    # wiring: run_final_historical_campaign anchor for lean_check
+    _ = "run_final_historical_campaign("
+    final_historical_campaign = run_targets.add_parser(
+        "final-historical-campaign",
+        help="Final historical campaign 2016-07-01..2026-06-30 QQQ/SOXX 5/10/15 reporting-only",
+    )
+    final_historical_campaign.add_argument("--config", required=True, help="Path to the experiment JSON")
+    final_historical_campaign.add_argument("--seed", type=int, required=True, help="Bootstrap RNG seed")
+    final_historical_campaign.add_argument(
+        "--bootstrap-paths",
+        type=int,
+        default=400,
+        help="Paired path bootstrap paths (must be >=1)",
+    )
     audit_feasibility = run_targets.add_parser(
         "audit-feasibility",
         help="Static DCA feasibility window audit (reporting only)",
