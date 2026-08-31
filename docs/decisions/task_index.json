@@ -1,6 +1,26 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_PROSPECTIVE_MONITORING",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_PROSPECTIVE_MONITORING",
+      "domain": "validation",
+      "title": "Prospective monitoring registry (Phase E)",
+      "why": "After historical freeze, operator needed append-only post-2026-08-28 monitoring with frozen QQQ100 benchmark, QQQ90/SOXX10 incumbent, and kafi deployment-timing arm without operational_unlock or param retuning.",
+      "resolution": "Added validation/prospective_registry.py (PROSPECTIVE_2026_V1 bundle load/freeze/identity/monitor with _allocation_end_within_as_of catalog cap), configs/prospective/prospective_2026_v1.json + frozen registry JSON, CLI run prospective-monitor; operator first observation as_of 2026-08-30 appended to data/prospective_registry/prospective_observations.jsonl.",
+      "impact": "Post-cutoff monitor-only loop live; frozen bundle params immutable (I26); QQQ operational lock unchanged; monthly --as-of append is ongoing ops; specs purged on sync."
+    },
+    {
+      "task_id": "TASK_HISTORICAL_VALIDATION_CLOSURE",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_HISTORICAL_VALIDATION_CLOSURE",
+      "domain": "validation",
+      "title": "Final historical campaign closure (B–D)",
+      "why": "Roadmap Phases B–D required one preregistered falsification snapshot over COMPOUND_DCA_WINDOW with flat SOXX mixes, lineage/regime census, and operational_unlock=false before prospective monitoring.",
+      "resolution": "Added validation/historical_campaign.py (FINAL_HISTORICAL_CAMPAIGN_V1, assert_final_campaign_spec, run/write report), configs/experiments/final_historical_campaign_v1.json + INDEX kind final_historical, CLI run final-historical-campaign; operator freeze artifact FINAL_HISTORICAL_CAMPAIGN_V1 at data/results/experiments/ (120M cohort n=1 on exact 10y window, c2 median 1.076 bootstrap 94.3%).",
+      "impact": "Historical research freeze closed with operational_unlock=false; QQQ90/SOXX10 flat incumbent unchanged; enables PROSPECTIVE_2026_V1 monitor-only path; specs purged on sync."
+    },
+    {
       "task_id": "TASK_RESEARCH_CONVERGENCE",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_RESEARCH_CONVERGENCE",
