@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 """Walk-forward adoption campaign over an injected allocation runner."""
 
 from __future__ import annotations
@@ -11,28 +12,14 @@ from typing import TYPE_CHECKING, Final, Literal
 from src.policy.targets import PolicyId
 from src.sim.allocation import AllocationConfig
 from src.validation.experiment import (
-    ExperimentSpec,
-    resolve_adaptive_contribution,
-    resolve_arm_targets,
-    resolve_baseline_adaptive_contribution,
-    resolve_cadence,
-    resolve_contribution_shape,
-    resolve_currency,
-    resolve_kafi_deployment,
-    resolve_mapping,
-    resolve_overlay,
-    resolve_reserve,
+    ExperimentSpec, resolve_adaptive_contribution, resolve_arm_targets,
+    resolve_baseline_adaptive_contribution, resolve_cadence, resolve_contribution_shape,
+    resolve_currency, resolve_kafi_deployment, resolve_mapping, resolve_overlay, resolve_reserve,
 )
 from src.validation.gate import (
-    adoption_passes,
-    certainty_equivalent,
-    compound_growth_process_passes,
-    compound_growth_train_passes,
-    contribution_growth_train_passes,
-    growth_first_process_passes,
-    growth_first_train_passes,
-)
-from src.validation.gate import (
+    adoption_passes, certainty_equivalent, compound_growth_process_passes,
+    compound_growth_train_passes, contribution_growth_train_passes,
+    growth_first_process_passes, growth_first_train_passes,
     contribution_growth_process_passes as _orig_contribution_growth_process_passes,
 )
 from src.validation.research_posture import select_chosen_test_arm
@@ -52,7 +39,6 @@ def contribution_growth_process_passes(*args, **kwargs):  # type: ignore[no-unty
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from pathlib import Path
-
     from src.data.settings import DataSettings
     from src.etf.mapping import MappingConfig
     from src.policy.adaptive_contribution import AdaptiveContributionConfig

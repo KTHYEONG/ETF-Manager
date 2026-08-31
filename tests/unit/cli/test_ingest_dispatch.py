@@ -132,6 +132,7 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
         "ITOT",
         "IWF",
         "PAVE",
+        "ROBO",
         "SCHF",
         "SOXX",
         "XLI",
