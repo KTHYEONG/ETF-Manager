@@ -23,17 +23,14 @@ Produce an unambiguous implementation plan and precision contract (`contract.jso
 3. **Selective Empirical Proof**:
    - If algorithm correctness, numeric edge cases, or vectorization is uncertain, verify via a minimal script in `scratch/test_<topic>.py` using `uv run`.
 
-4. **Deliverables**:
-   - **Lean Blueprint (`docs/specs/<feature>.md`)**:
-     - Keep concise (< 50 lines). Focus ONLY on: **Core Invariant & Formulas**, **Layer Boundaries**, and **Reproduction Command**.
-     - Omit verbose background stories, historical prose, or duplicated contract data.
-   
-   - **Precision Contract (`docs/specs/<feature>_contract.json`)**:
+4. **Deliverables (Single Source of Truth)**:
+   - **Precision Contract (`docs/specs/<feature>_contract.json`) ONLY**:
+     - *No separate `.md` file*: All implementation specifications, boundary requirements, and tests live directly in `contract.json`.
      - `target_file`: Relative path to modify or create.
-     - `context_files`: Minimal prerequisite paths for zero-search context loading (exclude verbose specs).
+     - `context_files`: Minimal prerequisite paths for zero-search context loading.
      - `changes` (or `symbols`): Array of `{ name, signature, kind, target_file }`.
      - `wiring`: Array of `{ caller_file, anchor, import_symbol, invocation_expression }` ensuring entry-point hookup.
-     - `requirements`: Explicit fail-closed boundary rules and invariant constraints.
+     - `requirements`: Explicit fail-closed boundary rules, invariant constraints, and complexity requirements.
      - `scenarios`: Array of `{ scenario_id, target_test_file, execution_command, expected_behavior, test_skeleton }`.
        - `scenario_id`: Valid pytest function name (e.g. `test_<func>_<condition>`).
        - `test_skeleton`: **Mandatory 100% executable Python test function** (Given/When/Then, imports, actual call, concrete assertions). NEVER leave `pass`, `...`, or empty body. This enables 0-reasoning mechanical pasting by downstream low-cost models.
