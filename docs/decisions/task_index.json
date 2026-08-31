@@ -1,6 +1,16 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_VALIDATION_P1_REPORTING",
+      "date": "2026-08-31",
+      "adr_id": "ADR_20260831_VALIDATION_P1_REPORTING",
+      "domain": "validation",
+      "title": "Phase 1b final campaign reporting completeness (feedback P1)",
+      "why": "Final campaign lacked candidate-vs-baseline cost stress, NDX/SOX pre-history discrimination, regime tiers, symmetric objective-family guards, and executed strategy-hash census in report JSON.",
+      "resolution": "Added paired COST_SCENARIOS stress ratios, NDX100 vs NDX90/SOX10 proxy mix stress (dot_com/gfc, proxy_stress_only tier) via synthesize_proxy_mix_returns, regime coverage_tier/fraction, CAPITAL_ALLOCATION timing-module guards, scan_executed_strategy_hash_census, and report fields pre_history_mix_proxy plus lineage_hash_census.",
+      "impact": "One FINAL_HISTORICAL_CAMPAIGN run can now publish complete P1 evidence artifacts without strategy research changes."
+    },
+    {
       "task_id": "TASK_VALIDATION_CORRECTNESS_PHASE1",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_VALIDATION_CORRECTNESS_PHASE1",
