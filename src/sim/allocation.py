@@ -18,7 +18,6 @@ from src.data.schedule import build_decision_schedule, contribution_krw_for_poin
 from src.data.schema import Dataset
 from src.etf.mapping import MappingConfig, apply_etf_mapping
 from src.policy.adaptive_contribution import (
-    OPERATIONAL_ADAPTIVE_CONTRIBUTION,
     AdaptiveContributionConfig,
     size_adaptive_contribution,
 )
@@ -105,11 +104,12 @@ class AllocationConfig:
 
 
 def apply_operational_contribution_lock(config: AllocationConfig) -> AllocationConfig:
-    """Attach locked QQQ90/SOXX10 targets and adaptive v5 on the bare operational QQQ path.
+    """Attach locked QQQ90/SOXX10 flat targets on the bare operational QQQ path.
 
     Skips when the policy is not ``OPERATIONAL_POLICY_ID``, cadence is not monthly,
     a non-operational ``targets_override`` is set, or any other contribution,
-    overlay, reserve, mapping, or currency module is set.
+    overlay, reserve, mapping, or currency module is set. Adaptive contribution
+    is never attached (flat contribution).
     """
     if config.policy is not OPERATIONAL_POLICY_ID:
         return config
@@ -132,7 +132,6 @@ def apply_operational_contribution_lock(config: AllocationConfig) -> AllocationC
     return replace(
         config,
         targets_override=dict(OPERATIONAL_TARGETS_OVERRIDE),
-        adaptive_contribution=OPERATIONAL_ADAPTIVE_CONTRIBUTION,
     )
 
 

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 __all__ = [
+    "FROZEN_ADAPTIVE_V5",
     "OPERATIONAL_ADAPTIVE_CONTRIBUTION",
     "AdaptiveContributionConfig",
     "size_adaptive_contribution",
@@ -136,7 +137,7 @@ def size_adaptive_contribution(
 
 
 # WF-adopted QQQ sizing (rank 126, no_vol, deadband 5); locked on the operational path.
-OPERATIONAL_ADAPTIVE_CONTRIBUTION: Final[AdaptiveContributionConfig] = AdaptiveContributionConfig(
+FROZEN_ADAPTIVE_V5: Final[AdaptiveContributionConfig] = AdaptiveContributionConfig(
     rank_window=126,
     downside_power=4.0,
     upside_power=0.25,
@@ -146,3 +147,4 @@ OPERATIONAL_ADAPTIVE_CONTRIBUTION: Final[AdaptiveContributionConfig] = AdaptiveC
     min_multiplier=0.0,
     max_multiplier=2.0,
 )
+OPERATIONAL_ADAPTIVE_CONTRIBUTION: Final[AdaptiveContributionConfig] = FROZEN_ADAPTIVE_V5
