@@ -404,8 +404,10 @@ def run_diagnose_compound_dca_command(*, contribution_krw: float, settings: Data
                 row.max_drawdown,
             )
         logger.info(
-            "[DATA] event=compound_dca_done champion=%s mdd_feasible_champion=%s mdd_baseline=%s mdd_slack=%.4f operational_unlock=false rows=%d",
+            "[DATA] event=compound_dca_done champion=%s growth_champion=%s recommended_arm_id=%s mdd_feasible_champion=%s mdd_baseline=%s mdd_slack=%.4f operational_unlock=false rows=%d mdd_feasible_disclosure_only=true",
             report.champion_arm_id,
+            report.growth_champion_arm_id,
+            report.recommended_arm_id,
             report.mdd_feasible_champion_arm_id,
             report.mdd_baseline_arm_id,
             report.mdd_slack,

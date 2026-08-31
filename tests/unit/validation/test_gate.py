@@ -203,3 +203,56 @@ def test_gat_mix_cohort_win_rate(scenario_id: str) -> None:
         cohort_win_rate((2.0,), (1.0, 1.0))
     with pytest.raises(ValueError, match="strictly positive"):
         cohort_win_rate((0.0, 1.0), (1.0, 1.0))
+
+
+def test_compound_growth_train_passes_without_mdd_veto() -> None:
+    from src.validation.gate import compound_growth_train_passes
+
+    # SOXX100-like: +5.98억 real_gain scale but MDD -29.4% vs baseline -20.7%
+    assert compound_growth_train_passes(
+        candidate_tw=598.0,
+        baseline_tw=129.0,
+        candidate_real_gain=529.0,
+        baseline_real_gain=2.0,
+        candidate_xirr_real=0.12,
+        baseline_xirr_real=0.08,
+    ) is True
+    # MDD deeper than contribution_growth would allow — still passes compound_growth
+    deep_mdd = compound_growth_train_passes(
+        candidate_tw=110.0,
+        baseline_tw=100.0,
+        candidate_real_gain=11.0,
+        baseline_real_gain=10.0,
+        candidate_xirr_real=0.09,
+        baseline_xirr_real=0.08,
+    )
+    assert deep_mdd is True
+    # Inferior real_gain fails
+    assert compound_growth_train_passes(
+        candidate_tw=110.0,
+        baseline_tw=100.0,
+        candidate_real_gain=9.0,
+        baseline_real_gain=10.0,
+        candidate_xirr_real=0.09,
+        baseline_xirr_real=0.08,
+    ) is False
+
+
+def test_compound_growth_process_pooled_gain_no_mdd() -> None:
+    from src.validation.gate import compound_growth_process_passes
+
+    passing = {
+        "chosen_test_tw": (102.0, 101.0),
+        "baseline_test_tw": (100.0, 100.0),
+        "chosen_test_real_gain": (12.0, 11.0),
+        "baseline_test_real_gain": (10.0, 10.0),
+        "chosen_test_xirr_real": (0.09, 0.08),
+        "baseline_test_xirr_real": (0.08, 0.08),
+    }
+    assert compound_growth_process_passes(**passing) is True
+    # Fold at exactly 0.95 TW ratio passes (relaxed vs 0.97)
+    boundary = passing | {"chosen_test_tw": (95.0, 110.0)}
+    assert compound_growth_process_passes(**boundary) is True
+    # Fold below 0.95 fails
+    weak = passing | {"chosen_test_tw": (94.0, 110.0)}
+    assert compound_growth_process_passes(**weak) is False

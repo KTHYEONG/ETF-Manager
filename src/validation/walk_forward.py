@@ -26,6 +26,8 @@ from src.validation.experiment import (
 from src.validation.gate import (
     adoption_passes,
     certainty_equivalent,
+    compound_growth_process_passes,
+    compound_growth_train_passes,
     contribution_growth_train_passes,
     growth_first_process_passes,
     growth_first_train_passes,
@@ -276,6 +278,15 @@ def run_walk_forward_adoption(
                 candidate_mdd=candidate_train_arm.max_drawdown,
                 baseline_mdd=baseline_train_arm.max_drawdown,
             )
+        elif spec.objective == "compound_growth":
+            train_adopted = compound_growth_train_passes(
+                candidate_tw=candidate_train_arm.terminal_wealth_real_krw,
+                baseline_tw=baseline_train_arm.terminal_wealth_real_krw,
+                candidate_real_gain=_real_profit(candidate_train_arm),
+                baseline_real_gain=_real_profit(baseline_train_arm),
+                candidate_xirr_real=candidate_train_arm.xirr_real,
+                baseline_xirr_real=baseline_train_arm.xirr_real,
+            )
         elif spec.objective == "growth_first":
             train_adopted = growth_first_train_passes(
                 candidate_tw=candidate_train_arm.terminal_wealth_real_krw,
@@ -339,6 +350,12 @@ def run_walk_forward_adoption(
     chosen_ce = {gamma: certainty_equivalent(chosen_wealths, gamma=gamma) for gamma in _CE_GAMMAS}
     if spec.objective == "adaptive_growth":
         process_adopted_vs_baseline = contribution_growth_process_passes(  # type: ignore[no-untyped-call]
+            chosen_test_tw=tuple(chosen_wealths), baseline_test_tw=tuple(baseline_wealths),
+            chosen_test_real_gain=tuple(chosen_gains), baseline_test_real_gain=tuple(baseline_gains),
+            chosen_test_xirr_real=tuple(chosen_xirrs), baseline_test_xirr_real=tuple(baseline_xirrs),
+        )
+    elif spec.objective == "compound_growth":
+        process_adopted_vs_baseline = compound_growth_process_passes(
             chosen_test_tw=tuple(chosen_wealths), baseline_test_tw=tuple(baseline_wealths),
             chosen_test_real_gain=tuple(chosen_gains), baseline_test_real_gain=tuple(baseline_gains),
             chosen_test_xirr_real=tuple(chosen_xirrs), baseline_test_xirr_real=tuple(baseline_xirrs),
