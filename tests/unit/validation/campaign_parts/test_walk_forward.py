@@ -282,4 +282,17 @@ def test_walk_forward_compound_growth_objective_wires() -> None:
     report = run_walk_forward_adoption(spec, runner)
     assert report.process_adopted_vs_baseline is True
 
+def test_walk_forward_adoption_still_single_candidate_only() -> None:
+    scenario_id = "test_run_walk_forward_adoption_still_single_candidate_only"
+    import pytest
+
+    from src.policy.targets import PolicyId
+    from src.validation.walk_forward import run_walk_forward_adoption
+    from tests.unit.validation.campaign_parts.test_walk_forward import _RecordingRunner, _spec
+
+    multi_candidate = _spec().model_copy(
+        update={'candidates': [_spec().candidates[0], _spec().candidates[0].model_copy(update={'id': 'dup'})]}
+    )
+    with pytest.raises(ValueError, match='exactly one candidate'):
+        run_walk_forward_adoption(multi_candidate, _RecordingRunner(dict.fromkeys(PolicyId, 100.0)))
 
