@@ -63,9 +63,12 @@ flowchart TD
     subgraph L5["L5 Validation (src/validation)"]
         LG --> AB[ablation + CE gate]
         LG --> WF[walk-forward adoption]
+        LG --> ST_SEL[strategy-select tournament]
         LG --> CG[cost-grid walk-forward]
+        LG --> CR[cadence robustness]
         LG --> RP[research proxy I9]
-        LG --> CH[rolling cohorts]
+        LG --> CH[rolling 120M cohorts]
+        LG --> FA[feasibility audit]
         LG --> BS[block bootstrap]
     end
     subgraph L6["L6 ETF mapping (src/etf)"]
@@ -75,7 +78,9 @@ flowchart TD
     end
     subgraph AN["Analytics (src/analytics)"]
         S --> DV[us_vehicles diagnostics]
-        LG --> MET[metrics / attribution]
+        S --> TH[thesis evidence / wave / incremental / wave_d_exit]
+        LG --> CD[compound DCA tournament]
+        LG --> MET[metrics / attribution / regimes]
     end
     subgraph EXE["Execution (src/execution)"]
         LG --> ORD[BuyOrder]
@@ -103,7 +108,8 @@ $$
 $$
 
 $m_k$ is the declared module count per experiment arm (never inferred). Cost, FX, and tax are
-realized inside `L4`, not added as objective penalties.
+realized inside `L4`, not added as objective penalties. For long-horizon DCA accumulation, the
+`compound_growth` objective evaluates real gain and XIRR without MDD veto.
 
 ## 4. Research vs Operations
 
@@ -111,12 +117,17 @@ realized inside `L4`, not added as objective penalties.
 | --- | --- | --- | --- |
 | **Operations** | `run policy --id qqq` | N/A (locked policy) | CLI flags only (`--overlay-max-shift`) |
 | **Ablation** | `run ablation --config` | CE on cohort wealths | Disabled (`overlay=None` in `_arm_config`) |
-| **Walk-forward** | `run walk-forward --config` | Train select → test CE | Disabled (pending Wave G) |
-| **Diagnostics** | `run diagnose-us-vehicles` | Never | Never |
-| **Thesis inspect** | `run thesis [--id]` | Never | Never |
+| **Walk-forward** | `run walk-forward --config` | Train select → test CE/growth | Disabled (pending Wave G) |
+| **Strategy selection** | `run strategy-select --config` | Multi-candidate WF tournament | Preregistered candidates |
+| **Cadence robustness** | `run cadence-robustness --config` | Cost grid + worst cohort + bootstrap | Cadence candidate |
+| **Diagnostics** | `run diagnose-us-vehicles` / `diagnose-qqq-*` | Never | Never |
+| **Compound DCA** | `run diagnose-compound-dca` | Never | Never |
+| **Thesis inspect/wave** | `run thesis` / `thesis-wave` / `thesis-report` | Never | Never |
+| **Thesis incremental/exit** | `run thesis-incremental` / `thesis-pipeline` | Never | Never |
 | **120M cohort report** | `run accumulation-cohort --config` | Never | Never |
+| **Feasibility audit** | `run audit-feasibility --config` | Never | Never |
 
-`run diagnose-us-vehicles`, `run thesis`, and `run accumulation-cohort` are reporting-only;
+`run diagnose-*`, `run thesis*`, `run accumulation-cohort`, and `run audit-feasibility` are reporting-only;
 they must not call `adoption_passes` or change `OPERATIONAL_POLICY_ID`.
 
 ## 5. Non-Negotiable Invariants
@@ -140,24 +151,35 @@ they must not call `adoption_passes` or change `OPERATIONAL_POLICY_ID`.
 
 | Path | Responsibility |
 | --- | --- |
-| `data/*` | Providers, PIT catalog, quality, manifests |
-| `features/*` | PIT-safe returns, vol, drawdown, factor OLS |
-| `policy/targets.py` | `PolicyId`, `resolve_targets`, sleeve universe |
+| `data/*` | Providers, PIT catalog, quality, manifests, panel freshness, prune |
+| `features/*` | PIT-safe returns, vol, drawdown, factor OLS, KAFI |
+| `policy/targets.py` | `PolicyId`, `resolve_targets`, sleeve universe, `OPERATIONAL_POLICY_ID` |
 | `policy/thesis.py` | `ThesisId`, `ThesisSpec`, registry, lifecycle |
 | `policy/tilt.py` | Fixed factor tilt (research) |
 | `policy/overlay.py` | Bounded trend/vol/drawdown/VIX overlay |
 | `policy/currency.py` | Bounded FX defer |
 | `sim/allocation.py` | Multi-sleeve buy-only engine |
-| `sim/contribution.py` | Band + cost-aware contribution mixer |
+| `sim/contribution.py` | Band + cost-aware contribution mixer, adaptive contribution |
 | `sim/baseline.py` | Single-ticker fast DCA (B0/B1) |
 | `sim/research_proxy.py` | French daily proxy path (I9) |
 | `validation/ablation.py` | Cohort CE gate |
-| `validation/campaign.py` | Walk-forward + cost grid |
-| `validation/experiment.py` | `ExperimentSpec` JSON |
+| `validation/walk_forward.py` | Walk-forward multi-fold runner |
+| `validation/strategy_selection.py` | Multi-candidate walk-forward tournament selection |
+| `validation/campaign.py` | Walk-forward + cost grid + proxy orchestration |
+| `validation/cost_grid.py` | Cost scenario grid evaluation |
+| `validation/cadence_robustness.py` | Cadence robustness gate |
+| `validation/accumulation_cohort.py` | 120M rolling accumulation cohort & bootstrap |
+| `validation/feasibility_audit.py` | Static DCA feasibility & window audit |
+| `validation/gate.py` | CE adoption gate & compound/contribution growth gates |
+| `validation/experiment.py` | `ExperimentSpec` JSON, preregistration |
 | `analytics/us_vehicles.py` | VTI/IVV/QQQ diagnostics (no adoption) |
+| `analytics/compound_dca.py` | Compound DCA tournament |
+| `analytics/thesis/*` | Modular thesis evidence (structural, valuation, crowding, purity, meaning, wave, incremental, report, wave_d_exit) |
+| `analytics/regimes.py`, `blends.py`, `cadence.py`, `reserve_usage.py`, `adaptive_hp_screen.py` | QQQ diagnostic modules |
 | `etf/mapping.py` | Implementation mapping + hysteresis |
 | `etf/sleeves.py` | `SleeveId`, `VehicleId`, `resolve_vehicle`, `RESEARCH_SATELLITE_VEHICLES` |
 | `execution/*` | Buy-only orders, PaperBroker |
+| `cli.py` / `cli_commands/*` | Thin CLI facade and command handlers |
 
 ## 7. Engine Modes
 

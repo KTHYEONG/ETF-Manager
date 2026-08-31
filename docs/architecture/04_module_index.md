@@ -10,6 +10,8 @@ Task-oriented file lists for bounded AI context. See also `docs/code_map.json`.
 - `src/data/catalog.py`
 - `src/data/pit.py`
 - `src/data/settings.py`
+- `src/data/panel_freshness.py`
+- `src/data/etf_metadata_bootstrap.py`
 - `configs/data/thesis_fundamentals/`
 
 ## policy-run
@@ -27,8 +29,11 @@ Task-oriented file lists for bounded AI context. See also `docs/code_map.json`.
 - `src/cli_commands/campaign.py`
 - `src/validation/experiment.py`
 - `src/validation/walk_forward.py`
+- `src/validation/strategy_selection.py`
 - `src/validation/cost_grid.py`
 - `src/validation/cadence_robustness.py`
+- `src/validation/accumulation_cohort.py`
+- `src/validation/feasibility_audit.py`
 - `src/validation/gate.py`
 - `src/validation/ablation.py`
 - `configs/experiments/INDEX.json`
@@ -36,10 +41,17 @@ Task-oriented file lists for bounded AI context. See also `docs/code_map.json`.
 ## thesis-research
 
 - `src/cli_commands/thesis.py`
+- `src/analytics/thesis/structural.py`
+- `src/analytics/thesis/valuation.py`
+- `src/analytics/thesis/crowding.py`
+- `src/analytics/thesis/purity.py`
+- `src/analytics/thesis/meaning.py`
+- `src/analytics/thesis/decision.py`
 - `src/analytics/thesis/evidence.py`
 - `src/analytics/thesis/wave.py`
 - `src/analytics/thesis/incremental.py`
 - `src/analytics/thesis/report.py`
+- `src/analytics/thesis/wave_d_exit.py`
 - `src/policy/thesis.py`
 - `configs/theses/`
 - `docs/architecture/02_policy_and_validation.md`
@@ -53,7 +65,15 @@ Task-oriented file lists for bounded AI context. See also `docs/code_map.json`.
 - `src/analytics/reserve_usage.py`
 - `src/analytics/adaptive_hp_screen.py`
 - `src/analytics/compound_dca.py`
+- `src/analytics/accumulation_alpha.py`
+- `src/analytics/overlap.py`
+- `src/analytics/us_vehicles.py`
 - `src/features/kafi.py`
+
+## maintain
+
+- `src/data/prune.py`
+- `src/cli_commands/resolvers.py`
 
 ## experiment-config
 
@@ -63,3 +83,4 @@ Task-oriented file lists for bounded AI context. See also `docs/code_map.json`.
 - `configs/experiments/archive/`
 - `tests/unit/validation/test_experiment_taxonomy.py`
 - `docs/architecture/03_operator_cli.md`
+

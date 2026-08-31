@@ -100,15 +100,17 @@ A normalized partition without a matching manifest is treated as untrusted and r
 
 ## 7. Ingest Universe
 
-| Function | Tickers | Use |
+| Function / Group | Tickers | Use |
 | --- | --- | --- |
-| `all_policy_tickers()` | BND, IEF, IVV, TLT, VEA, VT, VTI, VTV, VWO | Policy sleeves + ablation/WF |
-| `diagnostic_price_tickers()` | QQQ | Reporting only (`run diagnose-us-vehicles`) |
-| `history_price_tickers()` | Union of the above | Default `ingest history` panel |
+| `all_policy_tickers()` | BND, IEF, IVV, QQQ, TLT, VEA, VT, VTI, VTV, VWO | Policy sleeves + ablation/WF (includes operational QQQ) |
+| `diagnostic_price_tickers()` | QQQ | Diagnostic panel compatibility helper |
+| `history_price_tickers()` | Policy sleeves + implementations (ITOT, SCHF, IEMG) + satellites (BOTZ, GRID, IBB, ITA, IWF, PAVE, ROBO, SOXX, XLI) | Default `ingest history` panel |
+| `THESIS_PANEL_TICKERS` | BOTZ, GRID, PAVE, QQQ, ROBO, SOXX | Thesis evidence & wave panels (`ingest thesis-panel`) |
 
-QQQ is ingested for factor/DCA diagnostics but has **no `PolicyId`**. Partial ticker ingest
-(e.g. QQQ alone) replaces the latest prices partition — always run full `ingest history` before
-campaigns.
+`PolicyId.QQQ` is the locked operational policy sleeve. Partial ticker ingest (e.g. QQQ alone)
+replaces the latest prices partition — always run full `ingest history` or `ingest thesis-panel` before campaigns.
+Available ingest datasets: `prices`, `fx`, `macro`, `cpi`, `factors`, `research-returns`, `smoke`, `history`,
+`static-dca`, `nport`, `thesis-panel`, `thesis-fundamentals`.
 
 ## 8. Operator Date Constraints
 
