@@ -81,7 +81,7 @@ def _build_parser() -> _Parser:
         "--id",
         choices=tuple(POLICY_ALIASES),
         required=True,
-        help=f"Policy id (operational default: {OPERATIONAL_POLICY_ID.value} with locked adaptive contribution)",
+        help=f"Policy id (operational default: {OPERATIONAL_POLICY_ID.value} QQQ90/SOXX10 flat)",
     )
     policy.add_argument("--start", required=True, type=_iso_date)
     policy.add_argument("--end", required=True, type=_iso_date)

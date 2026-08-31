@@ -17,8 +17,10 @@ __all__ = [
     "LEGAL_TRANSITIONS",
     "Evidence",
     "Horizon",
+    "ReopenCondition",
     "ThesisError",
     "ThesisId",
+    "ThesisResearchRole",
     "ThesisSpec",
     "ThesisStatus",
     "get_thesis",
@@ -112,6 +114,21 @@ class Evidence(BaseModel):
     crowding: str = "unknown"
 
 
+class ThesisResearchRole(StrEnum):
+    CHALLENGER = "challenger"
+    VETO_FILTER = "veto_filter"
+    WATCH = "watch"
+
+
+class ReopenCondition(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    min_additional_oos_years: float = Field(gt=0)
+    requires_structural_evidence: bool = True
+    requires_price_evidence: bool = True
+    requires_investable_vehicle: bool = True
+
+
 
 
 class ThesisSpec(BaseModel):
@@ -129,6 +146,15 @@ class ThesisSpec(BaseModel):
     candidate_sleeves: list[SleeveId] = Field(min_length=1)
     historical_proxies: list[VehicleId] = Field(min_length=1)
     evidence: Evidence = Field(default_factory=Evidence)
+    research_role: ThesisResearchRole = ThesisResearchRole.CHALLENGER
+    operational_weight: float = Field(default=0.0, ge=0, le=1)
+    reopen: ReopenCondition | None = None
+
+    @model_validator(mode="after")
+    def _check_research_role(self) -> ThesisSpec:
+        if self.research_role is ThesisResearchRole.WATCH and self.operational_weight != 0.0:
+            raise ValueError("watch requires operational_weight == 0.0")
+        return self
 
     @field_validator("falsifiers", mode="after")
     @classmethod
@@ -211,4 +237,7 @@ def transition_thesis(spec: ThesisSpec, new_status: ThesisStatus, *, reason: str
         candidate_sleeves=spec.candidate_sleeves,
         historical_proxies=spec.historical_proxies,
         evidence=spec.evidence,
+        research_role=spec.research_role,
+        operational_weight=spec.operational_weight,
+        reopen=spec.reopen,
     )

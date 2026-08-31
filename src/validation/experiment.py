@@ -21,6 +21,7 @@ from src.policy.overlay import OverlayConfig
 from src.policy.reserve import ReserveConfig
 from src.policy.targets import PolicyId
 from src.policy.thesis import ThesisId, ThesisSpec
+from src.validation.research_posture import ObjectiveFamily, assert_objective_family_invariants
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ __all__ = [
     "OverlaySpec",
     "PreregistrationSpec",
     "ReserveSpec",
+    "TrialLineageSpec",
     "assert_experiment_preregistration",
     "experiment_target_tickers",
     "load_experiment_config",
@@ -244,6 +246,20 @@ class AdaptiveContributionSpec(BaseModel):
     neutral_deadband: float = Field(default=0.0, ge=0.0)
 
 
+class TrialLineageSpec(BaseModel):
+    """Trial lineage for research family tracking."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    research_family_id: str = Field(min_length=1)
+    hypothesis_birth_date: date
+    first_test_date: date
+    historical_data_used_until: date
+    parent_experiments: tuple[str, ...] = ()
+    related_trial_count: int = Field(ge=1)
+    parameter_variants_tried: int = Field(ge=1)
+
+
 class PreregistrationSpec(BaseModel):
     """Thesis preregistration flags; universe lock gates tickers."""
 
@@ -252,6 +268,7 @@ class PreregistrationSpec(BaseModel):
     weights_locked: bool = False
     universe_locked: bool = False
     baseline_frozen: bool = True
+    lineage: TrialLineageSpec | None = None
 
 
 class ExperimentSpec(BaseModel):
@@ -289,6 +306,7 @@ class ExperimentSpec(BaseModel):
     candidates: list[CandidateSpec] = Field(min_length=1)
     thesis_id: ThesisId | None = None
     preregistration: PreregistrationSpec | None = None
+    objective_family: ObjectiveFamily | None = None
 
     @field_validator("thesis_id", mode="before")
     @classmethod
@@ -444,6 +462,14 @@ class ExperimentSpec(BaseModel):
         if self.baseline_adaptive_contribution is not None and self.objective not in ("adaptive_growth", "compound_growth"):
             raise ValueError(
                 f"baseline_adaptive_contribution requires objective 'adaptive_growth' or 'compound_growth', got {self.objective!r}"
+            )
+        if self.objective_family is not None:
+            assert_objective_family_invariants(
+                family=self.objective_family,
+                adaptive_contribution_set=self.adaptive_contribution is not None,
+                baseline_adaptive_set=self.baseline_adaptive_contribution is not None,
+                kafi_deployment_set=self.kafi_deployment is not None,
+                reserve_set=self.reserve is not None,
             )
         seen: set[str] = set()
         for candidate in self.candidates:
