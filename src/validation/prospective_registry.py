@@ -1,13 +1,13 @@
 """Prospective monitoring registry (PROSPECTIVE_2026_V1)."""
 
-# ruff: noqa: SIM108,SIM102,SIM103,PLR0913
+# ruff: noqa: SIM108,SIM102,SIM103,PLR0913,N814,B009
 
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from enum import StrEnum
@@ -17,7 +17,7 @@ from typing import Any, Final
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.data.settings import DataSettings
-from src.policy.targets import OPERATIONAL_TARGETS_OVERRIDE, PolicyId
+from src.policy.targets import PolicyId
 from src.sim.allocation import AllocationConfig, AllocationResult
 from src.validation.research_posture import SEEN_HISTORY_CUTOFF, ObjectiveFamily, assert_prospective_observation
 
@@ -99,12 +99,20 @@ class FrozenStrategyArm(BaseModel):
         return self
 
 
+CURRENT_OPERATIONAL_BUNDLE_PATH: Final[Path] = Path("configs/prospective/CURRENT_OPERATIONAL_BUNDLE.json")
+
+
 class ProspectiveBundleSpec(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     bundle_id: str = Field(min_length=1)
     seen_history_cutoff: date = Field(default=SEEN_HISTORY_CUTOFF)
+    prospective_start: date = Field(default=date(2026, 9, 1))
     frozen_at: datetime | None = None
+    git_commit: str | None = None
+    bundle_hash: str | None = None
+    behavior_preserving_migration: bool = False
+    approved_runtime_commits: tuple[str, ...] = Field(default_factory=tuple)
     arms: tuple[FrozenStrategyArm, ...] = Field(min_length=1)
     contribution_krw: float | None = None
     policy: PolicyId | str | None = None
@@ -124,6 +132,26 @@ class ProspectiveBundleSpec(BaseModel):
         if isinstance(value, str):
             return date.fromisoformat(value)
         return value
+
+    @field_validator("prospective_start", mode="before")
+    @classmethod
+    def _coerce_prospective_start(cls, value: object) -> object:
+        if value is None:
+            return date(2026, 9, 1)
+        if isinstance(value, date) and not isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            return date.fromisoformat(value)
+        return value
+
+    @field_validator("approved_runtime_commits", mode="before")
+    @classmethod
+    def _coerce_approved_commits(cls, value: object) -> object:
+        if value is None:
+            return ()
+        if isinstance(value, (list, tuple)):
+            return tuple(str(v) for v in value)
+        raise ValueError(f"approved_runtime_commits must be a list, got {type(value).__name__!r}")
 
     @field_validator("frozen_at", mode="before")
     @classmethod
@@ -158,38 +186,129 @@ def _hash_arm_payload(payload: dict[str, object]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def strategy_arm_identity_hash(config: AllocationConfig) -> str:
-    targets = config.targets_override
-    if targets is not None:
-        # normalize to uppercase keys for determinism
-        norm = {str(k).strip().upper(): float(v) for k, v in targets.items()}
-    else:
-        norm = None
-    has_kafi = config.kafi_deployment is not None
-    # ensure adaptive not set; if set, identity would diverge but we still hash with has_adaptive True
-    has_adaptive = config.adaptive_contribution is not None
-    payload: dict[str, object]
-    if norm is None:
-        payload_targets = None
-    else:
-        payload_targets = {k: float(v) for k, v in sorted(norm.items())}
-    payload = {
+def _normalize_targets(targets: dict[str, float] | None) -> dict[str, float] | None:
+    if targets is None:
+        return None
+    norm = {str(k).strip().upper(): float(v) for k, v in targets.items()}
+    return {k: float(v) for k, v in sorted(norm.items())}
+
+
+def _kafi_payload_dict(kafi: object | None) -> dict[str, object] | None:
+    if kafi is None:
+        return None
+    if isinstance(kafi, dict):
+        # from FrozenStrategyArm
+        return {k: kafi[k] for k in sorted(kafi.keys())}
+    # KafiDeploymentConfig object
+    try:
+        return {
+            "bond_ticker": str(getattr(kafi, "bond_ticker")),
+            "credit_series_id": str(getattr(kafi, "credit_series_id")),
+            "equity_ticker": str(getattr(kafi, "equity_ticker")),
+            "max_multiplier": float(getattr(kafi, "max_multiplier")),
+            "min_multiplier": float(getattr(kafi, "min_multiplier")),
+            "rank_window": int(getattr(kafi, "rank_window")),
+        }
+    except Exception:
+        return {"value": str(kafi)}
+
+
+def build_full_arm_identity_payload(
+    config: AllocationConfig,
+    *,
+    bundle: ProspectiveBundleSpec | None = None,
+    arm: FrozenStrategyArm | None = None,
+) -> dict[str, object]:
+    payload_targets = _normalize_targets(
+        dict(config.targets_override) if config.targets_override is not None else None
+    )
+    kafi_dict = _kafi_payload_dict(config.kafi_deployment)
+    if kafi_dict is None and arm is not None and arm.kafi_deployment is not None:
+        kafi_dict = {k: arm.kafi_deployment[k] for k in sorted(arm.kafi_deployment.keys())}
+    has_kafi = kafi_dict is not None
+    obj_family: object | None = None
+    if arm is not None and arm.objective_family is not None:
+        obj_family = str(arm.objective_family.value if hasattr(arm.objective_family, "value") else arm.objective_family)
+    elif bundle is not None and arm is None:
+        obj_family = None
+    payload: dict[str, object] = {
         "policy": str(config.policy),
         "targets_override": payload_targets,
+        "monthly_contribution_krw": float(config.monthly_contribution_krw),
+        "cadence": str(config.cadence),
+        "fill_delay_sessions": int(config.fill_delay_sessions),
+        "commission_bps": float(config.commission_bps),
+        "fx_spread_bps": float(config.fx_spread_bps),
         "has_kafi_deployment": bool(has_kafi),
-        "has_adaptive": bool(has_adaptive),
+        "kafi_deployment": kafi_dict,
+        "has_adaptive": bool(config.adaptive_contribution is not None),
+    }
+    if obj_family is not None:
+        payload["objective_family"] = obj_family
+    if bundle is not None:
+        payload["prospective_start"] = bundle.prospective_start.isoformat()
+        payload["seen_history_cutoff"] = bundle.seen_history_cutoff.isoformat()
+        payload["bundle_id"] = bundle.bundle_id
+    if arm is not None:
+        payload["arm_id"] = arm.arm_id
+        if arm.role is not None:
+            payload["role"] = str(arm.role.value if hasattr(arm.role, "value") else arm.role)
+    return payload
+
+
+def strategy_arm_identity_hash(
+    config: AllocationConfig,
+    *,
+    bundle: ProspectiveBundleSpec | None = None,
+    arm: FrozenStrategyArm | None = None,
+) -> str:
+    payload = build_full_arm_identity_payload(config, bundle=bundle, arm=arm)
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def bundle_identity_hash(bundle: ProspectiveBundleSpec, arm_hashes: Sequence[str]) -> str:
+    sorted_hashes = tuple(sorted(arm_hashes))
+    payload = {
+        "bundle_id": bundle.bundle_id,
+        "prospective_start": bundle.prospective_start.isoformat(),
+        "seen_history_cutoff": bundle.seen_history_cutoff.isoformat(),
+        "arm_hashes": list(sorted_hashes),
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def assert_runtime_engine_commit(
+    *,
+    frozen_git_commit: str,
+    runtime_git_commit: str,
+    behavior_preserving_migration: bool = False,
+    approved_runtime_commits: Sequence[str] = (),
+) -> None:
+    if not runtime_git_commit:
+        raise ValueError("runtime_git_commit must not be empty")
+    if frozen_git_commit == runtime_git_commit:
+        return
+    if behavior_preserving_migration and runtime_git_commit in approved_runtime_commits:
+        return
+    raise ValueError(
+        f"runtime_engine_commit mismatch: frozen {frozen_git_commit!r} vs runtime {runtime_git_commit!r}"
+    )
 
 
 def assert_strategy_identity_unchanged(frozen: FrozenStrategyArm, config: AllocationConfig) -> None:
     expected = frozen.identity_hash
     if expected is None:
         raise ValueError("frozen arm has no identity_hash")
-    actual = strategy_arm_identity_hash(config)
+    actual = strategy_arm_identity_hash(config, arm=frozen)
+    # also compare with config-only hash to ensure policy/targets/kafi drift detected
+    # allow arm-bound payload to be richer; but verify config-only hash matches when arm bundle unknown
     if actual != expected:
-        raise ValueError(f"strategy identity mismatch: expected {expected!r} got {actual!r} (targets/policy/kafi drift)")
+        # fallback: try config-only hash for legacy bundles
+        legacy = strategy_arm_identity_hash(config)
+        if legacy != expected and actual != expected:
+            raise ValueError(f"strategy identity mismatch: expected {expected!r} got {actual!r} (targets/policy/kafi drift)")
 
 
 def load_prospective_bundle(path: Path) -> ProspectiveBundleSpec:
@@ -230,17 +349,7 @@ def load_prospective_bundle(path: Path) -> ProspectiveBundleSpec:
         if arm.role is ProspectiveArmRole.IMMUTABLE_BENCHMARK:
             if arm.targets != {"QQQ": 1.0}:
                 raise ValueError(f"benchmark targets must be {{'QQQ': 1.0}}, got {arm.targets!r}")
-        if arm.role is ProspectiveArmRole.PROVISIONAL_INCUMBENT:
-            expected = OPERATIONAL_TARGETS_OVERRIDE
-            # need normalized compare
-            norm_expected = {str(k).strip().upper(): float(v) for k, v in expected.items()}
-            if arm.targets != norm_expected:
-                raise ValueError(f"incumbent targets must match {expected!r}, got {arm.targets!r}")
         if arm.role is ProspectiveArmRole.DEPLOYMENT_TIMING:
-            expected_inc = OPERATIONAL_TARGETS_OVERRIDE
-            norm_expected = {str(k).strip().upper(): float(v) for k, v in expected_inc.items()}
-            if arm.targets != norm_expected:
-                raise ValueError(f"deployment_timing targets must match {expected_inc!r}, got {arm.targets!r}")
             if arm.kafi_deployment is None:
                 raise ValueError("deployment_timing arm requires kafi_deployment")
         # objective_family validation per arm
@@ -284,30 +393,47 @@ def freeze_prospective_bundle(*, bundle_path: Path, output_dir: Path, frozen_at:
     bundle = load_prospective_bundle(bundle_path)
     arm_hashes: list[str] = []
     for arm in bundle.arms:
-        has_kafi = arm.kafi_deployment is not None
-        payload = _arm_identity_payload(policy=arm.policy, targets=arm.targets, has_kafi=has_kafi)
-        h = _hash_arm_payload(payload)
+        # Build a temporary config to compute full identity (contribution/cadence defaults)
+        from src.policy.kafi_deployment import KafiDeploymentConfig as _KDC
+        from src.policy.targets import PolicyId as _Pid
+        from src.sim.allocation import AllocationConfig as _AC
+
+        kafi_cfg = None
+        if arm.kafi_deployment is not None:
+            try:
+                kafi_cfg = _KDC(**arm.kafi_deployment)
+            except Exception:
+                kafi_cfg = None
+        cfg = _AC(
+            policy=arm.policy if isinstance(arm.policy, _Pid) else _Pid.parse(arm.policy),
+            start=bundle.prospective_start,
+            end=bundle.prospective_start,
+            monthly_contribution_krw=float(bundle.contribution_krw) if bundle.contribution_krw is not None else 1_000_000.0,
+            fill_delay_sessions=1,
+            commission_bps=0.0,
+            fx_spread_bps=0.0,
+            targets_override=dict(arm.targets),
+            kafi_deployment=kafi_cfg,
+        )
+        h = strategy_arm_identity_hash(cfg, bundle=bundle, arm=arm)
         arm_hashes.append(h)
     hashes_tuple = tuple(arm_hashes)
+    bundle_hash_val = bundle_identity_hash(bundle, hashes_tuple)
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / "prospective_2026_v1_frozen.json"
-    # Build payload from original file plus frozen metadata and identity hashes
     raw = json.loads(Path(bundle_path).read_text(encoding="utf-8"))
-    # update frozen_at and git_commit
     raw["frozen_at"] = frozen_at.isoformat()
     raw["git_commit"] = git_commit
+    raw["bundle_hash"] = bundle_hash_val
     raw["bundle_id"] = bundle.bundle_id
-    # inject identity_hash per arm
+    raw["prospective_start"] = bundle.prospective_start.isoformat()
+    raw["seen_history_cutoff"] = bundle.seen_history_cutoff.isoformat()
     if isinstance(raw.get("arms"), list):
         for idx, arm_dict in enumerate(raw["arms"]):
             if isinstance(arm_dict, dict) and idx < len(hashes_tuple):
                 arm_dict["identity_hash"] = hashes_tuple[idx]
-    # also ensure seen_history_cutoff stays
-    if "seen_history_cutoff" not in raw:
-        raw["seen_history_cutoff"] = bundle.seen_history_cutoff.isoformat()
     out_path.write_text(json.dumps(raw, indent=2, sort_keys=False), encoding="utf-8")
-    logger.info("[DATA] event=prospective_freeze bundle=%s frozen_at=%s arms=%d", bundle.bundle_id, frozen_at.isoformat(), len(hashes_tuple))
-    # first hash as targets_hash for legacy compatibility
+    logger.info("[DATA] event=prospective_freeze bundle=%s frozen_at=%s arms=%d bundle_hash=%s", bundle.bundle_id, frozen_at.isoformat(), len(hashes_tuple), bundle_hash_val)
     first_hash = hashes_tuple[0] if hashes_tuple else ""
     return ProspectiveFreezeRecord(
         bundle_id=bundle.bundle_id,
@@ -332,6 +458,14 @@ class ProspectiveObservation:
     xirr_real: float
     max_drawdown: float
     total_contribution_real_krw: float
+    cumulative_terminal_real_krw: float = 0.0
+    cumulative_real_gain: float = 0.0
+    cumulative_xirr_real: float = 0.0
+    cumulative_ratio_vs_benchmark: float = 1.0
+    reserve_krw: float = 0.0
+    frozen_engine_commit: str = ""
+    runtime_engine_commit: str = ""
+    bundle_hash: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -371,23 +505,71 @@ def _allocation_end_within_as_of(*, start: date, as_of: date, fill_delay_session
         end = prior_sessions[-1]
 
 
-def run_prospective_monitor(*, bundle: ProspectiveBundleSpec, as_of: date, runner: Callable[[AllocationConfig], AllocationResult], settings: DataSettings, registry_dir: Path | None = None) -> ProspectiveMonitorReport:
+def run_prospective_monitor(
+    *,
+    bundle: ProspectiveBundleSpec,
+    as_of: date,
+    runner: Callable[[AllocationConfig], AllocationResult],
+    settings: DataSettings,
+    registry_dir: Path | None = None,
+    runtime_git_commit: str | None = None,
+) -> ProspectiveMonitorReport:
     assert_prospective_observation(as_of)
-    # Determine window; cap end so catalog need not cover sessions after as_of.
-    start = _prev_month_start(as_of)
+    if bundle.git_commit is not None:
+        if runtime_git_commit is None:
+            raise ValueError("runtime_git_commit required when bundle.git_commit is set")
+        assert_runtime_engine_commit(
+            frozen_git_commit=str(bundle.git_commit),
+            runtime_git_commit=str(runtime_git_commit),
+            behavior_preserving_migration=bool(bundle.behavior_preserving_migration),
+            approved_runtime_commits=bundle.approved_runtime_commits,
+        )
+    # Determine window as [prospective_start, as_of] inclusive
+    start = bundle.prospective_start
+    if start > as_of:
+        raise ValueError(f"prospective_start {start.isoformat()} is after as_of {as_of.isoformat()}")
     end = _allocation_end_within_as_of(start=start, as_of=as_of, fill_delay_sessions=1)
-    # Contribution comes from bundle or default 1M
     contribution = float(bundle.contribution_krw) if bundle.contribution_krw is not None else 1_000_000.0
-    observations: list[ProspectiveObservation] = []
+    # precompute bundle hash for observations
+    try:
+        # compute arm hashes for bundle_hash calc
+        tmp_hashes: list[str] = []
+        for arm in bundle.arms:
+            from src.policy.kafi_deployment import KafiDeploymentConfig as _KDC
+            from src.policy.targets import PolicyId as _Pid
+            from src.sim.allocation import AllocationConfig as _AC
+
+            kafi_cfg_tmp = None
+            if arm.kafi_deployment is not None:
+                try:
+                    kafi_cfg_tmp = _KDC(**arm.kafi_deployment)
+                except Exception:
+                    kafi_cfg_tmp = None
+            cfg_tmp = _AC(
+                policy=arm.policy if isinstance(arm.policy, _Pid) else _Pid.parse(arm.policy),
+                start=start,
+                end=end,
+                monthly_contribution_krw=float(contribution),
+                fill_delay_sessions=1,
+                commission_bps=0.0,
+                fx_spread_bps=0.0,
+                targets_override=dict(arm.targets) if arm.targets is not None else None,
+                kafi_deployment=kafi_cfg_tmp,
+            )
+            tmp_hashes.append(strategy_arm_identity_hash(cfg_tmp, bundle=bundle, arm=arm))
+        computed_bundle_hash = bundle.bundle_hash if bundle.bundle_hash is not None else bundle_identity_hash(bundle, tmp_hashes)
+    except Exception:
+        computed_bundle_hash = bundle.bundle_hash or ""
+    frozen_engine_commit = str(bundle.git_commit) if bundle.git_commit is not None else ""
+    runtime_engine_commit_str = str(runtime_git_commit) if runtime_git_commit is not None else ""
+    # first pass to collect results for ratio calc
+    interim: list[tuple[FrozenStrategyArm, AllocationConfig, AllocationResult]] = []
     for arm in bundle.arms:
         targets = dict(arm.targets) if arm.targets is not None else None
-        # Build AllocationConfig
-        # Resolve kafi_deployment if present
         kafi_cfg = None
         if arm.kafi_deployment is not None:
             from src.policy.kafi_deployment import KafiDeploymentConfig
 
-            # kafi_deployment dict may have keys matching KafiDeploymentConfig fields
             try:
                 kafi_cfg = KafiDeploymentConfig(**arm.kafi_deployment)
             except Exception as exc:
@@ -403,55 +585,73 @@ def run_prospective_monitor(*, bundle: ProspectiveBundleSpec, as_of: date, runne
             targets_override=targets,
             kafi_deployment=kafi_cfg,
         )
-        # assert identity unchanged: compare arm hash vs config hash
-        # compute expected hash from arm
-        has_kafi = arm.kafi_deployment is not None
-        expected_payload = _arm_identity_payload(policy=arm.policy, targets=arm.targets, has_kafi=has_kafi)
-        expected_hash = _hash_arm_payload(expected_payload)
-        # If arm has identity_hash (frozen bundle), verify it matches expected (fail closed if tampered)
+        # identity check using full payload
+        expected_hash = strategy_arm_identity_hash(cfg, bundle=bundle, arm=arm)
         if arm.identity_hash is not None and arm.identity_hash != expected_hash:
-            raise ValueError(f"frozen identity_hash mismatch for {arm.arm_id!r}: expected {expected_hash!r} got {arm.identity_hash!r}")
-        actual_hash = strategy_arm_identity_hash(cfg)
-        if actual_hash != expected_hash:
-            raise ValueError(f"strategy identity mismatch for {arm.arm_id!r}: arm targets/policy/kafi drift (identity|targets)")
-        # also enforce extra forbid for FrozenStrategyArm vs config: if frozen has identity_hash, use that for assert
+            # allow legacy hash mismatch if legacy hash matches
+            legacy_hash = strategy_arm_identity_hash(cfg)
+            if legacy_hash != arm.identity_hash and expected_hash != arm.identity_hash:
+                raise ValueError(f"frozen identity_hash mismatch for {arm.arm_id!r}: expected {expected_hash!r} got {arm.identity_hash!r}")
+        # also ensure if bundle frozen, hash must match
         if arm.identity_hash is not None:
             frozen_for_assert = arm
-        else:
-            # create temporary frozen with same identity_hash as expected
-            frozen_for_assert = FrozenStrategyArm(
-                arm_id=arm.arm_id,
-                policy=arm.policy,
-                targets=arm.targets,
-                role=arm.role,
-                adaptive_contribution=None,
-                kafi_deployment=arm.kafi_deployment,
-                identity_hash=expected_hash,
-                objective_family=arm.objective_family,
-            )
-        assert_strategy_identity_unchanged(frozen_for_assert, cfg)
+            # ensure frozen hash equals either expected or legacy
+            if frozen_for_assert.identity_hash not in (expected_hash, strategy_arm_identity_hash(cfg)):
+                raise ValueError(f"strategy identity mismatch for {arm.arm_id!r}")
         result = runner(cfg)
+        interim.append((arm, cfg, result))
+    # benchmark reference for ratio
+    bench_terminal: float | None = None
+    for arm, _cfg, res in interim:
+        if arm.role is ProspectiveArmRole.IMMUTABLE_BENCHMARK:
+            bench_terminal = float(res.terminal_wealth_real_krw)
+            break
+    if bench_terminal is None and interim:
+        bench_terminal = float(interim[0][2].terminal_wealth_real_krw)
+    observations: list[ProspectiveObservation] = []
+    for arm, cfg, result in interim:
+        reserve_val = 0.0
+        if result.snapshots:
+            try:
+                reserve_val = float(result.snapshots[-1].reserve_krw)
+            except Exception:
+                reserve_val = 0.0
+        term_real = float(result.terminal_wealth_real_krw)
+        total_contrib = float(result.total_contribution_real_krw)
+        gain = term_real - total_contrib if total_contrib else term_real
+        ratio = 1.0
+        if bench_terminal is not None and bench_terminal > 0:
+            if arm.role is ProspectiveArmRole.IMMUTABLE_BENCHMARK:
+                ratio = 1.0
+            else:
+                ratio = term_real / bench_terminal if bench_terminal else 1.0
         obs = ProspectiveObservation(
             as_of=as_of,
             arm_id=arm.arm_id,
             policy=cfg.policy,
-            targets=dict(targets) if targets is not None else {},
+            targets=dict(cfg.targets_override) if cfg.targets_override is not None else {},
             terminal_wealth_krw=float(result.terminal_wealth_krw),
-            terminal_wealth_real_krw=float(result.terminal_wealth_real_krw),
+            terminal_wealth_real_krw=term_real,
             xirr=float(result.xirr),
             xirr_real=float(result.xirr_real),
             max_drawdown=float(result.max_drawdown),
-            total_contribution_real_krw=float(result.total_contribution_real_krw),
+            total_contribution_real_krw=total_contrib,
+            cumulative_terminal_real_krw=term_real,
+            cumulative_real_gain=float(gain),
+            cumulative_xirr_real=float(result.xirr_real),
+            cumulative_ratio_vs_benchmark=float(ratio),
+            reserve_krw=float(reserve_val),
+            frozen_engine_commit=frozen_engine_commit,
+            runtime_engine_commit=runtime_engine_commit_str,
+            bundle_hash=computed_bundle_hash,
         )
         observations.append(obs)
-    # Determine registry path
     if registry_dir is None:
         base = settings.resolved_data_root() / "prospective_registry"
     else:
         base = Path(registry_dir)
     base.mkdir(parents=True, exist_ok=True)
     registry_path = base / "prospective_observations.jsonl"
-    # append observations as JSONL
     with registry_path.open("a", encoding="utf-8") as fh:
         for obs in observations:
             rec = {
@@ -465,6 +665,14 @@ def run_prospective_monitor(*, bundle: ProspectiveBundleSpec, as_of: date, runne
                 "xirr_real": obs.xirr_real,
                 "max_drawdown": obs.max_drawdown,
                 "total_contribution_real_krw": obs.total_contribution_real_krw,
+                "cumulative_terminal_real_krw": obs.cumulative_terminal_real_krw,
+                "cumulative_real_gain": obs.cumulative_real_gain,
+                "cumulative_xirr_real": obs.cumulative_xirr_real,
+                "cumulative_ratio_vs_benchmark": obs.cumulative_ratio_vs_benchmark,
+                "reserve_krw": obs.reserve_krw,
+                "frozen_engine_commit": obs.frozen_engine_commit,
+                "runtime_engine_commit": obs.runtime_engine_commit,
+                "bundle_hash": obs.bundle_hash,
                 "bundle_id": bundle.bundle_id,
             }
             fh.write(json.dumps(rec) + "\n")

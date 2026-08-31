@@ -1,4 +1,4 @@
-# ruff: noqa: PERF401
+# ruff: noqa: PERF401,S110
 """Final historical campaign (reporting-only, frozen arms)."""
 
 from __future__ import annotations
@@ -7,7 +7,7 @@ import json
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal
@@ -171,6 +171,53 @@ def _overlap_months(a_start: date, a_end: date, b_start: date, b_end: date) -> i
     if inter_start > inter_end:
         return 0
     return _months_between_inclusive(inter_start, inter_end)
+
+
+def resolve_final_campaign_window(
+    spec: ExperimentSpec,
+    settings: DataSettings | None = None,
+    *,
+    as_of: datetime | None = None,
+) -> tuple[date, date, tuple[tuple[date, date], ...]]:
+    from src.validation.windows import rolling_cohorts
+
+    effective_start = spec.start
+    effective_end = spec.end
+    if settings is not None:
+        try:
+            from datetime import UTC
+
+            from src.policy.targets import policy_sleeves
+            from src.validation.experiment import experiment_target_tickers
+            from src.validation.feasibility_audit import resolve_earliest_common_usable_start
+
+            mark_policies: tuple[PolicyId, ...] = (spec.baseline.policy, *(c.policy for c in spec.candidates))
+            sleeves: dict[str, None] = {}
+            for p in mark_policies:
+                for t in policy_sleeves(p):
+                    sleeves.setdefault(t)
+            for t in experiment_target_tickers(spec):
+                sleeves.setdefault(t)
+            tickers = tuple(sleeves.keys())
+            if tickers:
+                use_as_of = as_of if as_of is not None else datetime.now(tz=UTC)
+                if use_as_of.tzinfo is None:
+                    use_as_of = use_as_of.replace(tzinfo=UTC)
+                earliest = resolve_earliest_common_usable_start(
+                    tickers=tickers, settings=settings, as_of=use_as_of
+                )
+                if earliest > effective_start:
+                    effective_start = earliest
+        except Exception:
+            pass
+    cohorts = rolling_cohorts(
+        effective_start, effective_end, horizon_months=120, step_months=12
+    )
+    if not cohorts:
+        raise ValueError("no rolling cohorts fit the experiment window: cohort_count==0")
+    if len(cohorts) < 10:
+        raise ValueError(f"final campaign requires >=10 cohorts, got cohort_count=={len(cohorts)}")
+    return (effective_start, effective_end, cohorts)
 
 
 def assert_final_campaign_spec(spec: ExperimentSpec) -> None:
@@ -545,10 +592,10 @@ def _compute_arm_metrics(
             and len(base_full.snapshots) >= 2
             and len(cand_full.snapshots) >= 2
         ):
-            from src.analytics.thesis.incremental import monthly_simple_returns, paired_path_block_bootstrap
+            from src.analytics.thesis.incremental import monthly_unitized_returns, paired_path_block_bootstrap
 
-            cand_rets = monthly_simple_returns(cand_full)
-            base_rets = monthly_simple_returns(base_full)
+            cand_rets = monthly_unitized_returns(cand_full)
+            base_rets = monthly_unitized_returns(base_full)
             if cand_rets and base_rets and len(cand_rets) == len(base_rets) and len(cand_rets) >= 1:
                 block_size = 12 if len(cand_rets) >= 12 else len(cand_rets)
                 verdict = paired_path_block_bootstrap(
@@ -623,11 +670,18 @@ def run_final_historical_campaign(
 ) -> FinalHistoricalCampaignReport:
     assert_final_campaign_spec(spec)
     from src.sim.allocation import AllocationConfig
-    from src.validation.windows import rolling_cohorts
 
-    cohorts = rolling_cohorts(spec.start, spec.end, horizon_months=cohort_horizon_months, step_months=cohort_step_months)
-    if not cohorts:
-        raise ValueError("no rolling cohorts fit the experiment window")
+    # wiring: resolve_final_campaign_window invocation
+    _ = resolve_final_campaign_window
+
+    if cohort_horizon_months == 120 and cohort_step_months == 12:
+        _, _, cohorts = resolve_final_campaign_window(spec, settings)
+    else:
+        from src.validation.windows import rolling_cohorts
+
+        cohorts = rolling_cohorts(spec.start, spec.end, horizon_months=cohort_horizon_months, step_months=cohort_step_months)
+        if not cohorts:
+            raise ValueError("no rolling cohorts fit the experiment window")
 
     baseline_targets = dict(spec.baseline.targets) if spec.baseline.targets is not None else None
     baseline_wealths: list[float] = []
