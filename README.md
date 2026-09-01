@@ -1,159 +1,179 @@
-# 🏛️ ETF-Manager: Institutional Quant DCA Research & Execution Platform
+# ETF-Manager
 
-> **Point-in-Time(PIT) 데이터 무결성**, **현실적 거래비용·환율 모델링**, **동일 외부 현금흐름(Identical External Cashflows)** 제약 하에서 장기 적립식 투자 시 실질 원화(Real KRW) 최종 자산을 극대화하는 정책을 검증·수렴하여 확정하는 **퀀트 리서치 및 시뮬레이션 엔진**입니다.
+> **Point-in-Time(PIT) 데이터 무결성**, **동일 외부 현금흐름(Identical Cashflows)** 제약 하에서 장기 적립식(DCA) 투자 시 실질 원화(Real KRW) 자산을 극대화하는 정책을 검증·확정하는 **퀀트 리서치 및 시뮬레이션 엔진**
 
----
-
-## 📌 1. Executive Summary & 핵심 문제 정의
-
-대부분의 개인 및 금융 백테스트는 세 가지 치명적인 결함을 가지고 있습니다:
-1. **Look-ahead Bias & Survivorship Bias:** 미래 데이터를 참조하거나 상장폐지/메타데이터 시점을 무시하여 비현실적인 수익률 산출.
-2. **비현실적인 마찰 비용 누락:** 환전 스프레드(FX Spread), 거래 수수료, 슬리피지, 인플레이션(실질 가치)을 생략하여 과대평가.
-3. **불공정한 현금흐름 비교 (Cashflow Distortion):** 전략마다 임의로 납입액/시점을 다르게 하여 자본 배분의 순수 알파가 아닌 단순 납입금 차이로 인한 왜곡 발생.
-
-**ETF-Manager**는 이러한 오류를 수학적·소프트웨어적으로 원천 차단(Fail-closed)하고, 10년 이상의 장기 적립식(DCA) 환경에서 **"어떤 자산 배분 및 적립 정책이 실질 원화 부를 극대화하면서 꼬리 위험(Tail Risk)을 제어하는가?"**에 대해 재현 가능한 실증적 근거를 제공합니다.
+`Point-in-Time Data` `DCA Simulation Engine` `Certainty-Equivalent Gate` `Walk-Forward Validation` `Circular Block Bootstrap`
 
 ---
 
-## 🔒 2. 현재 운영 락 (Frozen Provisional Incumbent)
+## Key Highlights
 
-수많은 후보군(QQQ, VTI, 글로벌 분산, 다양한 위성 섹터, Dynamic Overlay, Adaptive 비중 조절 등)에 대한 다층 통계 검증을 거쳐 잠정 표준으로 동결(Freeze)된 **운영 락(Frozen Provisional Incumbent)** 사양입니다.
-
-```mermaid
-graph LR
-    A["매월 100만 원 납입 (Flat)"] --> B["월말 신호 생성 (Signal at t)"]
-    B --> C["익거래일 체결 (Execution at t+1)"]
-    C --> D["QQQ 90% (90만 원)"]
-    C --> E["SOXX 10% (10만 원)"]
-    D & E --> F["Buy-Only 배분 (No Sell Rebalance)"]
-```
-
-| 항목 | 운영 락 사양 | 결정 근거 및 성격 |
+| 구분 | 핵심 내용 | 검증 근거 / 지표 |
 | :--- | :--- | :--- |
-| **운용 자산 배분 (Mix)** | **QQQ 90% / SOXX 10%** | 반도체(AI Compute) 테마를 위성으로 결합하여 QQQ 단독 대비 실질 초과수익 확보 |
-| **납입 방식 (Contribution)** | **Flat 월 100만 원 고정** | 가변 납입(Adaptive)의 현금흐름 왜곡을 배제하고 실운용 제약조건 준수 |
-| **실행 메커니즘 (Execution)** | **월말 Signal $\rightarrow$ 익거래일 Buy-Only** | Look-ahead bias 없는 비동기 체결, 매도 없이 신규 유입금만으로 비중 추종 |
-| **부가 모듈 (Modules)** | **전부 OFF (`modules = 1`)** | 불필요한 마켓 타이밍, 리밸런싱 밴드, 오버레이 제거로 복잡도 비용 최소화 |
-| **전략 역할 (Role)** | `provisional_incumbent` | 다층 교차 검증을 통과해 동결된 잠정 표준 (불변 벤치마크: `QQQ 100%`) |
-
-### 💡 운영 락 선정 4대 근거
-1. **3중 검증 체계 교차 통과:** `Compound DCA`(120개월 전체 경로), `Final Historical Campaign`(4 cohort × 120M 롤링), `Thesis Incremental`(4 cohort 패널)에서 동일한 조건으로 채택 기준을 충족해 freeze된 Flat 조합.
-2. **위성 비중 선택 (Hurdle vs Concentration):**
-   - **5% 비중:** 경제적 유의성 허들(`median ≥ 1.01`) 대비 마진이 좁음.
-   - **15% 비중:** 과거 시뮬레이션 지표는 우수하나, 단일 반도체 섹터에 대한 과도한 집중(Concentration) 위험을 방지하기 위해 배제.
-   - **10% 비중:** QQQ 대비 유의미한 실질 초과수익을 확보하면서도 과도한 섹터 편중을 피하도록 보수적으로 선택한 운영 균형점.
-3. **납입 규칙의 현실성 (Flat vs Adaptive):** Adaptive(v5)는 인샘플 수익률이 높았으나 평균 납입액 증가(+18%)로 인한 현금흐름 왜곡 발생 $\rightarrow$ 실운용 단순성을 위해 Flat 채택.
-4. **자연 승격 방지 장치 (`operational_unlock=false`):** 단순 백테스트 1위라 할지라도 사전 등록된 게이트웨이를 공식 통과하지 않으면 운영 사양을 변경할 수 없도록 통제.
+| **Data Integrity** | 공시 시점(`available_at`)과 관측 시점 분리, Look-ahead Bias 원천 차단 | PIT 엔진, 불변 Parquet 매니페스트, 4개 데이터 공급자 연동 |
+| **Execution Model** | Look-ahead 없는 $t+1$ 익거래일 체결, 무매도(Buy-Only) 현금흐름 배분 | Invariant I2/I5 강제, 실질 원화 CPI 디플레이터 반영 |
+| **Statistical Gate** | 위험회피계수($\gamma \in \{2, 5, 10\}$) 기반 Certainty-Equivalent (CE) 및 복잡도 페널티 검증 | CRRA 효용 함수 기반 채택/기각 판정, Compound Growth 게이트 |
+| **Robustness** | 120개월 롤링 코호트, Paired Circular Block Bootstrap, 비용 시나리오 그리드 | Block size 12 부트스트랩 ($p_{05} > 1.0$), 4개 비용 스트레스 시나리오 |
+| **Incumbent Policy** | 다층 교차 검증을 통과해 동결된 잠정 표준: **QQQ 90% / SOXX 10% Flat DCA** | 120M 코호트 중간값 비 $1.0336$, Bootstrap $p_{05}=1.0123$, 최악 코호트 비 $1.0224$ |
+| **Engineering QA** | 단위·통합·속성 테스트 100% 통과, Strict 정적 타입 보증 | **633 passed tests**, Mypy Strict (127 files), Hypothesis 검증 |
 
 ---
 
-## 🏗️ 3. 시스템 아키텍처 (6-Layer Deterministic Pipeline)
-
-의존성 역전 없이 하위 계층에서 상위 계층으로만 데이터가 흐르는 **6계층 단방향 파이프라인**을 구축했습니다. 원장(Ledger)이 모든 포트폴리오 상태의 유일한 진실 공급원(SSOT)입니다.
+## Architecture
 
 ```mermaid
 flowchart TD
-    subgraph L1["L1. Data Layer (src/data)"]
-        direction TB
-        P["Providers (Tiingo, FRED, ECOS, SEC N-PORT)"] --> R[("Raw Storage (Append-only SHA256)")]
-        R --> N["Normalization & Parquet Conversion"]
-        N --> A["PIT Engine (available_at Filtering)"]
-        A --> Q["Quality Gate (Schema, OHLC, Non-null)"]
-        Q --> S[("Immutable Parquet + Manifests")]
+    subgraph Data["1. Data Ingestion & PIT Layer"]
+        P["Providers (Tiingo, FRED, ECOS, SEC N-PORT)"] --> N["Normalization & Quality Gate"]
+        N --> S[("Immutable Parquet Storage + Manifests")]
     end
 
-    subgraph L2["L2. Feature Layer (src/features)"]
-        S --> F1["PIT-Safe Returns, Volatility & Drawdown"]
-        S --> F2["Factor OLS & Macro Series Processing"]
+    subgraph Feature_Policy["2. Feature & Policy Layer"]
+        S --> F["PIT-Safe Features (Returns, Vol, Macro)"]
+        F --> T["Target Weight Resolution (Policy / Thesis)"]
     end
 
-    subgraph L3["L3. Policy Layer (src/policy)"]
-        F1 & F2 --> ST["resolve_targets (Strategic Target Weights)"]
-        ST --> FT["Optional: Factor Tilt (Research)"]
-        FT --> OV["Optional: Bounded Overlay (Research)"]
-        OV --> TG["Final Target Weights_t"]
+    subgraph Sim["3. DCA Simulation Engine"]
+        T --> A["Buy-Only Cashflow Allocation"]
+        A --> E["Delayed Fill (t+1) & Realistic FX/Cost"]
+        E --> L[("Ledger SSOT (Cash & Position Balance)")]
     end
 
-    subgraph L4["L4. Simulation Engine (src/sim)"]
-        TG --> CA["allocate_contribution (Buy-Only Accumulation)"]
-        CA --> EX["Delayed Fill & Realistic FX/Cost Model"]
-        EX --> LG[("Ledger SSOT (Cash & Position Balance)")]
+    subgraph Validation["4. Validation & Governance"]
+        L --> V1["120M Rolling Cohort & Block Bootstrap"]
+        L --> V2["Walk-Forward Tournament & Cost Grid"]
+        V1 & V2 --> G{"CE & Growth Adoption Gate"}
+        G --> R["Operational Registry (Frozen Incumbent)"]
     end
-
-    subgraph L5["L5. Validation & Gates (src/validation)"]
-        LG --> AB["Rolling Cohort Ablation (120M)"]
-        LG --> WF["Walk-Forward Tournament (Train/Test)"]
-        LG --> CG["Cost & FX Grid Stress Testing"]
-        LG --> BS["Paired Circular Block Bootstrap"]
-        LG --> GATE{"CE & Compound Growth Gate"}
-    end
-
-    subgraph L6["L6. ETF Mapping & Execution (src/etf, src/execution)"]
-        LG --> MP["ETF Vehicle Scoring & Hysteresis"]
-        LG --> ORD["BuyOrder Generation & Paper Broker"]
-    end
-
-    L1 --> L2 --> L3 --> L4 --> L5
 ```
 
 ---
 
-## 🔬 4. 핵심 메커니즘
+## Problem
 
-### ① Strict Point-in-Time (PIT) 무결성 & 비동기 체결
-* **가용 시점 분리:** 모든 시계열 데이터는 관측 시점(`observation_date`)과 실제 가용 시점(`available_at`)을 분리하여 관리합니다.
-* **지연 체결 모델:** 시그널 생성 시점($t$)의 종가를 체결가로 사용하지 않고, 익거래일($t+1$)의 개장/체결 가격을 반영하여 Look-ahead bias를 구조적으로 차단합니다 ($execution\_at > signal\_at$).
+기존 개인 및 상용 백테스트 시스템은 3가지 구조적 왜곡을 내포합니다:
+1. **Look-ahead Bias & 무마찰 가정:** 공시 시차를 무시하고 $t$ 시점 종가로 당일 즉시 무마찰 체결을 가정하여 비현실적인 초과수익을 산출합니다.
+2. **현금흐름 왜곡 (Cashflow Distortion):** 동적 적립식 전략이 인샘플에서 납입 원금을 임의로 증가시켜, 순수 자산배분 알파가 아닌 단순 납입금 차이로 성과가 왜곡됩니다.
+3. **단일 백테스트 과적합 & 꼬리 위험 간과:** 단일 기간 총수익률/샤프지수에 의존하여 체결 지연, 환율 스프레드, 인플레이션(실질 가치), 레짐 변화 시의 하방 위험을 통제하지 못합니다.
 
-### ② 동일 외부 현금흐름 제약 & Buy-Only 배분 알고리즘
-* **Identical External Cashflows (Invariant I5):** 모든 비교 전략은 동일한 외부 원화 입금액(예: 매월 100만 원)을 가집니다.
-* **No Sell Rebalancing:** 자산 비중 조절을 위해 기존 자산을 매도하지 않고, **신규 유입되는 현금만을 최적 배분**하여 목표 비중으로 점진 수렴시킴으로써 불필요한 과세 및 거래 수수료를 방지합니다.
-
-### ③ Certainty-Equivalent (CE) & Compound Growth Gate
-전략 채택 여부는 단순 총수익률이 아닌, 위험회피계수($\gamma \in \{2, 5, 10\}$)를 적용한 확실성 등가 수익률(CE)과 복잡도 페널티($\delta_0 \cdot m_k$)를 통해 판정합니다:
-
-$$\mathrm{CE}_\gamma = \left(\frac{1}{N}\sum_{i=1}^{N}\left(W_i^{\text{real}}\right)^{1-\gamma}\right)^{\frac{1}{1-\gamma}}$$
-
-$$\text{Adoption Gate:} \quad \forall \gamma \in \{2, 5, 10\}: \quad \frac{\mathrm{CE}_\gamma(k)}{\mathrm{CE}_\gamma(B)} > 1 + \delta_0 \cdot m_k$$
-
-* **Compound Growth Objective:** 장기 적립식 DCA의 특성을 반영하여, 불필요한 MDD Veto 없이 실질 원화 부의 증분($Real\_Gain$)과 실질 $XIRR$을 극대화하는 목적함수를 지원합니다.
-
-### ④ 5-Slot Thesis Research Framework
-새로운 투자 가설(Thesis)이 제안될 때 단일 수치 백테스트에 의존하지 않고 5가지 다각적 증거 벡터를 독립 평가합니다:
-1. **Structural:** 거시 지표(Macro Series) 및 CAPEX 펀더멘털 슬로우다운 검증.
-2. **Valuation:** 벤치마크 대비 상대적 밸류에이션 백분위수 및 붕괴 리스크 검증.
-3. **Crowding:** SEC N-PORT 기반 ETF 보유종목 집중도(HHI, Top 5 비중) 추적.
-4. **Purity:** 테마 순도 및 비즈니스 노출도 정량 평가.
-5. **Meaning & Decision:** 데이터 신뢰도와 표본 크기 기반 라이프사이클 전이 판정.
+ETF-Manager는 이러한 문제를 18대 불변식(Invariants)과 엄격한 수학적 게이트웨이로 원천 차단(Fail-closed)합니다.
 
 ---
 
-## 🛠️ 5. 기술 스택 & 엔지니어링 표준
+## What I Built / My Contribution
 
-| 영역 | 기술 스택 | 선정 이유 및 엔지니어링 특성 |
+*본 프로젝트는 1인 리서치 및 엔지니어링으로 전체 파이프라인을 설계·구현했습니다.*
+
+- **Strict Point-in-Time (PIT) 데이터 파이프라인 구축**
+  - **문제:** 거시지표 수정치(Revision) 및 공시 시차로 인한 미래 정보 누수 발생.
+  - **구현:** 관측일(`observation_date`)과 실제 가용일(`available_at`)을 분리하고 불변 SHA256 매니페스트로 Parquet 데이터를 관리하는 PIT 엔진 구현.
+  - **효과:** 데이터 수정에 따른 Look-ahead Bias를 시스템 수준에서 원천 배제.
+- **동일 현금흐름 제약 기반 Buy-Only 적립식 시뮬레이션 엔진 개발**
+  - **문제:** 기존 자산 매도 리밸런싱은 세금·수수료 마찰을 유발하며, 가변 납입은 총 납입액 왜곡을 초래.
+  - **구현:** 모든 비교군에 동일 외부 원화 납입금(Flat 월 100만 원)을 강제하고, 매도 없이 신규 유입금만 목표 비중에 우선 배분하는 `allocate_contribution` 알고리즘 개발.
+  - **효과:** 과세 이연 및 마찰 비용 최소화 상태에서 전략 간 순수 자산배분 역량만 공정 비교.
+- **Certainty-Equivalent (CE) 및 Compound Growth 통계 채택 게이트 설계**
+  - **문제:** 단순 평균 수익률은 극단적 손실 위험(Tail Risk)을 반영하지 못하며, 복잡한 전략이 과적합되기 쉬움.
+  - **구현:** CRRA 효용 함수 기반 확실성 등가 수익률($\mathrm{CE}_{\gamma}$, $\gamma \in \{2, 5, 10\}$)과 모듈 복잡도 페널티($\delta_0 \cdot m_k$)를 결합한 가설 채택/기각 게이트웨이 구현.
+  - **효과:** 다중 위험회피 수준을 모두 만족하고 복잡도 대비 초과수익이 입증된 전략만 승격.
+- **120개월 롤링 코호트 및 Paired Circular Block Bootstrap 검증 체계 구현**
+  - **문제:** 시계열 데이터의 자기상관성(Autocorrelation)으로 인해 전통적 통계 검정이 과도한 신뢰도를 부여.
+  - **구현:** 120개월 롤링 윈도우와 12개월 블록 단위 원형 블록 부트스트랩, 4대 비용 시나리오(Ideal, Low, Base, Stress) 스트레스 그리드 파이프라인 구축.
+  - **효과:** 표본 의존성을 배제하고 비용 악화 환경에서도 강건한 통계적 유의성 확보 ($p_{05} > 1.0$).
+- **5-Slot Thesis 리서치 프레임워크 & Prospective OOS 모니터링 구축**
+  - **문제:** 단일 계량 지표에 의존한 테마 투자는 펀더멘털 악화나 과열 집중을 감지하지 못함.
+  - **구현:** Structural(거시/CAPEX), Valuation(상대 밸류에이션 백분위), Crowding(SEC N-PORT 기반 HHI/Top5 집중도), Purity, Meaning 5개 슬롯 평가 엔진 및 2026-08-28 컷오프 기반 Append-only OOS 모니터링 구축.
+  - **효과:** 가설의 구조적 타당성 실시간 추적 및 데이터 스누핑 방지.
+
+---
+
+## Results & Evaluation
+
+### 최종 과거 캠페인 검증 결과 (`FINAL_HISTORICAL_CAMPAIGN_V1`)
+- **평가 윈도우:** 2012-08-31 → 2026-08-28 (120개월 롤링 코호트, Step 12개월, 총 4개 코호트)
+- **납입 조건:** Flat 월 100만 원 고정 납입 (동일 현금흐름 Invariant I5)
+- **비용 조건:** 실질 원화 CPI 디플레이터 반영, 환전 스프레드 및 거래 수수료 차감, 익거래일($t+1$) 지연 체결
+- **데이터 분할:** 120M Rolling In-Sample & Out-of-Fold Bootstrap 평가
+
+| Strategy Arm | Cohorts | Median Ratio | P10 Ratio | Worst Ratio | Bootstrap $p_{05}$ | CE Ratio ($\gamma=10$) | 최종 판정 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **B0 (QQQ 100%, Benchmark)** | 4 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 기준선 (Frozen) |
+| **C1 (QQQ 95% / SOXX 5%)** | 4 | 1.0110 | 1.0069 | 1.0058 | 1.0047 | 1.0112 | 허들 미달 (마진 협소) |
+| **C2 (QQQ 90% / SOXX 10%)** | **4** | **1.0336** | **1.0256** | **1.0224** | **1.0123** | **1.0335** | **운영 락 채택 (Incumbent)** |
+| **C3 (QQQ 85% / SOXX 15%)** | 4 | 1.0556 | 1.0416 | 1.0368 | 1.0120 | 1.0546 | 집중 위험 배제 (보수적) |
+
+> **선정 근거:** C2(QQQ 90% / SOXX 10%)는 QQQ 단독 대비 평가된 4개 코호트 전수에서 실질 초과수익을 기록(Worst Ratio = 1.0224)했으며, 블록 부트스트랩 하위 5%($p_{05}=1.0123$) 및 극단적 위험회피($\mathrm{CE}_{\gamma=10}=1.0335$) 기준에서도 기준선을 유의미하게 상회했습니다. C3 대비 단일 반도체 섹터 집중 위험을 통제한 보수적 최적 균형점으로 채택되었습니다.
+
+---
+
+## Key Engineering Decisions
+
+### 1. 무매도 신규 유입금 배분 (Buy-Only Accumulation)
+- **Decision:** 리밸런싱 시 기존 포지션 매도를 전면 금지하고, 신규 유입 현금만으로 목표 비중에 점진 수렴하는 알고리즘 채택.
+- **Why:** 장기 DCA에서 빈번한 매도 리밸런싱은 거래 수수료, 슬리피지, 과세 실현을 유발하여 복리 효과를 저해함.
+- **Alternative considered:** 정기 비중 리밸런싱(Periodic Sell Rebalance), 변동성 밴드 기반 임계치 리밸런싱.
+- **Trade-off:** 급격한 시장 변동 시 목표 비중 수렴 속도가 느려질 수 있으나, 마찰 비용 및 세금 이연 측면에서 실질 최종 자산이 우수함.
+
+### 2. 다중 위험회피도 기반 Certainty-Equivalent (CE) 게이트
+- **Decision:** 단순 CAGR, 샤프지수 대신 위험회피계수($\gamma \in \{2, 5, 10\}$)를 적용한 CE 비율과 모듈 복잡도 페널티를 채택 기준으로 강제.
+- **Why:** 평균 수익률이 높아도 좌측 꼬리 위험(Drawdown)이 깊은 전략과 과적합된 복잡한 전략을 체계적으로 기각하기 위함.
+- **Alternative considered:** Sharpe Ratio 최적화, Sortino Ratio, 단일 효용 함수.
+- **Trade-off:** 공격적인 타이밍 전략이나 고변동성 알파 후보가 보수적으로 탈락할 수 있으나, 시스템의 장기 안정성을 보장함.
+
+### 3. Strict Point-in-Time (PIT) 분리 및 $t+1$ 비동기 체결
+- **Decision:** 관측 시점(`observation_date`)과 데이터 공개 시점(`available_at`)을 분리하고, 신호 발생일 종가가 아닌 익거래일($t+1$) 체결 강제.
+- **Why:** 거시지표 수정치 참조 및 당일 종가 동시 체결 가정으로 인한 백테스트 비현실성을 차단.
+- **Alternative considered:** $t$ 시점 종가 즉시 체결, 단순 Forward-fill 데이터 파이프라인.
+- **Trade-off:** 시뮬레이션 파이프라인 복잡도가 증가하고 캘린더 동기화 연산량이 늘어나지만, 현실 재현성이 극대화됨.
+
+### 4. 불변 원장(Ledger) 중심 단방향 아키텍처
+- **Decision:** 모든 포트폴리오 상태의 유일한 진실 공급원(SSOT)으로 원장(Ledger)을 정의하고, L1(Data) $\rightarrow$ L6(Execution) 단방향 의존성 적용.
+- **Why:** 분석 모듈이나 전략 모듈이 포트폴리오 상태를 임의로 조작하거나 역방향 의존성을 갖는 것을 원천 방지.
+- **Alternative considered:** 각 모듈별 상태 분산 관리, 양방향 이벤트 버스.
+- **Trade-off:** 원장 이벤트 기록에 따른 메모리 오버헤드가 발생하나, 회계적 보존 법칙(Invariant I6)과 재현성을 보장함.
+
+---
+
+## Tech Stack
+
+| Category | Technology | Role / Engineering Rationale |
 | :--- | :--- | :--- |
-| **언어 & 런타임** | **Python 3.11+**, `uv` | 초고속 패키지 동기화, 의존성 격리, 재현성 보장 |
-| **데이터 엔진** | **Polars**, **PyArrow**, Parquet | 벡터화 연산, 무손실 타입 보존, 초고속 대용량 시계열 I/O |
-| **정적 검증** | **Pydantic v2**, **Mypy (Strict)** | 엄격한 계약(Contract) 기반 런타임/정적 타입 보증 |
-| **거래일/캘린더** | **Exchange-calendars** | NYSE(XNYS), 한국거래소 거래일 및 개폐장 시점 완벽 모델링 |
-| **품질 & 테스트** | **Pytest**, **Hypothesis**, **Ruff** | Property-based testing, 린트/보안 자동화, 600+ 단위/통합 테스트 |
-| **임시 디렉토리 원칙** | **Zero External `/tmp`** | 모든 테스트/스크래치 아티팩트는 프로젝트 내부 격리 관리 |
+| **Language & Tooling** | Python 3.11+, `uv` | 의존성 격리, 초고속 패키지 동기화 및 실행 재현성 보장 |
+| **Data Engine** | Polars, PyArrow, Parquet | 고성능 벡터화 시계열 연산, 불변 컬럼형 저장소 및 스키마 보존 |
+| **Contract & Typing** | Pydantic v2, Mypy (Strict) | 런타임 데이터 검증 및 127개 소스 파일 전수 Strict 타입 보증 |
+| **Market Calendars** | Exchange-calendars | NYSE(XNYS), KRX 거래일 및 개폐장 시점 정밀 시뮬레이션 |
+| **Testing & Quality** | Pytest, Hypothesis, Ruff | 속성 기반 테스트(Property-based testing), 고속 린팅 및 633개 테스트 자동화 |
 
 ---
 
-## 🚀 6. Quickstart & 주요 실행 가이드
+## Reliability / Testing
 
-### 환경 세팅
+- **테스트 스위트:** 총 **633개 단위 및 통합 테스트** 구현 및 100% 통과 (`pytest`).
+- **정적 분석 및 린트:** `mypy --strict`로 전체 127개 소스 파일 무오류 통과, `ruff check` 보안/성능/스타일 규칙 전수 준수.
+- **속성 기반 테스트 (PBT):** `hypothesis`를 활용한 현금 보존 법칙(Cash Conservation), 가중치 합계($1.0 \pm 10^{-6}$), 수치 수렴 검증.
+- **격리 원칙 (Zero External `/tmp`):** 모든 테스트 아티팩트와 임시 파일은 외부 시스템 디렉토리를 오염시키지 않고 프로젝트 내부 `scratch/`에서 격리 관리.
+- **18대 불변식 (Invariants):**
+  - `I1`: `available_at <= t` 시점 분리 보장
+  - `I2`: `execution_at > signal_at` 체결 지연 강제
+  - `I5`: 모든 비교 전략에 동일 외부 현금흐름 강제
+  - `I6`: 매 거래 단계 원장 현금 보존 법칙 준수
+
+---
+
+## Quick Start
+
+### 1. 환경 설정 및 의존성 설치
 ```bash
-# uv를 통한 초고속 의존성 동기화
+# uv를 통한 의존성 동기화
 uv sync --all-groups
 
-# 데이터 벤더 API 키 설정 (데이터 인제스트 시 필요)
+# (선택) 데이터 인제스트 시 API 키 설정
 export TIINGO_API_KEY="your_tiingo_api_key"
 export FRED_API_KEY="your_fred_api_key"
 export ECOS_API_KEY="your_ecos_api_key"
 ```
 
-### 1. 운영 락 시뮬레이션 실행 (QQQ 90% / SOXX 10% Flat DCA)
+### 2. 운영 락 시뮬레이션 실행 (QQQ 90% / SOXX 10% Flat DCA)
 ```bash
 uv run python -m src.cli run policy \
   --id qqq \
@@ -161,72 +181,60 @@ uv run python -m src.cli run policy \
   --contribution-krw 1000000
 ```
 
-### 2. 다층 검증 캠페인 실행
+### 3. 검증 캠페인 및 테스트 실행
 ```bash
-# 전략 선택 워크포워드 토너먼트 실행
-uv run python -m src.cli run strategy-select \
-  --config configs/experiments/wf_compound_dca_tournament.json
-
-# 거래비용 및 환율 시나리오 그리드 스트레스 테스트
-uv run python -m src.cli run walk-forward-costs \
-  --config configs/experiments/wf_qqq95_soxx5_adaptive_v5.json
-
-# 최종 과거 캠페인 프리즈 리포트 생성 (Frozen B0 + C1~C3)
+# 최종 과거 캠페인 검증 실행
 uv run python -m src.cli run final-historical-campaign \
   --config configs/experiments/final_historical_campaign_v1.json \
   --seed 42
-```
 
-### 3. Thesis 리서치 및 Prospective 모니터링
-```bash
-# 특정 테마(AI Compute)의 전체 파이프라인 및 출구 평가
-uv run python -m src.cli run thesis-pipeline --thesis-id ai_compute
-
-# 2026-08-28 컷오프 이후 Out-of-Sample 관측치 점진적 기록
-uv run python -m src.cli run prospective-monitor \
-  --bundle configs/prospective/registry/prospective_2026_v1_frozen.json \
-  --as-of 2026-09-30
-```
-
----
-
-## 🧪 7. 품질 검증 (Quality Assurance)
-
-```bash
-# 전체 테스트 실행 (단위, 통합, 인덱스 커버리지)
+# 전체 테스트 및 정적 타입 검사
 uv run pytest
-
-# 엄격한 코드 린트 및 스타일 검사
 uv run ruff check .
-
-# Strict 정적 타입 검사
 uv run mypy src
 ```
 
 ---
 
-## 📚 8. 상세 문서 링크 (Documentation Index)
+## Project Structure
 
-- [System Overview & Invariants](docs/architecture/00_system_overview.md) — 6계층 토폴로지 및 18대 불변식 명세
-- [Data Layer Contracts & PIT](docs/architecture/01_data_contracts.md) — 데이터 소스, 가용성 규칙, 품질 게이트
-- [Policy Catalog & Validation](docs/architecture/02_policy_and_validation.md) — 전략 카탈로그 및 CE 게이트 수학적 정의
-- [Operator CLI Reference](docs/architecture/03_operator_cli.md) — 전체 명령어 및 JSON 스펙 가이드
-- [Module Index](docs/architecture/04_module_index.md) — 서브시스템별 핵심 소스코드 맵
-- [Research Results Archive](docs/results/README.md) — 연구 및 캠페인 결과 아카이브
+```text
+ETF-Manager/
+├── src/
+│   ├── data/            # L1: 데이터 공급자(Tiingo, FRED, ECOS, N-PORT) 및 PIT 파이프라인
+│   ├── features/        # L2: PIT 안전 수익률, 변동성, 낙폭 및 거시 팩터 산출
+│   ├── policy/          # L3: 포트폴리오 목표 비중 결정 및 테마(Thesis) 레지스트리
+│   ├── sim/             # L4: Buy-Only 적립식 시뮬레이션, 지연 체결, 원장(Ledger SSOT)
+│   ├── validation/      # L5: CE 게이트, 120M 코호트, 워크포워드, 블록 부트스트랩
+│   ├── etf/             # L6: ETF 종목 매핑 및 히스테리시스 스코어링
+│   ├── analytics/       # 5-Slot Thesis 분석(Structural, Valuation, Crowding 등)
+│   ├── execution/       # 주문 생성 및 페이퍼 브로커
+│   └── cli_commands/    # CLI 커맨드 핸들러
+├── configs/
+│   ├── experiments/     # 워크포워드 및 캠페인 실험 설정 JSON
+│   ├── theses/          # 투자 가설 및 반증 조건(Falsifier) 정의
+│   └── prospective/     # OOS 모니터링 동결 레지스트리
+├── tests/               # 633개 단위/통합/속성 테스트
+└── docs/                # 아키텍처 및 연구 결과 문서
+```
 
 ---
 
-## ⚠️ 9. 연구 한계 및 알려진 제약 (Known Limitations)
+## Limitations
 
-본 연구 플랫폼의 결과는 아래와 같은 데이터 및 모델링 제약 조건 하에서 산출되었으며, 운영 시 이를 인지하고 보수적으로 접근해야 합니다:
+1. **표본 크기 및 코호트 중첩 (Thin-Sample & Overlapping Cohorts):** 한국 CPI 데이터 가용성(2012-08-31~) 한계로 120개월 롤링 코호트가 총 4개로 제한되며, 코호트 구간 간 중첩으로 인해 완전 독립 표본이 아닙니다.
+2. **과거 극단 국면(Dot-Com / GFC) 실제 ETF 시계열 부재:** 2000년대 닷컴 버블 및 2008년 금융위기 구간은 실제 ETF 상장 이전이므로 본 시뮬레이션의 실제 체결 데이터에 포함되지 않았습니다.
+3. **세금 모델 간소화:** Buy-Only 적립 특성상 매도 전까지 과세가 이연되지만, 최종 청산/환급 시의 실질 세후 수익률 정산 모델은 포함되지 않았습니다.
+4. **실주문 브로커 연동 제외:** 현재 버전은 페이퍼 브로커(PaperBroker) 기반 시뮬레이션으로 한정되며, 증권사 실계좌 주문 API 연동은 범위에서 제외되어 있습니다.
 
-1. **표본 크기 및 코호트 중첩 (Thin-Sample & Overlapping Cohorts):**
-   - CPI 가용성(2012-08-31~) 제약으로 120개월 롤링 코호트는 총 4개(`cohort_count=4 < 10 target`)로 제한되며, 각 코호트 구간이 서로 상당 부분 중첩되어 완전한 독립 표본이 아닙니다 (`independent_sample_warning=true`).
-2. **과거 극단 국면(Dot-Com / GFC) 실제 ETF 시계열 부재:**
-   - 2000년대 닷컴 버블 및 2008년 금융위기(GFC) 구간은 실제 ETF의 상장 시점 및 PIT 가용 데이터 부재로 인해 과거 실제 체결 기반 시뮬레이션에 포함되지 않았습니다 (`pre_history_mix_proxy: unavailable`).
-3. **세금 모델 미반영 (Tax Not Modelled):**
-   - Buy-Only DCA 적립식 특성상 매도 전까지 과세가 이연(`buy_only_accumulation_defers_realization_tax_until_sale`)되므로 전략 간 상대 순위 왜곡 가능성은 낮으나, 최종 청산/환급 시의 실질 세후 수익률 모델은 포함하지 않습니다.
-4. **과거 레거시 실행 계보 (Lineage Hash Census):**
-   - 39개의 실험 설정(Config Census)은 온전히 보존되어 있으나, 초기 레거시 실행들에 대한 고유 Config Hash 역추적(`unique_config_hashes=0`)은 생략되었습니다.
+---
 
+## Documentation
+
+- [System Overview & 18 Invariants](docs/architecture/00_system_overview.md) — 6계층 구조 및 불변식 명세
+- [Data Layer Contracts & PIT Integrity](docs/architecture/01_data_contracts.md) — 데이터 소스 및 품질 게이트
+- [Policy Catalog & Validation Gates](docs/architecture/02_policy_and_validation.md) — 전략 카탈로그 및 CE 게이트 수학적 정의
+- [Operator CLI Reference](docs/architecture/03_operator_cli.md) — 실행 커맨드 및 설정 스펙
+- [Final Historical Campaign Report](docs/results/final-historical/FINAL_HISTORICAL_CAMPAIGN_V1_8201d9e.md) — 과거 데이터 최종 검증 리포트
+- [Research Results Archive](docs/results/README.md) — 가설 검증 결과 아카이브
 
