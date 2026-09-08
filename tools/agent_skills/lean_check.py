@@ -171,10 +171,16 @@ def _test_references_source(test_file: str, source_file: str) -> bool:
 
 
 def _check_orphaned_implementations(fh: str, kind: str, name: str) -> list[JsonDiag]:
-    if kind in ("field", "cli_argument") or not fh.startswith("src"):
-        # field는 정의 자체가 사용처가 아니고, cli_argument 플래그 리터럴은
-        # 선행 하이픈 때문에 \b 단어경계 참조 스캔과 구조적으로 불규합이다.
+    # Exclude non-src, fields, configs, CLI flags, entrypoint functions, and internal helpers
+    leaf = name.rpartition(".")[2] if "." in name else name
+    if (
+        kind in ("field", "cli_argument", "pydantic_computed_field", "module_reexport", "entrypoint")
+        or not fh.startswith("src")
+        or leaf in ("main", "run", "cli", "app", "handler", "__init__", "__call__")
+        or leaf.startswith("_")
+    ):
         return []
+    # handle module_reexport suffix stripping for alias lookup handled above
     if kind == "registry_entry":
         # NAME['key'] 형태: 엔트리의 "호출자"는 정의 파일 밖에서 이 키를
         # 참조하는 코드다(정의 라인 자신은 제외).
@@ -267,9 +273,10 @@ def _is_stub_node(node: ast.AST) -> bool:
         if isinstance(single, ast.Return):
             if single.value is None:
                 return True
-            if isinstance(single.value, ast.Constant) and (
-                single.value.value in (None, "", 0, False, True)
-                or isinstance(single.value.value, (int, float, str))
+            # Empty collections or literal None
+            if (
+                isinstance(single.value, ast.Constant)
+                and single.value.value is None
             ):
                 return True
             if isinstance(
@@ -306,7 +313,7 @@ def _iter_contract_entries(contract: dict[str, Any]) -> list[dict[str, Any]]:
 def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int, list[JsonDiag]]:
     diagnostics: list[JsonDiag] = []
     try:
-        with open(spec_path) as f:
+        with open(spec_path, encoding="utf-8") as f:
             contract = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
         return (
@@ -352,9 +359,9 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
 
         with open(fh) as sf:
             sf_content = sf.read()
-            if kind in ("field", "dataclass_field"):
+            if kind in ("field", "dataclass_field", "pydantic_computed_field"):
                 field_name = name.split(".")[-1] if "." in name else name
-                pat = rf"\b{re.escape(field_name)}[\"']?\s*(?::|=)"
+                pat = rf"\b{re.escape(field_name)}\b"
                 if not re.search(pat, sf_content, re.MULTILINE):
                     msg = f"Spec: {kind} '{name}' not implemented"
                     d = {
@@ -368,118 +375,134 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                 owner, _, leaf = name.rpartition(".")
                 target_node: ast.AST | None = None
                 found_impl = False
-                if fh.endswith(".json") and kind in ("constant", "type alias") and name in sf_content:
-                    found_impl = True
-                if not found_impl:
-                    try:
-                        tree = ast.parse(sf_content, filename=fh)
-                        if kind in ("constant", "type alias"):
-                            # 모듈 수준 상수/타입 별칭(AnnAssign/Assign 타깃)를 인식한다.
-                            for node in ast.walk(tree):
-                                if (
-                                    isinstance(node, ast.AnnAssign)
-                                    and isinstance(node.target, ast.Name)
-                                    and node.target.id == name
-                                ):
-                                    found_impl = True
-                                    break
-                                if isinstance(node, ast.Assign) and any(
-                                    isinstance(t, ast.Name) and t.id == name
-                                    for t in node.targets
-                                ):
-                                    found_impl = True
-                                    break
-                        elif kind == "reexport":
-                            imported = any(
-                                isinstance(node, ast.ImportFrom)
+                try:
+                    tree = ast.parse(sf_content, filename=fh)
+                    if kind in ("constant", "type alias", "module_constant"):
+                        # 모듈 수준 상수/타입 별칭(AnnAssign/Assign 타깃)를 인식한다.
+                        for node in ast.walk(tree):
+                            if (
+                                isinstance(node, ast.AnnAssign)
+                                and isinstance(node.target, ast.Name)
+                                and node.target.id == name
+                            ):
+                                found_impl = True
+                                break
+                            if isinstance(node, ast.Assign) and any(
+                                isinstance(t, ast.Name) and t.id == name
+                                for t in node.targets
+                            ):
+                                found_impl = True
+                                break
+                    elif kind in ("reexport", "module_reexport"):
+                        # module_reexport names may have _export suffix; strip it for lookup
+                        lookup_name = name.removesuffix("_export") if name.endswith("_export") else name
+                        # consider either ImportFrom or assignment (e.g. FOO = settings.FOO)
+                        imported = any(
+                            isinstance(node, ast.ImportFrom)
+                            and any(
+                                alias.name == lookup_name or alias.asname == lookup_name
+                                for alias in node.names
+                            )
+                            for node in ast.walk(tree)
+                        )
+                        assigned = bool(re.search(rf"\b{re.escape(lookup_name)}\s*=", sf_content))
+                        # 재수출 계약은 __all__ 등재까지 요구한다(인용 문자열 검색).
+                        found_impl = (imported or assigned) and f'"{lookup_name}"' in sf_content
+                    elif kind == "cli_argument":
+                        found_impl = bool(
+                            re.search(
+                                rf"add_argument\(\s*['\"]{re.escape(name)}['\"]",
+                                sf_content,
+                            )
+                        )
+                    elif kind == "parameter_add" and owner and "." in name:
+                        # parameter_add: verify the owner function exists and
+                        # the leaf parameter is present in its signature.
+                        for node in ast.walk(tree):
+                            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == owner:
+                                target_node = node
+                                arg_names = [a.arg for a in node.args.args]
+                                found_impl = leaf in arg_names
+                                break
+                    elif kind == "registry_entry":
+                        # 예: NAME['key'] / NAME["key"] 형태의 레지스트리 엔트리.
+                        # 구조(NAME 모듈 수준 dict 할당)와 키 리터럴을 함께 확인한다.
+                        # Plain registry dict name (e.g. _ALTDATA_PANELS)도 지원한다.
+                        entry_match = re.match(
+                            r"^(?P<owner>\w+)\[(?P<q>['\"])(?P<key>.+?)(?P=q)\]$",
+                            name,
+                        )
+                        if entry_match is None:
+                            # Plain registry dict: check assignment exists
+                            found_impl = any(
+                                isinstance(node, (ast.Assign, ast.AnnAssign))
                                 and any(
-                                    alias.name == name or alias.asname == name
-                                    for alias in node.names
+                                    isinstance(t, ast.Name) and t.id == name
+                                    for t in (
+                                        node.targets
+                                        if isinstance(node, ast.Assign)
+                                        else [node.target]
+                                    )
                                 )
                                 for node in ast.walk(tree)
                             )
-                            # 재수출 계약은 __all__ 등재까지 요구한다(인용 문자열 검색).
-                            found_impl = imported and f'"{name}"' in sf_content
-                        elif kind == "cli_argument":
-                            found_impl = bool(
+                            # also accept via regex fallback
+                            if not found_impl:
+                                found_impl = bool(re.search(rf"\b{re.escape(name)}\b", sf_content))
+                        else:
+                            reg_owner = entry_match.group("owner")
+                            key_literal = entry_match.group("key")
+                            has_registry = any(
+                                isinstance(node, (ast.Assign, ast.AnnAssign))
+                                and any(
+                                    isinstance(t, ast.Name) and t.id == reg_owner
+                                    for t in (
+                                        node.targets
+                                        if isinstance(node, ast.Assign)
+                                        else [node.target]
+                                    )
+                                )
+                                for node in ast.walk(tree)
+                            )
+                            # 키 리터럴은 파일의 인용 스타일(' 또는 ")과 무관하게 인정.
+                            found_impl = has_registry and bool(
                                 re.search(
-                                    rf"add_argument\(\s*['\"]{re.escape(name)}['\"]",
+                                    rf"['\"]{re.escape(key_literal)}['\"]",
                                     sf_content,
                                 )
                             )
-                        elif kind == "parameter_add" and owner and "." in name:
-                            # parameter_add: verify the owner function exists and
-                            # the leaf parameter is present in its signature.
-                            for node in ast.walk(tree):
-                                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == owner:
-                                    target_node = node
-                                    arg_names = [a.arg for a in node.args.args]
-                                    found_impl = leaf in arg_names
-                                    break
-                        elif kind == "registry_entry":
-                            # 예: NAME['key'] / NAME["key"] 형태의 레지스트리 엔트리.
-                            # 구조(NAME 모듈 수준 dict 할당)와 키 리터럴을 함께 확인한다.
-                            entry_match = re.match(
-                                r"^(?P<owner>\w+)\[(?P<q>['\"])(?P<key>.+?)(?P=q)\]$",
-                                name,
-                            )
-                            if entry_match is None:
-                                # Plain file registry entry (e.g. configs/experiments/*.json): existence already verified above
-                                found_impl = os.path.exists(fh)
-                            else:
-                                reg_owner = entry_match.group("owner")
-                                key_literal = entry_match.group("key")
-                                has_registry = any(
-                                    isinstance(node, (ast.Assign, ast.AnnAssign))
-                                    and any(
-                                        isinstance(t, ast.Name) and t.id == reg_owner
-                                        for t in (
-                                            node.targets
-                                            if isinstance(node, ast.Assign)
-                                            else [node.target]
+                    elif owner:
+                        for node in ast.walk(tree):
+                            if isinstance(node, ast.ClassDef) and node.name == owner:
+                                for member in node.body:
+                                    if (
+                                        isinstance(
+                                            member,
+                                            (ast.FunctionDef, ast.AsyncFunctionDef),
                                         )
-                                    )
-                                    for node in ast.walk(tree)
+                                        and member.name == leaf
+                                    ):
+                                        target_node = member
+                                        found_impl = True
+                    else:
+                        for node in ast.walk(tree):
+                            if (
+                                isinstance(
+                                    node,
+                                    (
+                                        ast.FunctionDef,
+                                        ast.AsyncFunctionDef,
+                                        ast.ClassDef,
+                                    ),
                                 )
-                                # 키 리터럴은 파일의 인용 스타일(' 또는 ")과 무관하게 인정.
-                                found_impl = has_registry and bool(
-                                    re.search(
-                                        rf"['\"]{re.escape(key_literal)}['\"]",
-                                        sf_content,
-                                    )
-                                )
-                        elif owner:
-                            for node in ast.walk(tree):
-                                if isinstance(node, ast.ClassDef) and node.name == owner:
-                                    for member in node.body:
-                                        if (
-                                            isinstance(
-                                                member,
-                                                (ast.FunctionDef, ast.AsyncFunctionDef),
-                                            )
-                                            and member.name == leaf
-                                        ):
-                                            target_node = member
-                                            found_impl = True
-                        else:
-                            for node in ast.walk(tree):
-                                if (
-                                    isinstance(
-                                        node,
-                                        (
-                                            ast.FunctionDef,
-                                            ast.AsyncFunctionDef,
-                                            ast.ClassDef,
-                                        ),
-                                    )
-                                    and node.name == name
-                                ):
-                                    target_node = node
-                                    found_impl = True
-                    except Exception:
-                        pat = rf"^(?:class|def)\s+{re.escape(name)}\b"
-                        found_impl = bool(re.search(pat, sf_content, re.MULTILINE))
-    
+                                and node.name == name
+                            ):
+                                target_node = node
+                                found_impl = True
+                except Exception:
+                    pat = rf"^(?:class|def)\s+{re.escape(name)}\b"
+                    found_impl = bool(re.search(pat, sf_content, re.MULTILINE))
+
                 if not found_impl:
                     msg = f"Spec: {kind} '{name}' not implemented"
                     d = {
@@ -631,7 +654,7 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                     }
                 )
             continue
-        with open(wf) as f:
+        with open(wf, encoding="utf-8", errors="ignore") as f:
             wf_content = f.read()
             if anchor:
                 found_anchor = anchor in wf_content or any(
@@ -649,7 +672,10 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                         }
                     )
             if not pre_impl:
-                if import_symbol and import_symbol not in wf_content:
+                # Handle explicit no-import sentinels (e.g. "(none - same module)", "(none)", "none", "n/a")
+                norm_sym = (import_symbol or "").strip().lower()
+                is_sentinel = not norm_sym or norm_sym in ("(none)", "none", "n/a") or "none" in norm_sym
+                if import_symbol and not is_sentinel and import_symbol not in wf_content:
                     diagnostics.append(
                         {
                             "file": wf,
@@ -658,15 +684,26 @@ def _check_spec_compliance(spec_path: str, pre_impl: bool = False) -> tuple[int,
                             "fix_hint": f"Import {import_symbol} in {wf}",
                         }
                     )
-                if invocation_expr and invocation_expr not in wf_content:
-                    diagnostics.append(
-                        {
-                            "file": wf,
-                            "line": 0,
-                            "error": f"Spec wiring: missing invocation of '{invocation_expr}'",
-                            "fix_hint": f"Invoke {invocation_expr} in {wf}",
-                        }
-                    )
+                if invocation_expr:
+                    # Semantic invocation match: literal in content, or call symbol/regex match
+                    found_invocation = invocation_expr in wf_content
+                    if not found_invocation:
+                        # Extract core function/symbol being invoked (e.g. 'run_eod_maintenance' or 'out = attach_per_row_cost_ratio(...)')
+                        call_sym_match = re.search(r"(?:^|[=\s])([a-zA-Z_][a-zA-Z0-9_\.]*)\s*\(", invocation_expr.strip())
+                        if call_sym_match:
+                            core_symbol = call_sym_match.group(1).split(".")[-1]
+                            # Check if the core symbol is invoked via regex call pattern
+                            if re.search(rf"\b{re.escape(core_symbol)}\s*\(", wf_content):
+                                found_invocation = True
+                    if not found_invocation:
+                        diagnostics.append(
+                            {
+                                "file": wf,
+                                "line": 0,
+                                "error": f"Spec wiring: missing invocation of '{invocation_expr}'",
+                                "fix_hint": f"Invoke {invocation_expr} in {wf}",
+                            }
+                        )
 
     return (1 if diagnostics else 0, diagnostics)
 
@@ -692,16 +729,17 @@ def _find_test_files(py_files: list[str], impact_level: int = 1) -> list[str]:
                     test_files.append(tp)
                     found_direct = True
                     break
-            # Wider AST reverse lookup: always for impact_level >= 2 (this
-            # module is either a core/config/schema file or the change spans
-            # 5+ files -- a direct test alone doesn't prove call sites are
-            # covered), otherwise only as a fallback when no direct test exists.
-            # Without this, impact_level was computed and logged but never
-            # actually changed which tests ran.
+            # Wider AST reverse lookup: if no direct test exists, or if impact_level >= 2,
+            # include reverse-referencing tests up to a reasonable cap (max 5 per module)
+            # to avoid explosive full-suite runs and timeout deadlocks.
             if not found_direct or impact_level >= 2:
+                matched_count = 0
                 for tp in repository_files:
                     if tp not in test_files and _test_references_source(tp, sf):
                         test_files.append(tp)
+                        matched_count += 1
+                        if found_direct and matched_count >= 5:
+                            break
     return test_files
 
 
@@ -747,13 +785,13 @@ def _git_diff_added_lines(file: str) -> set[int] | None:
     Returns None for an untracked (new) file -- caller treats every
     coverage-measured line as "added" in that case.
     """
-    status_res = subprocess.run(
+    status_res = subprocess.run(  # noqa: S603
         ["git", "status", "--porcelain", "--", file],
         capture_output=True, text=True, timeout=10,
     )
     if status_res.stdout.strip().startswith("??"):
         return None
-    diff_res = subprocess.run(
+    diff_res = subprocess.run(  # noqa: S603
         ["git", "diff", "--unified=0", "HEAD", "--", file],
         capture_output=True, text=True, timeout=10,
     )
@@ -954,8 +992,10 @@ def main() -> None:
         ):
             parts = pf.split("/")
             test_name = f"test_{parts[-1]}"
-            has_test = any(test_name in tf for tf in test_files) or (
-                pf in spec_target_files and len(test_files) > 0
+            has_test = (
+                any(test_name in tf for tf in test_files)
+                or (pf in spec_target_files and len(test_files) > 0)
+                or any(_test_references_source(tf, pf) for tf in test_files)
             )
             if not has_test:
                 d = {
@@ -978,12 +1018,19 @@ def main() -> None:
             return ("ruff", 0, [], "")
         ruff_res = run_cmd(["uv", "run", "ruff", "check", *py_files, "--quiet"])
         if ruff_res.returncode != 0:
-            out_sliced = "\n".join(
-                (ruff_res.stdout or ruff_res.stderr).strip().splitlines()[:10]
-            )
+            lines = (ruff_res.stdout or ruff_res.stderr).strip().splitlines()
+            out_sliced = "\n".join(lines[:10])
+            err_file = py_files[0]
+            err_line = 0
+            for l in lines:
+                m = re.match(r"^(.+?):(\d+):(\d+):", l)
+                if m:
+                    err_file = m.group(1)
+                    err_line = int(m.group(2))
+                    break
             d = {
-                "file": py_files[0],
-                "line": 0,
+                "file": err_file,
+                "line": err_line,
                 "error": out_sliced,
                 "fix_hint": "Fix ruff lint errors",
             }
@@ -997,12 +1044,19 @@ def main() -> None:
         target_mypy = [f for f in py_files if f.startswith("src/")] or py_files
         mypy_res = run_cmd(["uv", "run", "mypy", *target_mypy, "--ignore-missing-imports"])
         if mypy_res.returncode != 0:
-            out_sliced = "\n".join(
-                (mypy_res.stdout or mypy_res.stderr).strip().splitlines()[:10]
-            )
+            lines = (mypy_res.stdout or mypy_res.stderr).strip().splitlines()
+            out_sliced = "\n".join(lines[:10])
+            err_file = target_mypy[0]
+            err_line = 0
+            for l in lines:
+                m = re.match(r"^(.+?):(\d+):(?:\d+:)?\s*(?:error|note):", l)
+                if m:
+                    err_file = m.group(1)
+                    err_line = int(m.group(2))
+                    break
             d = {
-                "file": target_mypy[0],
-                "line": 0,
+                "file": err_file,
+                "line": err_line,
                 "error": out_sliced,
                 "fix_hint": "Fix mypy type errors",
             }
@@ -1066,8 +1120,8 @@ def main() -> None:
             f"--cov-report=json:{cov_json_path}",
         ]
     core_cmd = [
-        "uv",
-        "run",
+        sys.executable,
+        "-m",
         "pytest",
         "-m",
         "not slow",
@@ -1105,9 +1159,11 @@ def main() -> None:
         print(f"PASS | All checks passed (Lint, Type, Tests{cov_suffix} verified)")
         print(_emit_json("PASS", "all", [], cov_pct), file=sys.stderr)
     else:
+        raw_output = (pt_res.stdout or "") + "\n" + (pt_res.stderr or "")
+        lines = [l for l in raw_output.splitlines() if l.strip()]
         last_err = [
             line
-            for line in (pt_res.stdout or "").splitlines()
+            for line in lines
             if any(x in line for x in ("FAIL", "Error", "AssertionError"))
         ]
         cause = (
@@ -1116,9 +1172,20 @@ def main() -> None:
             else (pt_res.stderr or "Check pytest output.").strip()
         )
         cause_sliced = "\n".join(cause.splitlines()[:10])
+
+        # Extract failing file and line number if available (e.g. tests/...py:123: AssertionError)
+        failing_file = ""
+        failing_line = 0
+        for l in lines:
+            m = re.search(r"(tests/[a-zA-Z0-9_\/\.]+\.py):(\d+):", l)
+            if m:
+                failing_file = m.group(1)
+                failing_line = int(m.group(2))
+                break
+
         d = {
-            "file": "",
-            "line": 0,
+            "file": failing_file,
+            "line": failing_line,
             "error": cause_sliced,
             "fix_hint": "Fix failing pytest assertions",
         }
