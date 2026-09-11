@@ -85,6 +85,8 @@ def _parse_dotenv(text: str) -> dict[str, str]:
 
 def _decrypt_dotenv(env_enc: Path) -> dict[str, str]:
     """Decrypt via ``sops -d`` stdout only; nothing is ever written to disk."""
+    if not env_enc.is_file():
+        return {}
     try:
         completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
             [  # noqa: S607 - pinned vendor executable
