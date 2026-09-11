@@ -1,6 +1,6 @@
 {
   "configs/data/thesis_fundamentals/physical_automation.json": {
-    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "architecture": "docs/architecture/components.md",
     "testing": "tests/unit/data/test_thesis_fundamentals.py"
   },
   "src/analytics/accumulation_alpha.py": {
@@ -41,7 +41,7 @@
   },
   "src/analytics/purity_evidence.py": {
     "testing": "tests/unit/analytics/test_purity_evidence.py",
-    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "architecture": "docs/architecture/components.md",
     "family": "thesis"
   },
   "src/analytics/regime_proxy.py": {
@@ -137,14 +137,14 @@
     "family": "thesis"
   },
   "src/analytics/wave_d_exit.py": {
-    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "architecture": "docs/architecture/components.md",
     "testing": "tests/unit/analytics/test_wave_d_exit.py",
     "family": "thesis"
   },
   "src/analytics/compound_dca.py": {
     "testing": "tests/unit/analytics/test_compound_dca.py",
     "family": "analytics",
-    "architecture": "docs/architecture/02_policy_and_validation.md"
+    "architecture": "docs/architecture/components.md"
   },
   "src/cli.py": {
     "testing": [
@@ -152,7 +152,7 @@
       "tests/unit/cli/test_layout_bounds.py"
     ],
     "family": "cli",
-    "architecture": "docs/architecture/04_module_index.md"
+    "architecture": "docs/architecture/module_index.md"
   },
   "src/cli_commands/__init__.py": {
     "testing": "tests/unit/cli/test_layout_bounds.py",
@@ -314,7 +314,7 @@
   "src/etf/sleeves.py": {
     "testing": "tests/unit/etf/test_sleeves.py",
     "family": "etf",
-    "architecture": "docs/architecture/02_policy_and_validation.md"
+    "architecture": "docs/architecture/components.md"
   },
   "src/execution/broker.py": {
     "testing": "tests/unit/execution/test_broker.py",
@@ -447,7 +447,7 @@
   "src/validation/gate.py": {
     "testing": "tests/unit/validation/test_gate.py",
     "family": "validation",
-    "architecture": "docs/architecture/02_policy_and_validation.md"
+    "architecture": "docs/architecture/components.md"
   },
   "src/validation/prospective.py": {
     "testing": "tests/unit/validation/test_prospective.py",
@@ -514,27 +514,27 @@
     "family": "validation"
   },
   "src/policy/mix_risk_budget.py": {
-    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "architecture": "docs/architecture/components.md",
     "family": "policy",
     "testing": "tests/unit/policy/test_mix_risk_budget.py"
   },
   "src/validation/strategy_selection.py": {
-    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "architecture": "docs/architecture/components.md",
     "family": "validation",
     "testing": "tests/unit/validation/test_strategy_selection.py"
   },
   "src/validation/research_posture.py": {
-    "architecture": "docs/architecture/00_system_overview.md",
+    "architecture": "docs/architecture/overview.md",
     "family": "validation",
     "testing": "tests/unit/validation/test_research_posture.py"
   },
   "src/validation/historical_campaign.py": {
-    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "architecture": "docs/architecture/components.md",
     "family": "validation",
     "testing": "tests/unit/validation/test_historical_campaign.py"
   },
   "src/validation/prospective_registry.py": {
-    "architecture": "docs/architecture/02_policy_and_validation.md",
+    "architecture": "docs/architecture/components.md",
     "family": "validation",
     "testing": "tests/unit/validation/test_prospective_registry.py"
   }
