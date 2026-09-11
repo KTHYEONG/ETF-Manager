@@ -53,6 +53,7 @@ def test_sops_stdout_resolves_missing_names(
     stdout = b"TIINGO_API=sops-tiingo\nFRED_API='sops-fred'\nECOS_API=\"sops-ecos\"\n"
     calls = _patch_sops(monkeypatch, stdout)
     env_enc = tmp_path / ".env.enc"
+    env_enc.touch()
 
     secrets = load_provider_secrets(env_enc=env_enc, env_file=tmp_path / "absent.env")
 
@@ -75,6 +76,7 @@ def test_sops_decrypt_argv_carries_dotenv_flags(
     stdout = b"TIINGO_API=sops-tiingo\nFRED_API=sops-fred\nECOS_API=sops-ecos\n"
     calls = _patch_sops(monkeypatch, stdout)
     env_enc = tmp_path / ".env.enc"
+    env_enc.touch()
 
     secrets = load_provider_secrets(env_enc=env_enc, env_file=tmp_path / "absent.env")
 
@@ -95,13 +97,32 @@ def test_dotenv_file_layer_fills_partial_gaps(
     env_file = tmp_path / ".env"
     env_file.write_text("# local overrides\nFRED_API=file-fred\nEMPTY=\n", encoding="utf-8")
     calls = _patch_sops(monkeypatch, b"TIINGO_API=sops-tiingo\nECOS_API=sops-ecos\n")
+    env_enc = tmp_path / ".env.enc"
+    env_enc.touch()
 
-    secrets = load_provider_secrets(env_enc=tmp_path / ".env.enc", env_file=env_file)
+    secrets = load_provider_secrets(env_enc=env_enc, env_file=env_file)
 
     assert secrets == ProviderSecrets(
         tiingo_api="sops-tiingo", fred_api="file-fred", ecos_api="sops-ecos"
     )
     assert [argv[0] for argv, _ in calls] == ["sops"]
+
+
+def test_absent_env_enc_skips_sops_without_invoking_subprocess(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SEC-C01-env-then-sops: sops 폐기 후 .env.enc가 없으면 조용히 건너뛴다."""
+    monkeypatch.setenv("TIINGO_API", "env-tiingo-token")
+    monkeypatch.setenv("FRED_API", "env-fred-token")
+    monkeypatch.setenv("ECOS_API", "env-ecos-token")
+    calls = _patch_sops(monkeypatch, b"should-not-be-read")
+
+    secrets = load_provider_secrets(env_enc=tmp_path / "absent.env.enc", env_file=tmp_path / "absent.env")
+
+    assert secrets == ProviderSecrets(
+        tiingo_api="env-tiingo-token", fred_api="env-fred-token", ecos_api="env-ecos-token"
+    )
+    assert calls == []
 
 
 def test_missing_name_raises_value_error_listing_names_only(
@@ -111,9 +132,11 @@ def test_missing_name_raises_value_error_listing_names_only(
     for name in _NAMES:
         monkeypatch.delenv(name, raising=False)
     _patch_sops(monkeypatch, b"TIINGO_API=sops-only-tiingo-token\nECOS_API=sops-only-ecos\n")
+    env_enc = tmp_path / ".env.enc"
+    env_enc.touch()
 
     with pytest.raises(ValueError, match="FRED_API") as excinfo:
-        load_provider_secrets(env_enc=tmp_path / ".env.enc", env_file=tmp_path / "absent.env")
+        load_provider_secrets(env_enc=env_enc, env_file=tmp_path / "absent.env")
 
     message = str(excinfo.value)
     assert "sops-only-tiingo-token" not in message
