@@ -7,8 +7,8 @@ import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
-MODULE_INDEX = REPO / "docs/architecture/04_module_index.md"
-OVERVIEW = REPO / "docs/architecture/00_system_overview.md"
+MODULE_INDEX = REPO / "docs/architecture/module_index.md"
+OVERVIEW = REPO / "docs/architecture/overview.md"
 CODE_MAP = REPO / "docs/code_map.json"
 
 REQUIRED_ANCHORS = (
@@ -67,4 +67,4 @@ def test_code_map_covers_all_src_py() -> None:
 
 
 def test_overview_links_module_index() -> None:
-    assert "04_module_index.md" in OVERVIEW.read_text(encoding="utf-8")
+    assert "module_index.md" in OVERVIEW.read_text(encoding="utf-8")
