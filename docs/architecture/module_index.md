@@ -68,5 +68,4 @@ Task-oriented file lists for bounded AI context. See also `docs/code_map.json`.
 - `configs/experiments/INDEX.json`
 - `configs/experiments/archive/`
 - `tests/unit/validation/test_experiment_taxonomy.py`
-- `docs/architecture/03_operator_cli.md`
-
+- `docs/architecture/overview.md`
