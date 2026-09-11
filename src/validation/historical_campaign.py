@@ -186,7 +186,7 @@ class FinalHistoricalCampaignReport:
 
 FINAL_HISTORICAL_MIN_COHORTS: Final[int] = 4
 FINAL_HISTORICAL_TARGET_COHORTS: Final[int] = 10
-# CPI PIT visible at first month-end execution close (see 01_data_contracts.md).
+# CPI PIT visible at first month-end execution close (see data-flow.md).
 _STATIC_DCA_ALLOCATION_MIN_START: Final[date] = date(2012, 8, 31)
 
 REGIME_COVERAGE_CATALOG: Final[tuple[RegimeWindow, ...]] = (
