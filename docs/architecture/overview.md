@@ -58,36 +58,36 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    subgraph L1["L1. 데이터 계층 (src/data)"]
+    subgraph L1["L1. 데이터 계층 (Data Tier)"]
         direction TB
-        P1["데이터 제공처<br/>(Tiingo, FRED, ECOS, French, SEC)"] --> RAW[("원본 데이터 보관소<br/>data/raw/{provider}/{sha256}")]
+        P1["데이터 제공처<br/>(Tiingo, FRED, ECOS, French, SEC)"] --> RAW[("원본 데이터 보관소<br/>Raw Data Lake")]
         RAW --> STAMP["공시 시점 태깅<br/>(장마감 기준, 공시일자 기준, 고정시차)"]
         STAMP --> QG{"품질 검증 게이트<br/>(결측치, 스키마, 날짜 역전 검사)"}
-        QG -->|통과| LAKE[("불변 Parquet 저장소<br/>data/normalized/ + SHA-256 매니페스트")]
+        QG -->|통과| LAKE[("불변 Parquet 저장소<br/>SHA-256 매니페스트 해시 검증")]
     end
 
-    subgraph L2["L2. 피처 계층 (src/features)"]
+    subgraph L2["L2. 피처 계층 (Feature Tier)"]
         direction TB
         LAKE --> F_RET["시점 안전 수익률 & 실현 변동성"]
         LAKE --> F_OLS["팩터 민감도(Beta) & 모멘텀"]
         LAKE --> F_MAC["거시경제 지표 & 환율 백분위수"]
     end
 
-    subgraph L3["L3. 정책 계층 (src/policy)"]
+    subgraph L3["L3. 정책 계층 (Policy Tier)"]
         direction TB
         F_RET & F_OLS & F_MAC --> POL_TGT["목표 비중 산출 (resolve_targets)"]
         POL_TGT --> POL_OPT["선택적 보조 모듈<br/>(팩터 틸트, 하락장 오버레이, 환전 지연)"]
         POL_OPT --> TGT_SIMP["최종 목표 비중 (가중치 합 = 100%)"]
     end
 
-    subgraph L4["L4. 시뮬레이션 계층 (src/sim)"]
+    subgraph L4["L4. 시뮬레이션 계층 (Simulation Tier)"]
         direction TB
         TGT_SIMP --> BUY_ALLOC["매수 전용 적립금 분배기<br/>(부족한 종목 우선 배분, 매도 0건)"]
         BUY_ALLOC --> EXEC_SIM["익거래일(t+1) 지연 체결<br/>(환율 스프레드, 수수료, 정수 주수)"]
         EXEC_SIM --> LEDGER[("단일 회계 원장<br/>(원화/달러 현금, 보유 주수, 자산 보존)")]
     end
 
-    subgraph L5["L5. 검증 계층 (src/validation)"]
+    subgraph L5["L5. 검증 계층 (Validation Tier)"]
         direction TB
         LEDGER --> COHORT["120개월 롤링 코호트 (1년 간격)"]
         COHORT --> BOOT["12개월 단위 블록 부트스트랩"]
@@ -95,7 +95,7 @@ flowchart TD
         CE_GATE --> POSTURE["연구 수렴 규율 (I14-I18)<br/>(과적합 탈락 시 기준선 자동 복귀)"]
     end
 
-    subgraph L6["L6. ETF 매핑 계층 (src/etf)"]
+    subgraph L6["L6. ETF 매핑 계층 (Mapping Tier)"]
         direction TB
         LAKE --> ETF_META["SEC 분기 공시 메타데이터"]
         ETF_META --> ETF_SCORE["보수, 거래량, 추적오차 평가"]
