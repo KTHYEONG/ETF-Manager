@@ -11,7 +11,7 @@ Independent audit gate completing the development loop (`probe` -> `spec` -> `im
 
 1. **Scope Identification**:
    - Inspect modified files using `git status --short`.
-   - Identify active spec under `docs/specs/*_spec.md` or `docs/specs/*_contract.json`.
+   - Identify active spec under `docs/specs/*_spec.md`.
 
 2. **Tier 1: Deterministic Verification**:
    - Run the lean check runner:
@@ -35,16 +35,26 @@ Independent audit gate completing the development loop (`probe` -> `spec` -> `im
      3) Removal of dead code or temporary comments.
    - Re-run `lean_check.py` to confirm the fix is green.
 
+5. **Non-Destructive Audit Rule (CRITICAL)**:
+   - **NEVER delete, rename, or purge spec files (`docs/specs/*_spec.md`).**
+   - The audit gate is strictly non-destructive. Spec archival and cleanup is exclusively reserved for the downstream `/sync` phase.
+
 ## Output
 
-### 🛡️ [CHECK] <Audit Target>
+Keep chat output ultra-compact and token-efficient.
+**Strictly Prohibited**: Do NOT write lengthy multi-bullet prose, verbose justifications, or repetitive recaps for Tier 2 Semantic Review (internal reasoning verifies them). When everything passes, output only the minimal card below:
 
-- **Tier 1 (Mechanical Gate)**: ✅ PASS (Scaffolding-Clean, Lint, Type, Tests, Diff-Coverage)
-- **Tier 2 (Semantic Audit)**:
-  - 🧪 **Test Efficacy**: <Evidence that tests validate behavior rather than trivial lines>
-  - 🧩 **Contract & Invariants**: <Verification of domain invariants and boundary safety>
-  - 🔌 **Wiring & Cleanliness**: <Confirmation of entry-point connection and clean code>
-- **Verdict**: ✅ PASS [Optional: (Surgical Fix: <summary of applied fix>)]
+### 🛡️ [CHECK] <Audit Target>
+> 🚦 **판정**: ✅ PASS
+
+- **Tier 1 (Mechanical)**: Ruff · Mypy · Pytest · Diff-Coverage 100% PASS
+- **Tier 2 (Semantic)**: Test Efficacy · Invariants · Wiring 검증 완료
+*(Optional, only when surgical fix was applied)*:
+- 🔧 **수정 사항**: <Surgical Fix 1줄 요약>
 
 *(On Failure)*:
-❌ FAIL: <Audit Target> | Root: <Cause> | Impact: <Scope> | Fix: <Action> → `/implement`, `/spec`, or `/probe`
+### 🛡️ [CHECK] <Audit Target>
+> 🚦 **판정**: ❌ FAIL
+
+- 💥 **사유**: [<Tier 1 | Tier 2>] <실패 원인 및 위반 불변식 1줄>
+- 🎯 **조치**: <필요한 액션 1줄>
