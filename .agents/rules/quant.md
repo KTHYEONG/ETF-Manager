@@ -1,28 +1,35 @@
 ---
 trigger:
   - on_label: ["quant"]
-  - on_file_path_regex: "src/.*(etf|portfolio|allocation|rebalance|execution|data|backtest).*"
-  - on_file_path_glob: ["src/**/etf/**/*.py", "src/**/portfolio/**/*.py", "src/**/allocation/**/*.py", "src/**/rebalance/**/*.py", "src/**/data/**/*.py"]
+  - on_file_path_regex: "src/.*"
+  - on_file_path_glob: ["src/**/*.py"]
 priority: 10
 ---
 
-# Quant & ETF Engineering Principles
+# Quantitative Engineering Core Directives
 
-> **Never leak future information, preserve the reality of capital flows and execution viability, guard against validation leakage and overfitting, and prioritize economic correctness over specific implementation mechanics.**
+> **The primary directive is maximizing net geometric compounding growth ($g = \mathbb{E}[\ln(1 + r_{\text{net}})]$) that is fully reproducible in live execution without phantom alpha. Maximize autonomous reasoning and algorithmic creativity within five non-negotiable constitutional pillars.**
 
-## 1. Temporal Integrity & Distribution Timestamps (PIT & Leakage)
-- **Information Availability & Timestamps:** Define explicit semantics for `observation_time` (NAV publication, market close), `decision_time` (rebalance signal), and `execution_time` (order fill at open/close).
-- **Multi-Currency & FX Alignment:** Align cross-border ETF prices, local valuation, and FX benchmark rates using strict release timestamps without look-ahead bias.
-- **Distribution & Split Integrity:** Reflect dividend ex-dates, distribution payments, and corporate actions strictly at their actual point-in-time publication.
+## 1. Temporal Causality (The Arrow of Time)
+- **Point-in-Time Availability:** Every signal, feature, universe selection, and portfolio decision at time $T$ must consume strictly data observable prior to or at time $T$.
+- **Zero Lookahead:** Executing on bar close $T$ using signals derived from the same bar's close, or referencing unreleased future data, is a fatal causality violation.
+- **Perturbation Invariance:** Verification must prove that corrupting or randomizing future data ($t > T$) alters historical decisions at or before time $T$ by zero.
 
-## 2. ETF Microstructure & Portfolio Accounting
-- **NAV Disparity & Tracking:** Monitor iNAV vs. market price disparity `(market_price - nav) / nav`. Guard against executing during illiquid opening/closing dislocations. Track Tracking Error ($TE$) and Tracking Difference ($TD$).
-- **Expense Ratios & Real Drag:** Deduct Total Expense Ratio (TER, 운용보수/기타비용) daily from NAV, and model local execution fees, exchange charges, and spreads.
-- **Cash Drag & Accumulation Realism:** Model Dollar-Cost Averaging (DCA), Value Averaging, and lot size constraints with realistic cash drag and cash buffers.
-- **Portfolio Weight Invariants:** Enforce structural weight invariant $\sum w_i + w_{cash} = 1.0 \pm 10^{-6}$. Employ tolerance bands to avoid unnecessary turnover friction.
-- **Return Accounting:** Explicitly distinguish between Price Return (PR) and Total Return (TR, dividend reinvestment).
+## 2. Universe & Selection Integrity (Point-in-Time Reality)
+- **Historical Universe Reconstruction:** Never evaluate strategies on historical windows using present-day survival criteria. The investable universe at time $T$ must reflect real-world constituents at time $T$, including subsequently delisted, bankrupt, or suspended assets.
+- **Selection Bias Elimination:** Screening filters and dynamic universe logic must only ingest information certified as known at rebalancing time $T$.
 
-## 3. Numerical Integrity & Economic Correctness
-- **Numerical Edge Cases:** Handle zero-division, NaNs, and infinities based on true market semantics (e.g., zero trading volume, halted ETF, missing iNAV) rather than arbitrary normal substitutions.
-- **Metric Significance vs. Overfitting:** Avoid tuning allocation parameters to past samples; evaluate robust economic viability across varying macro and interest rate regimes.
-- **Principles Over Mechanics:** Prioritize correct financial meaning and structural invariants over dogmatic adherence to specific library functions.
+## 3. Execution Friction & Capacity Realism
+- **Net Friction Integrity:** Never evaluate strategies under zero-friction illusions. All performance metrics must account for realistic execution drag: commissions, statutory taxes, bid-ask spreads, slippage, and financing/borrow costs.
+- **Market Impact & Capacity Constraints:** Never assume infinite liquidity or instant fills. Position sizing must respect market depth and Average Daily Volume (ADV) participation limits to prevent illusory alpha that collapses under scale.
+- **Zero Magic Numbers:** Never hardcode strategy thresholds, fee schedules, or filter cutoffs as numeric literals in business logic. Parameters must be declared as typed, configurable contracts (`Spec`/`Config`).
+
+## 4. Multiple Testing & Overfitting Resistance
+- **Statistical Humility:** Never present backtest metrics from repeated trial-and-error as independent discoveries without explicit statistical haircuts or adjustments for trial multiplicity.
+- **Parameter Surface Robustness:** Never rely on isolated parameter spikes ("knife-edge alpha"). Parameter sensitivity must demonstrate stable performance plateaus across neighboring regimes.
+- **Strict Out-of-Sample Isolation:** Maintain strict temporal separation between discovery/training and evaluation. Never leak validation statistics back into model formulation.
+
+## 5. Tail-Risk & Ruin Prevention (Deterministic Fail-Closed)
+- **Conservation Law:** Total portfolio equity and cash balance changes must reconcile exactly with realized transactions, fees, taxes, and financing cash flows with zero numerical leakage.
+- **Deterministic Fail-Closed:** On unrecoverable data anomalies or feed disruptions, never substitute arbitrary normal defaults. Safely abort execution (`NO_TRADE`), preserve capital, and protect against catastrophic ruin.
+- **Non-Gaussian Survival:** Never evaluate risk assuming pure Gaussian returns. Systems must survive fat-tailed drawdowns, liquidity freezes, and regime shifts.
