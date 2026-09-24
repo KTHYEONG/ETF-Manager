@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_PENSION_UNDEFINED_RATIO",
+      "date": "2026-09-24",
+      "adr_id": "ADR_20260924_PENSION_UNDEFINED_RATIO",
+      "domain": "data",
+      "title": "Pension campaign excludes undefined paired ratios instead of imputing 1.0",
+      "why": "Zero-contribution profiles had baseline wealth 0, so fabricated 1.0 ratios pinned worst to 1.0 and diluted medians and drawdowns.",
+      "resolution": "Made paired_wealth_ratio None when baseline wealth is zero, excluded such rows from all statistics, and disclosed undefined counts and fully undefined profiles with N/A rendering.",
+      "impact": "Pension summary tables now reflect only cohorts with real contributions and state how many were excluded.",
+      "caveat": "Zero-tax profiles still contribute nothing under the engine's credit-minimal rule; whether to model them differently is an open decision."
+    },
+    {
       "task_id": "TASK_PENSION_FX_FALLBACK",
       "date": "2026-09-24",
       "adr_id": "ADR_20260924_PENSION_FX_FALLBACK",

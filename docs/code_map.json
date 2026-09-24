@@ -580,5 +580,8 @@
   },
   "src/data/pension_fx.py": {
     "testing": "tests/unit/data/test_pension_fx.py"
+  },
+  "src/validation/pension_campaign.py": {
+    "testing": "tests/unit/validation/test_pension_campaign.py"
   }
 }
