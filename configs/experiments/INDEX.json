@@ -254,6 +254,11 @@
       "status": "active",
       "kind": "after_tax",
       "notes": "after-tax cohort campaign adverse-regime EWJ 120m"
+    },
+    "pension_campaign_v1.json": {
+      "status": "active",
+      "kind": "pension",
+      "notes": "personal-pension buy-only cohort campaign SP500/Nasdaq/semi 120/240m"
     }
   }
 }

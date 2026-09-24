@@ -203,6 +203,52 @@ def _return_outlier_finding(frame: pl.DataFrame, spec: DatasetSpec) -> QualityFi
     )
 
 
+def _kr_etf_findings(frame: pl.DataFrame, spec: DatasetSpec) -> list[QualityFinding]:
+    if spec.dataset is not Dataset.KR_ETF_PRICES:
+        return []
+    findings: list[QualityFinding] = []
+    positive_cols = ("close_krw", "nav_krw", "split_factor")
+    if all(name in frame.columns for name in positive_cols):
+        bad = frame.filter(
+            (pl.col("close_krw") <= 0) | (pl.col("nav_krw") <= 0) | (pl.col("split_factor") <= 0)
+        )
+        if bad.height > 0:
+            findings.append(
+                QualityFinding(
+                    code="KR_ETF_NONPOSITIVE_PRICE",
+                    severity=FindingSeverity.ERROR,
+                    message=f"nonpositive close/nav/split on {bad.height} Korean ETF row(s)",
+                    row_count=bad.height,
+                )
+            )
+    if "distribution_krw" in frame.columns and "volume" in frame.columns:
+        bad = frame.filter((pl.col("distribution_krw") < 0) | (pl.col("volume") < 0))
+        if bad.height > 0:
+            findings.append(
+                QualityFinding(
+                    code="KR_ETF_NEGATIVE_AMOUNT",
+                    severity=FindingSeverity.ERROR,
+                    message=f"negative distribution/volume on {bad.height} Korean ETF row(s)",
+                    row_count=bad.height,
+                )
+            )
+    if {"distribution_krw", "distribution_pay_date", "date"}.issubset(frame.columns):
+        bad = frame.filter(
+            ((pl.col("distribution_krw") > 0) & (pl.col("distribution_pay_date").is_null() | (pl.col("distribution_pay_date") < pl.col("date"))))
+            | ((pl.col("distribution_krw") == 0) & pl.col("distribution_pay_date").is_not_null())
+        )
+        if bad.height > 0:
+            findings.append(
+                QualityFinding(
+                    code="KR_ETF_DISTRIBUTION_TIMING",
+                    severity=FindingSeverity.ERROR,
+                    message=f"distribution/pay-date incoherence on {bad.height} Korean ETF row(s)",
+                    row_count=bad.height,
+                )
+            )
+    return findings
+
+
 def validate_frame(frame: pl.DataFrame, spec: DatasetSpec, calendar: TradingCalendar | None = None) -> QualityReport:
     """Run every quality predicate and aggregate deterministic findings.
 
@@ -229,6 +275,7 @@ def validate_frame(frame: pl.DataFrame, spec: DatasetSpec, calendar: TradingCale
         if availability_finding is not None:
             findings.append(availability_finding)
         findings.extend(_ohlc_findings(frame))
+        findings.extend(_kr_etf_findings(frame, spec))
         if spec.availability.kind is AvailabilityKind.SESSION_CLOSE and spec.missing_policy is MissingPolicy.FAIL:
             assert calendar is not None
             session_finding = _session_missing_finding(frame, spec, calendar)

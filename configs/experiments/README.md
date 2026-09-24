@@ -1,6 +1,6 @@
 # Experiment Config Taxonomy — Index
 
-`configs/experiments/` holds 51 JSON configs. `INDEX.json` is the machine-readable source of truth; this file is the human-readable mirror. Statuses match `INDEX.json` exactly.
+`configs/experiments/` holds 52 JSON configs. `INDEX.json` is the machine-readable source of truth; this file is the human-readable mirror. Statuses match `INDEX.json` exactly.
 
 | File | Status | Kind | Notes | Location |
 |------|--------|------|-------|----------|
@@ -53,6 +53,7 @@
 | wf_qqq_soxx_intensity_mdd.json | active | wf | QQQ SOXX intensity screen with MDD slack | configs/experiments/wf_qqq_soxx_intensity_mdd.json |
 | wf_soxx100_compound_growth.json | active | wf | SOXX 100 compound growth walk-forward screen | configs/experiments/wf_soxx100_compound_growth.json |
 | after_tax_campaign_long_v1.json | active | after_tax | after-tax cohort campaign long 120/240m TGH candidate watch disclosure | configs/experiments/after_tax_campaign_long_v1.json |
+| pension_campaign_v1.json | active | pension | personal-pension buy-only cohort campaign SP500/Nasdaq/semi 120/240m | configs/experiments/pension_campaign_v1.json |
 | after_tax_campaign_taa_v1.json | active | after_tax | after-tax cohort campaign multi-asset TAA GEM satellite 120m | configs/experiments/after_tax_campaign_taa_v1.json |
 | after_tax_campaign_japan_v1.json | active | after_tax | after-tax cohort campaign adverse-regime EWJ 120m | configs/experiments/after_tax_campaign_japan_v1.json |
 

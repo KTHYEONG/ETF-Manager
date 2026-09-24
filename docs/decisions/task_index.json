@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_PENSION_PORTFOLIO",
+      "date": "2026-09-24",
+      "adr_id": "ADR_20260924_PENSION_PORTFOLIO",
+      "domain": "quant",
+      "title": "Validate Korean pension savings ETF accumulation and payout model",
+      "why": "Long-horizon personal pension policy research requires reproducible tax, contribution, market-data, and withdrawal accounting.",
+      "resolution": "Added Korean-listed ETF identity and market import contracts, buy-only pension simulation, source-backed 2026 tax ledger, and campaign reporting with commencement-year payout limits.",
+      "impact": "Supports comparative pension ETF accumulation and after-tax withdrawal studies while retaining explicit proxy versus observed Korean fund data labels.",
+      "caveat": "The passing implementation checks do not establish a winning allocation; the frozen 2026 tax regime and proxy paths remain scenario assumptions."
+    },
+    {
       "task_id": "TASK_ADOPT_QS_TGH_STANDARD",
       "date": "2026-09-24",
       "adr_id": "ADR_20260924_ADOPT_QS_TGH_STANDARD",
