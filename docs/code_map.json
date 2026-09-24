@@ -570,5 +570,9 @@
   "src/validation/windows.py": {
     "family": "validation",
     "testing": "tests/unit/validation/test_windows.py"
+  },
+  "src/sim/pension_engine.py": {
+    "architecture": "docs/specs/pension_campaign_spec.md",
+    "testing": "tests/unit/sim/test_pension_engine.py"
   }
 }

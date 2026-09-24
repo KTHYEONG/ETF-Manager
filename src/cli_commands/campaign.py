@@ -342,3 +342,54 @@ def run_audit_feasibility_command(*, config_path: str, settings: DataSettings, w
     except (ValueError, UntrustedDatasetError, OSError) as exc:
         logger.error("[DATA] event=audit_feasibility_failed reason=%s", exc)
         return 1
+
+
+def run_pension_campaign_command(*, config_path: str, settings: DataSettings, seed: int) -> int:
+    """Run a reporting-only pension campaign from trusted, source-labeled inputs.
+
+    Returns: Zero after a reproducible report is written, nonzero on invalid data or policy.
+    Raises: No domain exception escapes the CLI boundary; failure is logged and returned.
+    """
+    from src.sim.pension_engine import PensionDataError, PensionMarketMode
+    from src.validation.pension_campaign import (
+        load_pension_campaign_spec, run_pension_campaign, write_pension_campaign_report,
+    )
+
+    try:
+        import hashlib
+
+        spec = load_pension_campaign_spec(config_path)
+        regime_bytes = Path(spec.tax_regime_path).read_bytes()
+        config_bytes = Path(config_path).read_bytes()
+        if spec.market_mode is PensionMarketMode.KR_LIVE:
+            manifest_hashes = [latest_artifact(settings, Dataset.KR_ETF_PRICES).manifest.normalized_sha256]
+        else:
+            manifest_hashes = [
+                latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
+                latest_artifact(settings, Dataset.FX_KRW_BASE).manifest.normalized_sha256,
+            ]
+        try:
+            manifest_hashes.append(latest_artifact(settings, Dataset.CPI).manifest.normalized_sha256)
+        except UntrustedDatasetError:
+            manifest_hashes.append("NO_TRUSTED_CPI")
+        git_commit = _resolve_git_commit()
+        digest = hashlib.sha256(
+            config_bytes + git_commit.encode() + "".join(manifest_hashes).encode()
+            + regime_bytes + str(seed).encode()
+        ).hexdigest()[:16]
+
+        report = run_pension_campaign(spec, settings, seed=seed)
+        report_path = write_pension_campaign_report(
+            report, settings, experiment_id=digest,
+            provenance={
+                "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
+                "tax_regime_sha256": hashlib.sha256(regime_bytes).hexdigest(),
+                "git_commit": git_commit,
+                "seed": str(seed),
+            },
+        )
+    except (*_ERRORS, PensionDataError, UntrustedDatasetError) as exc:
+        logger.error("[DATA] event=pension_campaign_cli_failed reason_type=%s reason=%s", type(exc).__name__, exc)
+        return 1
+    logger.info("[DATA] event=pension_campaign_cli_done experiment=%s experiment_id=%s arms=%d report=%s", spec.name, digest, len(report.summaries), report_path)
+    return 0

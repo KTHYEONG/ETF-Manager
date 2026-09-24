@@ -26,6 +26,7 @@ class Dataset(StrEnum):
     ETF_HOLDINGS = "etf_holdings"
     FX_KRW_BASE = "fx_krw_base"
     RATES = "rates"
+    KR_ETF_PRICES = "kr_etf_prices"
 
 
 class AvailabilityKind(StrEnum):
@@ -284,6 +285,29 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         schema_version="1",
         nullable_columns=frozenset({"value"}),
     )
+    kr_etf_prices = DatasetSpec(
+        dataset=Dataset.KR_ETF_PRICES,
+        columns={
+            "ticker": pl.String(),
+            "date": pl.Date(),
+            "close_krw": pl.Float64(),
+            "nav_krw": pl.Float64(),
+            "distribution_krw": pl.Float64(),
+            "distribution_pay_date": pl.Date(),
+            "split_factor": pl.Float64(),
+            "volume": pl.Int64(),
+            "source": pl.String(),
+            "retrieved_at": TS_DTYPE,
+        },
+        key=("ticker", "date"),
+        observation_column="date",
+        availability=AvailabilityRule(kind=AvailabilityKind.SESSION_CLOSE, calendar_name="XKRX"),
+        missing_policy=MissingPolicy.FAIL,
+        revisable=False,
+        total_return_source=TotalReturnSource.RAW_PLUS_DIVIDEND,
+        schema_version="1",
+        nullable_columns=frozenset({"distribution_pay_date"}),
+    )
     return {
         Dataset.PRICES: prices,
         Dataset.FX: fx,
@@ -295,6 +319,7 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         Dataset.ETF_HOLDINGS: etf_holdings,
         Dataset.FX_KRW_BASE: fx_krw_base,
         Dataset.RATES: rates,
+        Dataset.KR_ETF_PRICES: kr_etf_prices,
     }
 
 
