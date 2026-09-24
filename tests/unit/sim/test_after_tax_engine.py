@@ -496,6 +496,85 @@ def test_rebalance_band_triggers_sells() -> None:
     assert drift <= 0.05 + 1e-6
 
 
+def test_rebalance_exit_of_sleeve_drains_earmark_and_caps_sale_at_holdings() -> None:
+    """Dropping a sleeve to 0% recovers its unspent earmark first and never sells beyond held shares."""
+
+    class _ExitRule:
+        tickers = frozenset({"QQQ", "SPY"})
+        requires_cash_rate = False
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def __call__(self, signal_at: datetime, market: Any) -> dict[str, float]:
+            self.calls += 1
+            return {"QQQ": 0.5, "SPY": 0.5} if self.calls <= 3 else {"QQQ": 1.0}
+
+    window = _sessions(date(2024, 1, 2), date(2024, 12, 31))
+    # SPY gaps down right before the exit so last month's unspent earmark buys more than a share.
+    spy = [400.0 if day < date(2024, 5, 1) else 150.0 for day in window]
+    prices = _prices_frame(window, {"QQQ": [100.0] * len(window), "SPY": spy})
+    result = run_after_tax(
+        _config(
+            end=date(2024, 11, 29),
+            monthly_contribution_krw=1_300_000.0,
+            targets=None,
+            rule=_ExitRule(),
+            mode=ExecutionMode.REBALANCE_BAND,
+            rebalance_band=0.05,
+            tax_enabled=False,
+            harvest_gains=False,
+        ),
+        prices,
+        _fx_frame(window),
+        _cpi_frame(),
+    )
+    last = result.snapshots[-1]
+    assert last.shares.get("SPY", 0.0) == 0.0
+    assert result.sell_count > 0
+    assert last.after_tax_nav_krw <= last.nav_krw
+
+
+def test_cash_sleeve_is_redeployed_when_rule_returns_to_risk_assets() -> None:
+    """After a risk-off spell the parked cash must flow back into the risk sleeve, not idle forever."""
+
+    class _RoundTripRule:
+        tickers = frozenset({"QQQ"})
+        requires_cash_rate = True
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def __call__(self, signal_at: datetime, market: Any) -> dict[str, float]:
+            self.calls += 1
+            return {CASH_SLEEVE: 1.0} if self.calls <= 3 else {"QQQ": 1.0}
+
+    window = _sessions(date(2024, 1, 2), date(2024, 11, 29))
+    prices = _prices_frame(window, {"QQQ": [100.0] * len(window)})
+    result = run_after_tax(
+        _config(
+            end=date(2024, 10, 31),
+            targets=None,
+            rule=_RoundTripRule(),
+            mode=ExecutionMode.REBALANCE_BAND,
+            rebalance_band=0.05,
+            tax_enabled=False,
+            harvest_gains=False,
+            fractional_shares=True,
+        ),
+        prices,
+        _fx_frame(window),
+        _cpi_frame(),
+        _rates_frame([(date(2024, 1, 2), 0.0)]),
+    )
+    parked = result.snapshots[2]
+    last = result.snapshots[-1]
+    assert parked.cash_usd == pytest.approx(3_900_000.0 / 1300.0)
+    assert parked.shares.get("QQQ", 0.0) == 0.0
+    assert last.cash_usd == pytest.approx(0.0, abs=1e-6)
+    assert last.shares["QQQ"] * 100.0 * 1300.0 == pytest.approx(last.nav_krw)
+
+
 def test_cash_sleeve_accrues_after_tax_interest() -> None:
     """A full-cash rule earns DTB3 5% over the exact day count net of interest tax."""
 

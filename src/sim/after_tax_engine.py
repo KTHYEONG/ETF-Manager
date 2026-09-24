@@ -693,14 +693,18 @@ class _EngineState:
             excess = sleeve_values[ticker] - target_value
             if excess <= 0:
                 continue
-            if ticker == CASH_SLEEVE:
-                take_usd = min(excess / fx_day, self._earmarks.get(ticker, 0.0))
-                self._earmarks[ticker] = self._earmarks.get(ticker, 0.0) - take_usd
-                pool_usd += take_usd
-                cash_take_usd += take_usd
+            # 슬리브 평가액에는 미체결 earmark(USD)가 포함되므로 매도 전에 earmark부터 회수한다.
+            take_usd = min(excess / fx_day, self._earmarks.get(ticker, 0.0))
+            self._earmarks[ticker] = self._earmarks.get(ticker, 0.0) - take_usd
+            pool_usd += take_usd
+            cash_take_usd += take_usd
+            excess -= take_usd * fx_day
+            if ticker == CASH_SLEEVE or excess <= 0:
                 continue
             price = price_index.price(ticker, day, close, adjusted=self._adjusted)
-            lots = excess / (price * fx_day) if config.fractional_shares else math.floor(excess / (price * fx_day))
+            sellable = excess / (price * fx_day)
+            # 목표 0% 슬리브는 보유 전량까지만 매도 가능(공매도 금지)
+            lots = min(sellable, book.quantity(ticker)) if config.fractional_shares else min(math.floor(sellable), math.floor(book.quantity(ticker)))
             if lots <= 0:
                 continue
             proceeds_usd = lots * price * (1.0 - self._commission)
@@ -733,7 +737,9 @@ class _EngineState:
     ) -> dict[str, float]:
         """Sleeve values at the execution close; earmarks count toward their sleeve."""
         values: dict[str, float] = {}
-        for ticker in set(book.tickers()) | set(weights):
+        # 목표에서 빠진 슬리브(예: 위험회피 뒤 복귀한 CASH)도 잔여 earmark가 있으면 평가·회수 대상이다.
+        held_earmarks = {ticker for ticker, usd in self._earmarks.items() if usd > 0}
+        for ticker in set(book.tickers()) | set(weights) | held_earmarks:
             if ticker == CASH_SLEEVE:
                 values[ticker] = self._earmarks.get(ticker, 0.0) * fx_day
                 continue

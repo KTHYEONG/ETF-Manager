@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_ADOPT_QS_TGH_STANDARD",
+      "date": "2026-09-24",
+      "adr_id": "ADR_20260924_ADOPT_QS_TGH_STANDARD",
+      "domain": "quant",
+      "title": "Adopt QQQ90/SOXX10 + December tax-gain harvesting as operating standard",
+      "why": "Real-data after-tax campaigns showed TGH beats buy-only in every ten-year cohort and 6/6 twenty-year cohorts while risk-off and TAA rules lose median wealth.",
+      "resolution": "Recorded ADR-007 with December procedure, narrowed the no-sell rule to tax-optimization sells only, and fixed two engine bugs (sale sizing above holdings, parked cash never redeployed) with regression tests.",
+      "impact": "Operating standard is QQQ90/SOXX10 monthly buy plus yearly deduction-sized harvest and immediate rebuy; risk-off and TAA arms stay prospective-watch only.",
+      "caveat": "Evidence covers seen history to 2026-08-28 with 6 overlapping 20y cohorts; 30y index-proxy stress and QQQ/SOXX selection bias remain open."
+    },
+    {
       "task_id": "TASK_AFTER_TAX_ENGINE",
       "date": "2026-09-24",
       "adr_id": "ADR_20260924_AFTER_TAX_ENGINE",

@@ -1,32 +1,12 @@
-# Research Results Archive
+# Research Results
 
-Curated narrative and summary JSON for operator review. Machine outputs from CLI runs also live under `data/results/` (experiments, thesis wave JSON).
+Curated, human-readable results kept in git. Machine outputs of CLI runs live under `data/results/` (git-ignored, backed up to gdrive `quant-lake`). Superseded runs are deleted; git history preserves them.
 
-## Layout
+| File | What it is |
+|------|------------|
+| [`final-historical/final_historical_campaign_v1_2012-2026.md`](final-historical/final_historical_campaign_v1_2012-2026.md) (+ `.json`) | Frozen buy-only campaign: QQQ100 vs QQQ95/90/85 + SOXX, 120M cohorts, 2012-08-31..2026-08-28 |
+| [`thesis-wave/thesis_wave_summary_2026-08-28.md`](thesis-wave/thesis_wave_summary_2026-08-28.md) | Thesis decision table on the FRESH 2026-08-28 panel |
+| [`thesis-wave/thesis_wave_d_exit_ai_compute_2026-08-28.md`](thesis-wave/thesis_wave_d_exit_ai_compute_2026-08-28.md) | ai_compute reference-slice exit assessment |
+| [`thesis-incremental/thesis_incremental_ai_compute_2026-08-28.json`](thesis-incremental/thesis_incremental_ai_compute_2026-08-28.json) | SOXX 5/10/15 incremental portfolio evidence |
 
-| Directory | Contents |
-|-----------|----------|
-| [`final-historical/`](final-historical/) | Frozen final historical campaign report (B0 QQQ100 + C1–C3 flat SOXX mixes) |
-| [`thesis-wave/`](thesis-wave/) | Batch thesis-wave markdown + methodology deep-dives; `data/` holds flat JSON tables |
-| [`thesis-incremental/`](thesis-incremental/) | Track H incremental portfolio JSON (`QQQ95/90/85` vs `QQQ100`) |
-| [`catalog-waves/`](catalog-waves/) | Historical catalog ingest and satellite-matrix reports (Wave 2–3) |
-| [`archive/`](archive/) | Superseded or exploratory runs (stale panel, pre-attribution-fix, etc.) |
-
-## Canonical (catalog `end=2024-08-31`, panel STALE allowed)
-
-| Report | Path |
-|--------|------|
-| Final Historical Campaign Freeze | [`final-historical/FINAL_HISTORICAL_CAMPAIGN_V1_8201d9e.md`](final-historical/FINAL_HISTORICAL_CAMPAIGN_V1_8201d9e.md) |
-| Thesis wave summary | [`thesis-wave/2024-08-31_v2_thesis_wave.md`](thesis-wave/2024-08-31_v2_thesis_wave.md) |
-| Track H incremental | [`thesis-incremental/2024-08-31_incremental_ai_compute.json`](thesis-incremental/2024-08-31_incremental_ai_compute.json) |
-| Full pipeline write-up | [`thesis-wave/20260830_ai_compute_research_pipeline.md`](thesis-wave/20260830_ai_compute_research_pipeline.md) |
-
-## Reference (methodology / prior panel)
-
-| Report | Path |
-|--------|------|
-| Adaptive horizon detail (`as_of=2025-04-30`) | [`thesis-wave/20260829_v2_thesis_wave_detail.md`](thesis-wave/20260829_v2_thesis_wave_detail.md) |
-| Wave 2 catalog & ingest | [`catalog-waves/20260828_wave2_catalog_and_ingest.md`](catalog-waves/20260828_wave2_catalog_and_ingest.md) |
-| Wave 3 satellite matrix | [`catalog-waves/20260828_wave3_satellite_matrix.md`](catalog-waves/20260828_wave3_satellite_matrix.md) |
-
-CLI defaults: `run thesis-wave` → `docs/results/thesis-wave/{date}_v2_thesis_wave.md`; `run thesis-incremental` → `docs/results/thesis-incremental/{date}_incremental_{thesis_id}.json`.
+CLI default outputs: `run thesis-wave` -> `thesis-wave/{date}_v2_thesis_wave.md`; `run thesis-incremental` -> `thesis-incremental/{date}_incremental_{thesis_id}.json`. After-tax campaign reports are written to `data/results/experiments/` and promoted here by hand when they are decision evidence.
