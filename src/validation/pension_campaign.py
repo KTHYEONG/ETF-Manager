@@ -50,6 +50,11 @@ _FX_FALLBACK_NOTE: Final[str] = (
 )
 _SOXX_BREAK_NOTE: Final[str] = "SOXX observations before 2021-06-21 carry the disclosed index-break label."
 _SHORT_LIVE_NOTE: Final[str] = "Current live Korean ETF history is too short for an observed 20-year test."
+_UNDEFINED_RATIO_NOTE: Final[str] = (
+    "Cohorts whose baseline after-tax wealth is zero (no contribution was made, for example a profile "
+    "with no usable tax credit) have no defined paired ratio and are excluded from ratio, rate, "
+    "and drawdown statistics; see the undefined column."
+)
 ArmRole = Literal["baseline", "candidate", "sensitivity"]
 _ARM_ROLES: Final[tuple[str, ...]] = ("baseline", "candidate", "sensitivity")
 
@@ -93,7 +98,12 @@ class PensionCampaignSpec:
 
 @dataclass(frozen=True, slots=True)
 class PensionCohortRow:
-    """One arm/cohort outcome with source status and paired tax-aware measures."""
+    """One arm/cohort outcome with source status and paired tax-aware measures.
+
+    ``paired_wealth_ratio`` is ``None`` when the baseline's after-tax wealth for
+    the same profile and cohort is zero, because a ratio against zero is
+    undefined and is never imputed.
+    """
 
     arm_id: str
     profile_id: str
@@ -115,23 +125,25 @@ class PensionCohortRow:
     is_retirement_terminal: bool
     cashflow_normalized_rate: float | None
     max_drawdown: float
-    paired_wealth_ratio: float
+    paired_wealth_ratio: float | None
     historical_overlap_group: str
 
 
 @dataclass(frozen=True, slots=True)
 class PensionArmSummary:
-    """Median/worst paired outcomes and independent-window count for one arm."""
+    """Median/worst paired outcomes over cohorts with a defined ratio, plus how many cohorts were excluded and the count of independent windows that carry information."""
 
     arm_id: str
     horizon_months: int
     cohort_count: int
+    undefined_ratio_cohorts: int
+    fully_undefined_profiles: tuple[str, ...]
     independent_window_count: int
     underperforming_cohorts: int
-    median_wealth_ratio: float
-    worst_wealth_ratio: float
+    median_wealth_ratio: float | None
+    worst_wealth_ratio: float | None
     median_cashflow_normalized_rate: float | None
-    median_max_drawdown: float
+    median_max_drawdown: float | None
     evidence_status: str
 
 
@@ -558,11 +570,15 @@ def run_pension_campaign(
         if not cohorts:
             raise ValueError(f"no cohorts fit horizon {horizon}")
         overlap_group = "overlapping" if spec.step_months < horizon else "independent"
-        independent_windows = len(rolling_cohorts(spec.start, spec.end, horizon_months=horizon, step_months=horizon))
+        independent_cohorts = rolling_cohorts(
+            spec.start, spec.end, horizon_months=horizon, step_months=horizon
+        )
         for arm in spec.arms:
             ratios: list[float] = []
             normalized_rates: list[float] = []
             drawdowns: list[float] = []
+            undefined_count = 0
+            defined_by_profile: dict[str, int] = {profile.profile_id: 0 for profile in spec.profiles}
             for profile in spec.profiles:
                 for c_start, c_end in cohorts:
                     result = run_pension_backtest(_arm_config(arm, c_start, c_end), prices, fx, profile, regime)
@@ -581,10 +597,14 @@ def run_pension_campaign(
                     )
                     base_wealth = _baseline_wealth(horizon, c_start, c_end, profile)
                     if base_wealth == 0:
-                        ratio = 1.0
+                        ratio: float | None = None
                     else:
-                        ratio = wealth / base_wealth if arm.arm_id != spec.baseline_arm_id else 1.0
-                    ratios.append(ratio)
+                        ratio = 1.0 if arm.arm_id == spec.baseline_arm_id else wealth / base_wealth
+                    if ratio is not None:
+                        ratios.append(ratio)
+                        defined_by_profile[profile.profile_id] += 1
+                    else:
+                        undefined_count += 1
                     unitized_nav: list[float] = []
                     unit_value = 1.0
                     previous_nav = 0.0
@@ -601,7 +621,8 @@ def run_pension_campaign(
                         previous_nav = float(snap.nav_krw)
                         previous_contributions = snap.cumulative_contributions_krw
                     drawdown = max_drawdown(unitized_nav)
-                    drawdowns.append(drawdown)
+                    if ratio is not None:
+                        drawdowns.append(drawdown)
                     credit_received = sum(
                         credit.national_credit_krw + credit.local_credit_krw
                         for credit in result.tax_credits
@@ -632,7 +653,8 @@ def run_pension_campaign(
                             (datetime.combine(c_end, datetime.min.time(), tzinfo=UTC), float(result.terminal_nav_krw))
                         )
                         normalized_rate = xirr(investor_flows)
-                        normalized_rates.append(normalized_rate)
+                        if ratio is not None and normalized_rate is not None:
+                            normalized_rates.append(normalized_rate)
                     rows.append(
                         PensionCohortRow(
                             arm_id=arm.arm_id,
@@ -664,27 +686,47 @@ def run_pension_campaign(
                             historical_overlap_group=overlap_group,
                         )
                     )
+            fully_undefined = tuple(sorted(pid for pid, count in defined_by_profile.items() if count == 0))
+            if ratios:
+                informative_windows = sum(
+                    1
+                    for w_start, w_end in independent_cohorts
+                    if any(
+                        _baseline_wealth(horizon, w_start, w_end, profile) != 0 for profile in spec.profiles
+                    )
+                )
+                median_ratio: float | None = wealth_quantile(ratios, 0.5)
+                worst_ratio: float | None = min(ratios)
+                median_drawdown: float | None = wealth_quantile(drawdowns, 0.5)
+            else:
+                informative_windows = 0
+                median_ratio = None
+                worst_ratio = None
+                median_drawdown = None
             summaries.append(
                 PensionArmSummary(
                     arm_id=arm.arm_id,
                     horizon_months=horizon,
                     cohort_count=len(ratios),
-                    independent_window_count=independent_windows,
+                    undefined_ratio_cohorts=undefined_count,
+                    fully_undefined_profiles=fully_undefined,
+                    independent_window_count=informative_windows,
                     underperforming_cohorts=sum(ratio < 1.0 for ratio in ratios),
-                    median_wealth_ratio=wealth_quantile(ratios, 0.5),
-                    worst_wealth_ratio=min(ratios),
+                    median_wealth_ratio=median_ratio,
+                    worst_wealth_ratio=worst_ratio,
                     median_cashflow_normalized_rate=(
                         wealth_quantile(normalized_rates, 0.5) if normalized_rates else None
                     ),
-                    median_max_drawdown=wealth_quantile(drawdowns, 0.5),
+                    median_max_drawdown=median_drawdown,
                     evidence_status=_INSUFFICIENT_EVIDENCE,
                 )
             )
             logger.info(
-                "[ALGO] event=pension_arm_done arm=%s horizon=%d cohorts=%d",
+                "[ALGO] event=pension_arm_done arm=%s horizon=%d cohorts=%d undefined=%d",
                 arm.arm_id,
                 horizon,
                 len(ratios),
+                undefined_count,
             )
     return PensionCampaignReport(
         name=spec.name,
@@ -737,6 +779,8 @@ def write_pension_campaign_report(
     fallback_session_count = int(cast("int", fx_provenance.get("fallback_session_count", 0) or 0))
     if fallback_session_count > 0:
         evidence_notes.append(_FX_FALLBACK_NOTE)
+    if any(summary.undefined_ratio_cohorts > 0 for summary in report.summaries):
+        evidence_notes.append(_UNDEFINED_RATIO_NOTE)
     payload = {
         "name": report.name,
         "experiment_id": experiment_id,
@@ -755,6 +799,8 @@ def write_pension_campaign_report(
                 "arm_id": summary.arm_id,
                 "horizon_months": summary.horizon_months,
                 "cohort_count": summary.cohort_count,
+                "undefined_ratio_cohorts": summary.undefined_ratio_cohorts,
+                "fully_undefined_profiles": list(summary.fully_undefined_profiles),
                 "independent_window_count": summary.independent_window_count,
                 "underperforming_cohorts": summary.underperforming_cohorts,
                 "median_wealth_ratio": summary.median_wealth_ratio,
@@ -814,19 +860,30 @@ def write_pension_campaign_report(
         if fallback_session_count > 0:
             lines.append(f"note: {_FX_FALLBACK_NOTE}")
     lines.append("household_view: not provided")
+    if any(summary.undefined_ratio_cohorts > 0 for summary in report.summaries):
+        lines.append(f"note: {_UNDEFINED_RATIO_NOTE}")
+    fully_undefined_ids = sorted(
+        {profile_id for summary in report.summaries for profile_id in summary.fully_undefined_profiles}
+    )
+    if fully_undefined_ids:
+        lines.append(f"fully_undefined_profiles: {', '.join(fully_undefined_ids)}")
     lines.extend(
         [
             "",
-            "| arm | horizon | cohorts | independent | median | worst | median XIRR | drawdown |",
-            "|---|---|---|---|---|---|---|---|",
+            "| arm | horizon | cohorts | undefined | independent | median | worst | median XIRR | drawdown |",
+            "|---|---|---|---|---|---|---|---|---|",
         ]
     )
+
+    def _fmt(value: float | None) -> str:
+        return f"{value:.4f}" if value is not None else "N/A"
+
     lines.extend(
         f"| {summary.arm_id} | {summary.horizon_months} | {summary.cohort_count} "
-        f"| {summary.independent_window_count} | {summary.median_wealth_ratio:.4f} "
-        f"| {summary.worst_wealth_ratio:.4f} | "
+        f"| {summary.undefined_ratio_cohorts} | {summary.independent_window_count} | {_fmt(summary.median_wealth_ratio)} "
+        f"| {_fmt(summary.worst_wealth_ratio)} | "
         f"{summary.median_cashflow_normalized_rate if summary.median_cashflow_normalized_rate is not None else 'N/A'} "
-        f"| {summary.median_max_drawdown:.4f} |"
+        f"| {_fmt(summary.median_max_drawdown)} |"
         for summary in report.summaries
     )
     try:

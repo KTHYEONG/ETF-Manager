@@ -238,13 +238,15 @@ def test_portfolio_ordering_disclosed_without_verdict(tmp_path: Path, monkeypatc
     assert len(report.summaries) == 2
     for summary in report.summaries:
         assert summary.cohort_count > 0
+        assert summary.median_wealth_ratio is not None
         assert summary.median_wealth_ratio > 0
+        assert summary.worst_wealth_ratio is not None
         assert summary.worst_wealth_ratio > 0
         assert summary.evidence_status == "INSUFFICIENT_INDEPENDENT_20Y_EVIDENCE"
         assert summary.median_cashflow_normalized_rate is not None
         assert 0 <= summary.underperforming_cohorts <= summary.cohort_count
     assert {row.historical_overlap_group for row in report.cohort_rows} == {"overlapping"}
-    assert all(row.paired_wealth_ratio > 0 for row in report.cohort_rows)
+    assert all(row.paired_wealth_ratio is None or row.paired_wealth_ratio > 0 for row in report.cohort_rows)
     assert all(row.max_drawdown <= 0 for row in report.cohort_rows)
 
 
@@ -269,7 +271,7 @@ def test_tax_capacity_gates_claimed_credits(tmp_path: Path, monkeypatch: pytest.
     assert by_profile["full"] == {12: [0, 0], 24: [990_000]}
     zero_rows = [row for row in report.cohort_rows if row.profile_id == "zero"]
     assert all(
-        row.terminal_nav_krw == 0 and row.paired_wealth_ratio == 1.0 and row.cashflow_normalized_rate is None
+        row.terminal_nav_krw == 0 and row.paired_wealth_ratio is None and row.cashflow_normalized_rate is None
         for row in zero_rows
     )
     two_year_balances = {
@@ -573,7 +575,7 @@ def test_campaign_run_guards(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     broke["available_cash_events_krw"] = {"2023-01-03": 0, "2024-01-03": 0}
     broke["profiles"] = [_profile_entry("accum", "1985-01-01", "2015-01-01", [2023, 2024], national=0, local=0)]
     cashless_report = run_pension_campaign(load_pension_campaign_spec(_write_config(tmp_path, broke)), settings, seed=7)
-    assert all(row.terminal_nav_krw == 0 and row.paired_wealth_ratio == 1.0 for row in cashless_report.cohort_rows)
+    assert all(row.terminal_nav_krw == 0 and row.paired_wealth_ratio is None for row in cashless_report.cohort_rows)
     report = PensionCampaignReport(
         name="probe", market_mode=PensionMarketMode.US_PROXY,
         market_coverage_start=date(2023, 1, 1), market_coverage_end=date(2024, 12, 31),
@@ -814,3 +816,138 @@ def test_invalid_fx_series_converted_to_data_error(tmp_path: Path, monkeypatch: 
     spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
     with pytest.raises(PensionDataError, match="fx series is invalid"):
         run_pension_campaign(spec, settings, seed=7)
+
+
+def _zero_full_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    years = [2023, 2024]
+    profiles = [
+        _profile_entry("zero", "1985-01-01", "2015-01-01", years, national=0, local=0),
+        _profile_entry("full", "1985-01-01", "2015-01-01", years),
+    ]
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config(profiles=profiles, horizons=[12])))
+    return settings, run_pension_campaign(spec, settings, seed=7)
+
+
+def test_zero_baseline_ratio_is_undefined(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A zero-baseline cohort carries no paired ratio instead of an imputed 1.0."""
+    _, report = _zero_full_report(tmp_path, monkeypatch)
+    zero_rows = [row for row in report.cohort_rows if row.profile_id == "zero"]
+    assert zero_rows
+    assert all(row.paired_wealth_ratio is None for row in zero_rows)
+    assert all(row.terminal_nav_krw == 0 for row in zero_rows)
+    full_rows = [row for row in report.cohort_rows if row.profile_id == "full"]
+    assert full_rows
+    assert all(isinstance(row.paired_wealth_ratio, float) for row in full_rows)
+    baseline_full = [row for row in full_rows if row.arm_id == "sp500"]
+    assert all(row.paired_wealth_ratio == 1.0 for row in baseline_full)
+
+
+def test_statistics_exclude_undefined_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Summary statistics are computed over defined cohorts only and partition the sample."""
+    from src.validation.gate import wealth_quantile
+    from src.validation.windows import rolling_cohorts
+
+    _, report = _zero_full_report(tmp_path, monkeypatch)
+    expected_windows = rolling_cohorts(date(2023, 1, 1), date(2024, 12, 31), horizon_months=12, step_months=12)
+    for summary in report.summaries:
+        arm_rows = [row for row in report.cohort_rows
+                    if row.arm_id == summary.arm_id and row.horizon_months == summary.horizon_months]
+        defined = [row for row in arm_rows if row.paired_wealth_ratio is not None]
+        undefined = [row for row in arm_rows if row.paired_wealth_ratio is None]
+        assert summary.cohort_count == len(defined)
+        assert summary.undefined_ratio_cohorts == len(undefined)
+        assert summary.cohort_count + summary.undefined_ratio_cohorts == 2 * len(expected_windows)
+        expected_ratios = [row.paired_wealth_ratio for row in defined]
+        assert summary.median_wealth_ratio == pytest.approx(wealth_quantile(expected_ratios, 0.5))
+        assert summary.worst_wealth_ratio == pytest.approx(min(expected_ratios))
+        expected_drawdowns = [row.max_drawdown for row in defined]
+        assert summary.median_max_drawdown == pytest.approx(wealth_quantile(expected_drawdowns, 0.5))
+        assert summary.fully_undefined_profiles == ("zero",)
+    candidate = next(summary for summary in report.summaries if summary.arm_id == "nasdaq")
+    assert candidate.worst_wealth_ratio is not None
+    assert candidate.worst_wealth_ratio > 1.0
+
+
+def test_all_undefined_arm_reports_na(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A cohort sample with no defined ratio reports N/A statistics instead of fabricated numbers."""
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    broke = dict(_campaign_config())
+    broke["available_cash_events_krw"] = {"2023-01-03": 0, "2024-01-03": 0}
+    broke["profiles"] = [_profile_entry("accum", "1985-01-01", "2015-01-01", [2023, 2024], national=0, local=0)]
+    report = run_pension_campaign(load_pension_campaign_spec(_write_config(tmp_path, broke)), settings, seed=7)
+    assert all(row.paired_wealth_ratio is None for row in report.cohort_rows)
+    for summary in report.summaries:
+        assert summary.cohort_count == 0
+        assert summary.underperforming_cohorts == 0
+        assert summary.median_wealth_ratio is None
+        assert summary.worst_wealth_ratio is None
+        assert summary.median_max_drawdown is None
+        assert summary.median_cashflow_normalized_rate is None
+        assert summary.independent_window_count == 0
+    json_path = write_pension_campaign_report(report, settings, experiment_id="allundefined")
+    assert "N/A" in json_path.with_suffix(".md").read_text(encoding="utf-8")
+
+
+def test_independent_windows_count_informative_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only independent windows carrying at least one defined cohort are counted."""
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    years = [2023, 2024]
+    late = _profile_entry("late", "1985-01-01", "2015-01-01", years)
+    late["remaining_national_tax_krw"] = {"2023": 0, "2024": 5_000_000}
+    late["remaining_local_tax_krw"] = {"2023": 0, "2024": 5_000_000}
+    spec = load_pension_campaign_spec(
+        _write_config(tmp_path, _campaign_config(profiles=[late], horizons=[12], step=12))
+    )
+    report = run_pension_campaign(spec, settings, seed=7)
+    assert len(report.cohort_rows) == 4
+    for summary in report.summaries:
+        assert summary.cohort_count == 1
+        assert summary.undefined_ratio_cohorts == 1
+        assert summary.independent_window_count == 1
+        assert summary.fully_undefined_profiles == ()
+
+
+def test_report_discloses_undefined_exclusion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Excluded cohorts are disclosed in JSON evidence notes and the markdown table."""
+    from src.validation.pension_campaign import _UNDEFINED_RATIO_NOTE
+
+    settings, report = _zero_full_report(tmp_path, monkeypatch)
+    json_path = write_pension_campaign_report(report, settings, experiment_id="undefineddisclose")
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert all(
+        "undefined_ratio_cohorts" in summary and "fully_undefined_profiles" in summary
+        for summary in payload["summaries"]
+    )
+    assert all(summary["undefined_ratio_cohorts"] > 0 for summary in payload["summaries"])
+    assert all(summary["fully_undefined_profiles"] == ["zero"] for summary in payload["summaries"])
+    assert any(row["paired_wealth_ratio"] is None for row in payload["rows"])
+    assert _UNDEFINED_RATIO_NOTE in payload["evidence_notes"]
+    markdown = json_path.with_suffix(".md").read_text(encoding="utf-8")
+    assert "undefined" in markdown
+    assert f"note: {_UNDEFINED_RATIO_NOTE}" in markdown
+    assert "fully_undefined_profiles: zero" in markdown
+
+
+def test_report_omits_undefined_note_when_nothing_excluded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run where every profile contributes carries no exclusion disclosure."""
+    from src.validation.pension_campaign import _UNDEFINED_RATIO_NOTE
+
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    report = run_pension_campaign(spec, settings, seed=7)
+    assert all(summary.undefined_ratio_cohorts == 0 for summary in report.summaries)
+    json_path = write_pension_campaign_report(report, settings, experiment_id="noundefined")
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert _UNDEFINED_RATIO_NOTE not in payload["evidence_notes"]
+    markdown = json_path.with_suffix(".md").read_text(encoding="utf-8")
+    assert f"note: {_UNDEFINED_RATIO_NOTE}" not in markdown
+    assert "fully_undefined_profiles:" not in markdown
