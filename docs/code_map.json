@@ -447,7 +447,8 @@
   },
   "src/sim/after_tax_engine.py": {
     "family": "sim",
-    "testing": "tests/unit/sim/test_after_tax_engine.py"
+    "testing": "tests/unit/sim/test_after_tax_engine.py",
+    "architecture": "docs/architecture/design-decisions.md"
   },
   "src/sim/allocation.py": {
     "family": "sim",

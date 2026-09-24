@@ -110,6 +110,7 @@ ETF-Manager/
 | **ADR-03** | **외부 현금흐름 제약** | **동일 외부 납입금 강제 (Flat 월 100만 원, $I_5$)** | 하락장 외부 자금 추가 투입 | 현금흐름 조작에 의한 백테스트 왜곡 차단 및 순수 자산배분 능력(알파) 검증 |
 | **ADR-04** | **체결 및 구매력 평가** | **익거래일($t+1$) 체결 & 한국 CPI 실질 원화 평가** | 당일 종가($t+0$) 즉시 체결, 명목 달러 평가 | 한국 거주자의 미국 ETF 실체결 시차 및 환전 스프레드, 국내 물가상승률 반영 |
 | **ADR-05** | **데이터 무결성** | **공시 시점(`available_at`) 태깅 & SHA-256 매니페스트** | 관측일 기준 정렬, 단순 CSV 저장 | 거시지표 사후 수정(Vintage Revision)에 의한 Look-Ahead 편향 0% 보장 |
+| **ADR-06** | **세후 운용 표준** | **QQQ90/SOXX10 매수 전용 + 연말 공제 활용 이익실현(TGH)** | 위험 회피 매도, 자산 순환(TAA) | 세후 청산 자산 +0.4~1.4%, 납부세 거의 0. 매도는 세금 최적화 목적으로만 허용 (상세: 설계 의사결정 ADR-007) |
 
 ---
 
@@ -208,8 +209,8 @@ uv run mypy src
 * [아키텍처 개요 (Overview)](docs/architecture/overview.md) — 6계층 구조, 시스템 경계 및 18대 시스템 불변식 상세
 * [데이터 흐름 명세 (Data Flow)](docs/architecture/data-flow.md) — 10단계 파이프라인, 공시 시점 부여 규칙 및 결측치 정책
 * [컴포넌트 상세 명세 (Components)](docs/architecture/components.md) — 모듈별 단일 책임, 입출력 규격 및 주요 구현 코드
-* [설계 의사결정 기록 (ADR)](docs/architecture/design-decisions.md) — 6대 핵심 엔지니어링 결정 배경, 대안 및 트레이드오프
-* [과거 검증 리포트 원문](docs/results/final-historical/FINAL_HISTORICAL_CAMPAIGN_V1_8201d9e.md) — 과거 데이터 최종 검증 리포트
+* [설계 의사결정 기록 (ADR)](docs/architecture/design-decisions.md) — 7대 핵심 엔지니어링 결정 배경, 대안 및 트레이드오프
+* [과거 검증 리포트 원문](docs/results/final-historical/final_historical_campaign_v1_2012-2026.md) — 과거 데이터 최종 검증 리포트
 
 ---
 
