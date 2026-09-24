@@ -420,7 +420,7 @@ def test_wf_ag_v4_process(scenario_id: str) -> None:
                 total_contribution_real_krw=contribution,
             )
 
-    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_v4.json")
+    spec = load_experiment_config("experiments/wf_qqq_adaptive_v4.json")
     report = run_walk_forward_adoption(spec, _V4AdaptiveRunner())
 
     assert len(report.folds) >= 2

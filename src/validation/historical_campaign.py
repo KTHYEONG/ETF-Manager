@@ -12,6 +12,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal
 
+from src.data.paths import EXPERIMENT_INDEX_PATH, EXPERIMENTS_DIR
 from src.policy.targets import PolicyId
 from src.sim.research_proxy import (
     run_research_proxy_from_store_with_returns,
@@ -966,16 +967,16 @@ def run_final_historical_campaign(
     lineage_hash_census = None
     if settings is not None:
         try:
-            from src.data.paths import experiments_dir as _experiments_dir
+            from src.data.paths import results_root
             from src.validation.registry import scan_executed_strategy_hash_census
 
-            lineage_hash_census = scan_executed_strategy_hash_census(_experiments_dir(settings))
+            lineage_hash_census = scan_executed_strategy_hash_census(results_root(settings))
         except Exception:
             lineage_hash_census = None
     try:
         lineage_census = build_trial_lineage_census(
-            index_path=Path("configs/experiments/INDEX.json"),
-            experiments_dir=Path("configs/experiments"),
+            index_path=EXPERIMENT_INDEX_PATH,
+            experiments_dir=EXPERIMENTS_DIR,
         )
     except Exception:
         lineage_census = TrialLineageCensusReport(total_experiments=0, families=())
@@ -1034,7 +1035,7 @@ def write_final_historical_campaign_report(
     *,
     experiment_id: str,
 ) -> Path:
-    from src.data.paths import experiments_dir
+    from src.data.result_store import ResultKind, write_result
 
     payload = {
         "campaign_id": report.campaign_id,
@@ -1137,8 +1138,11 @@ def write_final_historical_campaign_report(
             "xirr_real": report.pre_history_proxy.xirr_real,
         },
     }
-    out_dir = experiments_dir(settings)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{report.campaign_id}_{experiment_id}.json"
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return out_path
+    ref = write_result(
+        settings,
+        experiment=report.campaign_id,
+        kind=ResultKind.FINAL_HISTORICAL,
+        run_id=experiment_id,
+        payload=payload,
+    )
+    return ref.json_path

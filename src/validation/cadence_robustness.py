@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -84,10 +83,13 @@ def write_cadence_robustness_report(report: CadenceRobustnessReport, settings: D
         "bootstrap_tail_ok": report.bootstrap_tail_ok,
         "cohort_count": len(report.candidate_wealths),
     }
-    from src.data.paths import experiments_dir
+    from src.data.result_store import ResultKind, write_result
 
-    out_dir = experiments_dir(settings)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{report.name}_robustness_{experiment_id}.json"
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return out_path
+    ref = write_result(
+        settings,
+        experiment=report.name,
+        kind=ResultKind.ROBUSTNESS,
+        run_id=experiment_id,
+        payload=payload,
+    )
+    return ref.json_path

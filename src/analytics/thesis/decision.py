@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 
 from src.analytics.thesis.meaning import (
     HistoricalQuality,
@@ -14,6 +13,7 @@ from src.analytics.thesis.meaning import (
     classify_thesis_meaning,
 )
 from src.analytics.thesis.report import ThesisReport
+from src.data.paths import THESES_DIR
 
 __all__ = ["ThesisDecision", "ThesisDecisionRecord", "synthesize_thesis_decision"]
 
@@ -44,7 +44,7 @@ def _build_meaning(report: ThesisReport, median: float | None, cohort_ce: float 
         else:
             from src.policy.thesis import get_thesis, load_thesis_registry
 
-            reg = load_thesis_registry(Path("configs/theses"))
+            reg = load_thesis_registry(THESES_DIR)
             thesis = get_thesis(reg, report.thesis_id)
             min_years = int(thesis.horizon.min_years)
             target_years = int(thesis.horizon.target_years)

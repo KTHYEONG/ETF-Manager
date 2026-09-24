@@ -7,6 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
+from src.data.paths import ETF_METADATA_BOOTSTRAP_PATH
 from src.data.pipeline import persist_ingest
 from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
@@ -14,13 +15,11 @@ from src.data.storage import DatasetArtifact, RawPayload
 
 __all__ = ["persist_bootstrap_etf_metadata"]
 
-_DEFAULT_PATH = Path("configs/etf_metadata/bootstrap.json")
-
 
 def persist_bootstrap_etf_metadata(
     settings: DataSettings,
     *,
-    path: Path = _DEFAULT_PATH,
+    path: Path = ETF_METADATA_BOOTSTRAP_PATH,
 ) -> DatasetArtifact:
     """Load ``configs/etf_metadata/bootstrap.json`` and persist one ETF_METADATA partition.
 

@@ -574,5 +574,8 @@
   "src/sim/pension_engine.py": {
     "architecture": "docs/specs/pension_campaign_spec.md",
     "testing": "tests/unit/sim/test_pension_engine.py"
+  },
+  "src/data/result_store.py": {
+    "testing": "tests/unit/data/test_result_store.py"
   }
 }

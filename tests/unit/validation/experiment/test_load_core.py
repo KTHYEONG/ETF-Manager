@@ -75,7 +75,7 @@ def test_exp_w1_load_round_trip(scenario_id: str, tmp_path: Path) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-M2-json-load"])
 def test_exp_m2_json_load(scenario_id: str) -> None:
     """EXP-M2-json-load"""
-    spec = load_experiment_config("configs/experiments/m1_m2.json")
+    spec = load_experiment_config("experiments/m1_m2.json")
 
     assert spec.name == "m1_m2_us_core_value"
     assert spec.start == date(2014, 1, 3)
@@ -94,7 +94,7 @@ def test_exp_m2_json_load(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-D-universe-json"])
 def test_exp_d_universe_json(scenario_id: str) -> None:
     """EXP-D-universe-json"""
-    m1_d = load_experiment_config("configs/experiments/m1_d_universe.json")
+    m1_d = load_experiment_config("experiments/m1_d_universe.json")
 
     assert m1_d.name == "m1_d_universe"
     assert m1_d.start == date(2014, 1, 3)
@@ -109,7 +109,7 @@ def test_exp_d_universe_json(scenario_id: str) -> None:
     assert [candidate.policy for candidate in m1_d.candidates] == [PolicyId.IVV]
     assert [candidate.modules for candidate in m1_d.candidates] == [1]
 
-    wf = load_experiment_config("configs/experiments/wf_vti_ivv.json")
+    wf = load_experiment_config("experiments/wf_vti_ivv.json")
 
     assert wf.name == "wf_vti_ivv"
     assert wf.train_months == 60
@@ -126,7 +126,7 @@ def test_exp_d_universe_json(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-N-nasdaq-json"])
 def test_exp_n_nasdaq_json(scenario_id: str) -> None:
     """EXP-N-nasdaq-json"""
-    m1_n = load_experiment_config("configs/experiments/m1_n_nasdaq.json")
+    m1_n = load_experiment_config("experiments/m1_n_nasdaq.json")
 
     assert m1_n.name == "m1_n_nasdaq"
     assert m1_n.start == date(2006, 10, 31)
@@ -141,7 +141,7 @@ def test_exp_n_nasdaq_json(scenario_id: str) -> None:
     assert [candidate.policy for candidate in m1_n.candidates] == [PolicyId.QQQ]
     assert [candidate.modules for candidate in m1_n.candidates] == [1]
 
-    wf = load_experiment_config("configs/experiments/wf_vti_qqq.json")
+    wf = load_experiment_config("experiments/wf_vti_qqq.json")
 
     assert wf.name == "wf_vti_qqq"
     assert wf.train_months == 60
@@ -162,7 +162,7 @@ def test_exp_n_nasdaq_json(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-WF-optional-months"])
 def test_exp_wf_optional_months(scenario_id: str) -> None:
     """EXP-WF-optional-months"""
-    m0_m1 = load_experiment_config("configs/experiments/m0_m1.json")
+    m0_m1 = load_experiment_config("experiments/m0_m1.json")
     assert m0_m1.train_months is None
     assert m0_m1.test_months is None
 
@@ -171,7 +171,7 @@ def test_exp_wf_optional_months(scenario_id: str) -> None:
     with pytest.raises(ValueError, match="both train_months and test_months"):
         ExperimentSpec.model_validate(only_train)
 
-    wf = load_experiment_config("configs/experiments/wf_vt_vti.json")
+    wf = load_experiment_config("experiments/wf_vt_vti.json")
     assert wf.train_months == 60
     assert wf.test_months == 36
     assert wf.baseline.policy is PolicyId.VT
@@ -312,9 +312,62 @@ def test_load_final_historical_campaign_config() -> None:
     from src.validation.historical_campaign import assert_final_campaign_spec
     from src.validation.research_posture import ObjectiveFamily
 
-    spec = load_experiment_config("configs/experiments/final_historical_campaign_v1.json")
+    spec = load_experiment_config("experiments/final_historical_campaign_v1.json")
     assert spec.name == "final_historical_campaign_v1"
     assert spec.objective_family is ObjectiveFamily.CAPITAL_ALLOCATION
     assert len(spec.candidates) == 3
     assert spec.baseline.targets == {"QQQ": 1.0}
     assert_final_campaign_spec(spec)
+
+
+def test_resolve_experiment_config_direct_path() -> None:
+    from src.validation.experiment import resolve_experiment_config_path
+
+    resolved = resolve_experiment_config_path("experiments/wf_qqq_adaptive_v5.json")
+    assert resolved.is_file()
+    assert resolved.name == "wf_qqq_adaptive_v5.json"
+
+
+def test_resolve_experiment_config_legacy_prefix_redirects() -> None:
+    from src.validation.experiment import resolve_experiment_config_path
+
+    resolved = resolve_experiment_config_path("configs/experiments/wf_qqq_adaptive_v5.json")
+    assert resolved.is_file()
+    assert resolved.parent.name != "archive"
+    assert resolved.name == "wf_qqq_adaptive_v5.json"
+    assert "experiments" in resolved.parts
+
+
+def test_resolve_experiment_config_legacy_prefix_reaches_archive() -> None:
+    from src.validation.experiment import resolve_experiment_config_path
+
+    resolved = resolve_experiment_config_path("configs/experiments/wf_qqq_adaptive_v4.json")
+    assert resolved.is_file()
+    assert resolved.parent.name == "archive"
+    assert resolved.name == "wf_qqq_adaptive_v4.json"
+
+
+def test_resolve_experiment_config_new_prefix_reaches_archive() -> None:
+    from src.validation.experiment import resolve_experiment_config_path
+
+    resolved = resolve_experiment_config_path("experiments/wf_qqq_reserve.json")
+    assert resolved.is_file()
+    assert resolved.parent.name == "archive"
+
+
+def test_resolve_experiment_config_unrelated_path_no_fallback() -> None:
+    import pytest
+
+    from src.validation.experiment import resolve_experiment_config_path
+
+    with pytest.raises(FileNotFoundError):
+        resolve_experiment_config_path("tmp/xconfigs/experiments_old/wf_qqq_reserve.json")
+
+
+def test_resolve_experiment_config_cwd_independent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from src.validation.experiment import resolve_experiment_config_path
+
+    monkeypatch.chdir(tmp_path)
+    resolved = resolve_experiment_config_path("configs/experiments/m0_m1.json")
+    assert resolved.is_file()
+    assert resolved.name == "m0_m1.json"

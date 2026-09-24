@@ -193,7 +193,7 @@ uv run python -m src.cli run policy \
 ```bash
 # 최종 과거 캠페인 검증 실행
 uv run python -m src.cli run final-historical-campaign \
-  --config configs/experiments/final_historical_campaign_v1.json \
+  --config experiments/final_historical_campaign_v1.json \
   --seed 42
 
 # 전체 633개 테스트 및 정적 타입 검사

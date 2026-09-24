@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 from collections.abc import Sequence
@@ -489,11 +488,8 @@ def audit_static_dca_window(spec: ExperimentSpec, settings: DataSettings) -> Sta
 def write_feasibility_audit_report(
     report: StaticDcaWindowReport, settings: DataSettings, audit_id: str
 ) -> Path:
-    from src.data.paths import audits_dir
+    from src.data.result_store import ResultKind, write_result
 
-    out_dir = audits_dir(settings)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{report.name}_feasibility_{audit_id}.json"
     payload = {
         "name": report.name,
         "requested_start": report.requested_start.isoformat(),
@@ -521,6 +517,12 @@ def write_feasibility_audit_report(
         "cohort_count_120m_step12": report.cohort_count_120m_step12,
         "resolve_violations": list(report.resolve_violations),
     }
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    logger.info("[DATA] event=feasibility_audit_written path=%s", out_path.as_posix())
-    return out_path
+    ref = write_result(
+        settings,
+        experiment=report.name,
+        kind=ResultKind.FEASIBILITY,
+        run_id=audit_id,
+        payload=payload,
+    )
+    logger.info("[DATA] event=feasibility_audit_written path=%s", ref.json_path.as_posix())
+    return ref.json_path

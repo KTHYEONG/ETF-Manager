@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -440,10 +439,7 @@ def write_campaign_report(report: CampaignReport, settings: DataSettings, experi
         "fold_count": len(report.folds),
         "folds": _fold_records(report.folds),
     }
-    from src.data.paths import experiments_dir
+    from src.data.result_store import ResultKind, write_result
 
-    out_dir = experiments_dir(settings)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{report.name}_{experiment_id}.json"
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return out_path
+    ref = write_result(settings, experiment=report.name, kind=ResultKind.WALK_FORWARD, run_id=experiment_id, payload=payload)
+    return ref.json_path

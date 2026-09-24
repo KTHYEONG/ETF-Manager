@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from src.data.paths import THESIS_FUNDAMENTALS_DIR
 from src.policy.thesis import ThesisId
 
 if TYPE_CHECKING:
@@ -170,7 +171,7 @@ def load_purity_spec(*, thesis_id: ThesisId, path: Path | None = None) -> Purity
 
 
 def _default_registry_path(thesis_id: ThesisId) -> Path:
-    return Path("configs/data/thesis_fundamentals") / f"{thesis_id.value}.json"
+    return THESIS_FUNDAMENTALS_DIR / f"{thesis_id.value}.json"
 
 
 def load_thesis_fundamentals(*, thesis_id: ThesisId, path: Path | None = None) -> ThesisFundamentalsSpec:
@@ -335,7 +336,7 @@ def fetch_and_persist_thesis_fundamentals(
     client: httpx.Client | None = None,
 ) -> DatasetArtifact:
     """Fetch all registry fundamentals via single MACRO partition."""
-    registry_dir = Path("configs/data/thesis_fundamentals")
+    registry_dir = THESIS_FUNDAMENTALS_DIR
     if not registry_dir.is_dir():
         raise FileNotFoundError(f"fundamentals registry dir missing: {registry_dir.as_posix()}")
     series_set: set[str] = set()

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -259,7 +258,7 @@ def run_accumulation_cohort_report(
 def write_accumulation_cohort_report(
     report: AccumulationCohortReport, settings: DataSettings, experiment_id: str
 ) -> Path:
-    """Persist report JSON under experiments/{name}_accumulation_{experiment_id}.json."""
+    """Persist report JSON under the experiment's result directory."""
     payload = {
         "name": report.name,
         "experiment_id": experiment_id,
@@ -290,12 +289,15 @@ def write_accumulation_cohort_report(
             for row in report.rows
         ],
     }
-    from src.data.paths import experiments_dir
+    from src.data.result_store import ResultKind, write_result
 
-    out_dir = experiments_dir(settings)
-    out_dir.mkdir(parents=True, exist_ok=True)
     # Use name or 'accumulation' fallback
     base_name = report.name if report.name else "accumulation"
-    out_path = out_dir / f"{base_name}_accumulation_{experiment_id}.json"
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return out_path
+    ref = write_result(
+        settings,
+        experiment=base_name,
+        kind=ResultKind.ACCUMULATION,
+        run_id=experiment_id,
+        payload=payload,
+    )
+    return ref.json_path

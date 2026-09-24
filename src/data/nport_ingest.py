@@ -14,6 +14,7 @@ import httpx
 import polars as pl
 
 from src.data.catalog import latest_artifact
+from src.data.paths import NPORT_SERIES_MAP_PATH
 from src.data.pipeline import persist_ingest
 from src.data.pit import AVAILABLE_AT
 from src.data.providers.base import ProviderError
@@ -25,7 +26,6 @@ from src.data.storage import DatasetArtifact, DataStore, RawPayload, UntrustedDa
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_SERIES_MAP = Path("configs/etf_metadata/nport_series_map.json")
 _USER_AGENT = "ETF-Manager/1.0 contact@example.com"
 _NPORT_BULK_BASE = "https://www.sec.gov/files/dera/data/form-n-port-data-sets"
 
@@ -36,7 +36,7 @@ def _nport_bulk_url(filing_quarter: str) -> str:
     return f"{_NPORT_BULK_BASE}/{fq}_nport.zip"
 
 
-def load_nport_series_map(path: Path = Path("configs/etf_metadata/nport_series_map.json")) -> Mapping[str, str]:
+def load_nport_series_map(path: Path = NPORT_SERIES_MAP_PATH) -> Mapping[str, str]:
     """Load series_id -> ticker map; fails closed on unreadable JSON."""
     if not path.is_file():
         raise OSError(f"nport series map not found: {path}")
@@ -121,7 +121,7 @@ def _load_nport_zip_bytes(
 def fetch_and_persist_nport_quarter(
     *,
     filing_quarter: str,
-    series_map_path: Path = Path("configs/etf_metadata/nport_series_map.json"),
+    series_map_path: Path = NPORT_SERIES_MAP_PATH,
     settings: DataSettings,
     client: httpx.Client | None = None,
 ) -> DatasetArtifact:
@@ -207,7 +207,7 @@ def fetch_and_persist_nport_quarter(
 def fetch_and_persist_nport_quarters(
     *,
     filing_quarters: Sequence[str],
-    series_map_path: Path = Path("configs/etf_metadata/nport_series_map.json"),
+    series_map_path: Path = NPORT_SERIES_MAP_PATH,
     settings: DataSettings,
 ) -> tuple[DatasetArtifact, ...]:
     """Fetch multiple quarters and persist one merged ETF_HOLDINGS partition."""

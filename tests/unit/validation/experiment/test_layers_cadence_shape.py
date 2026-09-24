@@ -48,7 +48,7 @@ def _write(tmp_path: Path, payload: dict[str, object]) -> str:
 @pytest.mark.parametrize("scenario_id", ["NAM-GF-json-objective"])
 def test_nam_gf_json_objective(scenario_id: str) -> None:
     """NAM-GF-json-objective"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_cadence.json")
+    spec = load_experiment_config("experiments/wf_qqq_cadence.json")
 
     assert spec.objective == "growth_first"
 
@@ -89,7 +89,7 @@ def test_nam_gf_json_objective(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-L-qqq-reserve-v3"])
 def test_exp_l_qqq_reserve_v3_json(scenario_id: str) -> None:
     """EXP-L-qqq-reserve-v3"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_reserve_v3.json")
+    spec = load_experiment_config("experiments/wf_qqq_reserve_v3.json")
 
     assert spec.name == "wf_qqq_reserve_v3"
     assert spec.objective == "growth_first"
@@ -122,7 +122,7 @@ def test_exp_l_qqq_reserve_v3_json(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-L-qqq-reserve-v4"])
 def test_exp_l_qqq_reserve_v4_json(scenario_id: str) -> None:
     """EXP-L-qqq-reserve-v4"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_reserve_v4.json")
+    spec = load_experiment_config("experiments/wf_qqq_reserve_v4.json")
 
     assert spec.name == "wf_qqq_reserve_v4"
     assert spec.objective == "growth_first"
@@ -208,7 +208,7 @@ def test_exp_k_shape_xor(scenario_id: str, tmp_path: Path) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-K-shape-wf-json"])
 def test_exp_k_shape_wf_json(scenario_id: str) -> None:
     """EXP-K-shape-wf-json"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_kafi_shape.json")
+    spec = load_experiment_config("experiments/wf_qqq_kafi_shape.json")
 
     assert spec.baseline.policy is PolicyId.QQQ
     assert spec.baseline.modules == 0
@@ -241,7 +241,7 @@ def _deployment_payload(**overrides: object) -> dict[str, object]:
 @pytest.mark.parametrize("scenario_id", ["EXP-M-deployment-wf-json"])
 def test_exp_m_deployment_wf_json(scenario_id: str) -> None:
     """EXP-M-deployment-wf-json"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_kafi_deployment.json")
+    spec = load_experiment_config("experiments/wf_qqq_kafi_deployment.json")
 
     assert spec.baseline.policy is PolicyId.QQQ
     assert spec.baseline.modules == 0

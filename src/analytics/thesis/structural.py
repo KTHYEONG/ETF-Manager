@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, date, datetime
-from pathlib import Path
 
 import polars as pl
 
 from src.analytics.thesis.evidence import EvidenceSlot
 from src.data.catalog import load_visible
+from src.data.paths import THESIS_FUNDAMENTALS_DIR
 from src.data.pit import AVAILABLE_AT, TS_DTYPE
 from src.data.schema import Dataset
 from src.data.settings import DataSettings
@@ -193,7 +193,7 @@ def compute_structural_slot(*, thesis: ThesisSpec, settings: DataSettings, as_of
     periods = 4
     # try reading raw json for frequency
     try:
-        reg_path = Path("configs/data/thesis_fundamentals") / f"{thesis.id.value}.json"
+        reg_path = THESIS_FUNDAMENTALS_DIR / f"{thesis.id.value}.json"
         if reg_path.is_file():
             payload = json.loads(reg_path.read_text(encoding="utf-8"))
             freq = payload.get("primary_frequency")
@@ -245,7 +245,7 @@ def compute_structural_slot(*, thesis: ThesisSpec, settings: DataSettings, as_of
         # read min_positive_periods from registry if present
         min_positive = 4
         try:
-            reg_path2 = Path("configs/data/thesis_fundamentals") / f"{thesis.id.value}.json"
+            reg_path2 = THESIS_FUNDAMENTALS_DIR / f"{thesis.id.value}.json"
             if reg_path2.is_file():
                 payload2 = json.loads(reg_path2.read_text(encoding="utf-8"))
                 min_positive = int(payload2.get("structural", {}).get("min_positive_periods", 4))

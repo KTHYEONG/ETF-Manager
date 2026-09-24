@@ -526,8 +526,8 @@ def run_after_tax_campaign(
 def write_after_tax_campaign_report(
     report: AfterTaxCampaignReport, settings: DataSettings, experiment_id: str
 ) -> Path:
-    """Write ``{name}_after_tax_{experiment_id}.json`` plus a markdown summary beside it under ``experiments_dir``."""
-    from src.data.paths import experiments_dir
+    """Write ``{name}_after_tax_{experiment_id}.json`` plus a markdown summary beside it under the experiment's result directory."""
+    from src.data.result_store import ResultKind, write_result
 
     payload = {
         "name": report.name,
@@ -572,10 +572,6 @@ def write_after_tax_campaign_report(
             for row in report.rows
         ],
     }
-    out_dir = experiments_dir(settings)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{report.name}_after_tax_{experiment_id}.json"
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     lines = [
         f"# After-tax campaign {report.name}",
         "",
@@ -591,6 +587,12 @@ def write_after_tax_campaign_report(
         f"| {summary.bootstrap_p05_ratio:.4f} | {summary.gate_passes} |"
         for summary in report.summaries
     )
-    md_path = out_path.with_suffix(".md")
-    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return out_path
+    ref = write_result(
+        settings,
+        experiment=report.name,
+        kind=ResultKind.AFTER_TAX,
+        run_id=experiment_id,
+        payload=payload,
+        markdown="\n".join(lines) + "\n",
+    )
+    return ref.json_path

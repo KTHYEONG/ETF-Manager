@@ -13,6 +13,7 @@ from pathlib import Path
 from src.analytics.thesis.decision import ThesisDecisionRecord, synthesize_thesis_decision
 from src.analytics.thesis.report import ThesisReport, build_thesis_report, write_thesis_report
 from src.data.panel_freshness import CatalogPanelReport, resolve_catalog_panel_as_of
+from src.data.paths import THESIS_EXPERIMENT_MAP_PATH
 from src.data.settings import DataSettings
 from src.policy.thesis import ThesisId
 from src.sim.allocation import AllocationConfig, AllocationResult
@@ -54,7 +55,7 @@ class ThesisWaveReport:
     freshness_status: str | None = None
 
 
-def load_thesis_experiment_map(path: Path = Path("configs/theses/experiment_map.json")) -> Mapping[ThesisId, Path]:
+def load_thesis_experiment_map(path: Path = THESIS_EXPERIMENT_MAP_PATH) -> Mapping[ThesisId, Path]:
     """Load thesis -> experiment JSON map; fails closed on missing keys."""
     if not path.is_file():
         raise ValueError(f"thesis experiment map not found: {path}")
@@ -128,13 +129,9 @@ def run_thesis_wave(
         lag_days=lag_days,
         freshness_status=freshness_status,
     )
-    # Write combined wave JSON under data/results/thesis/wave_{as_of}.json
-    from src.data.paths import thesis_reports_dir
+    # Write combined wave JSON under the experiment's result directory
+    from src.data.result_store import ResultKind, write_result
 
-    out_dir = thesis_reports_dir(settings)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    safe_as_of = as_of.isoformat().replace(":", "-")
-    wave_path = out_dir / f"wave_{safe_as_of}.json"
     payload = {
         "as_of": as_of.isoformat(),
         "panel_as_of": panel_as_of.isoformat(),
@@ -171,7 +168,13 @@ def run_thesis_wave(
             for f in failures
         ],
     }
-    wave_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    write_result(
+        settings,
+        experiment="thesis_wave",
+        kind=ResultKind.THESIS_WAVE,
+        run_id=as_of.isoformat(),
+        payload=payload,
+    )
     return wave
 
 

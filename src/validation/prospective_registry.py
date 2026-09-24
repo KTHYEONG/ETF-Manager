@@ -16,6 +16,9 @@ from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.data.paths import (
+    CURRENT_OPERATIONAL_BUNDLE_PATH,  # noqa: F401  # re-exported; name stays importable from this module
+)
 from src.data.settings import DataSettings
 from src.policy.targets import PolicyId
 from src.sim.allocation import AllocationConfig, AllocationResult
@@ -97,9 +100,6 @@ class FrozenStrategyArm(BaseModel):
         if self.role is not None and self.role is not ProspectiveArmRole.DEPLOYMENT_TIMING and self.kafi_deployment is not None:
             raise ValueError(f"kafi_deployment only allowed for deployment_timing arm, got role {self.role!r}")
         return self
-
-
-CURRENT_OPERATIONAL_BUNDLE_PATH: Final[Path] = Path("configs/prospective/CURRENT_OPERATIONAL_BUNDLE.json")
 
 
 class ProspectiveBundleSpec(BaseModel):
@@ -367,12 +367,6 @@ def load_prospective_bundle(path: Path) -> ProspectiveBundleSpec:
     for arm in spec.arms:
         if arm.adaptive_contribution is not None:
             raise ValueError("adaptive_contribution not allowed for prospective arms")
-    # bundle_id check
-    if spec.bundle_id != PROSPECTIVE_BUNDLE_ID:
-        # allow frozen files to keep same id, but raise if mismatch?
-        # Keep strict: must be PROSPECTIVE_2026_V1
-        if spec.bundle_id != PROSPECTIVE_BUNDLE_ID:
-            raise ValueError(f"bundle_id must be {PROSPECTIVE_BUNDLE_ID!r}, got {spec.bundle_id!r}")
     return spec
 
 
@@ -420,7 +414,7 @@ def freeze_prospective_bundle(*, bundle_path: Path, output_dir: Path, frozen_at:
     hashes_tuple = tuple(arm_hashes)
     bundle_hash_val = bundle_identity_hash(bundle, hashes_tuple)
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / "prospective_2026_v1_frozen.json"
+    out_path = output_dir / f"{bundle.bundle_id.lower()}_frozen.json"
     raw = json.loads(Path(bundle_path).read_text(encoding="utf-8"))
     raw["frozen_at"] = frozen_at.isoformat()
     raw["git_commit"] = git_commit

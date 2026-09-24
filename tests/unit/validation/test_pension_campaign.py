@@ -430,7 +430,7 @@ def test_campaign_is_deterministic(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 def test_shipped_campaign_config_loads() -> None:
     """The shipped campaign declares four arms with one baseline and a sensitivity."""
-    spec = load_pension_campaign_spec(_REPO / "configs" / "experiments" / "pension_campaign_v1.json")
+    spec = load_pension_campaign_spec(_REPO / "experiments" / "pension_campaign_v1.json")
     assert len(spec.arms) == 4
     assert [arm.arm_id for arm in spec.arms if arm.role == "baseline"] == ["sp500_100"]
     assert [arm.arm_id for arm in spec.arms if arm.role == "sensitivity"] == ["qqq80_soxx20"]
@@ -588,7 +588,7 @@ def test_campaign_run_guards(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     )
     empty_settings = DataSettings(data_root="empty-data")
     write_pension_campaign_report(live_report, empty_settings, experiment_id="abc123")
-    blocked = settings.resolved_data_root() / "results" / "experiments"
+    blocked = settings.resolved_data_root() / "results" / "probe"
     blocked.parent.mkdir(parents=True, exist_ok=True)
     if blocked.exists():
         for child in blocked.iterdir():

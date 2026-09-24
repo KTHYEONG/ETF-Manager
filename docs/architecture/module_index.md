@@ -32,7 +32,7 @@ Task-oriented file lists for bounded AI context. See also `docs/code_map.json`.
 - `src/validation/historical_campaign.py`
 - `src/validation/prospective_registry.py`
 - `src/validation/research_posture.py`
-- `configs/experiments/INDEX.json`
+- `experiments/INDEX.json`
 
 ## thesis-research
 
@@ -64,8 +64,10 @@ Task-oriented file lists for bounded AI context. See also `docs/code_map.json`.
 ## experiment-config
 
 - `src/validation/experiment.py`
-- `configs/experiments/README.md`
-- `configs/experiments/INDEX.json`
-- `configs/experiments/archive/`
+- `experiments/README.md`
+- `experiments/INDEX.json`
+- `experiments/archive/`
+- `records/prospective/` (immutable preregistration freezes)
+- `data/results/<experiment>/` (run artifacts + `runs.jsonl`)
 - `tests/unit/validation/test_experiment_taxonomy.py`
 - `docs/architecture/overview.md`

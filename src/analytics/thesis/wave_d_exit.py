@@ -277,30 +277,29 @@ def run_thesis_pipeline_command(
         )
         assessment = assess_wave_d_exit(thesis_id=tid, wave=wave, incremental=report)
         panel_date = gate_report.panel_as_of.date().isoformat()
-        out_path = Path(f"docs/results/thesis-wave/{panel_date}_wave_d_exit_{tid.value}.md")
-        write_wave_d_exit_markdown(assessment, wave, report, out_path)
-        # also write under data dir for history (optional)
-        try:
-            from src.data.paths import thesis_reports_dir
+        from src.data.result_store import ResultKind, record_run, result_ref
 
-            data_path = thesis_reports_dir(settings) / f"wave_d_exit_{tid.value}_{panel_date}.json"
-            # minimal json artifact for traceability (not required by spec but harmless)
-            import json
+        ref = result_ref(
+            settings,
+            experiment=f"thesis_{tid.value}",
+            kind=ResultKind.WAVE_D_EXIT,
+            run_id=panel_date,
+        )
+        write_wave_d_exit_markdown(assessment, wave, report, ref.markdown_path)
+        import json
 
-            payload = {
-                "thesis_id": tid.value,
-                "as_of": as_of_dt.isoformat(),
-                "panel_as_of": gate_report.panel_as_of.isoformat(),
-                "track_f_complete": assessment.track_f_complete,
-                "reference_slice_ready": assessment.reference_slice_ready,
-                "operational_challenger_ready": assessment.operational_challenger_ready,
-                "blockers": list(assessment.blockers),
-                "portfolio_status": assessment.portfolio_status,
-            }
-            data_path.parent.mkdir(parents=True, exist_ok=True)
-            data_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        payload = {
+            "thesis_id": tid.value,
+            "as_of": as_of_dt.isoformat(),
+            "panel_as_of": gate_report.panel_as_of.isoformat(),
+            "track_f_complete": assessment.track_f_complete,
+            "reference_slice_ready": assessment.reference_slice_ready,
+            "operational_challenger_ready": assessment.operational_challenger_ready,
+            "blockers": list(assessment.blockers),
+            "portfolio_status": assessment.portfolio_status,
+        }
+        ref.json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        record_run(settings, ref)
         logger.info(
             "[DATA] event=thesis_pipeline_done thesis_id=%s reference_slice_ready=%s operational_challenger_ready=%s blockers=%s",
             tid.value,

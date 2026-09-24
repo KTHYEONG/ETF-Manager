@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.data.paths import EXPERIMENT_ARCHIVE_DIR, EXPERIMENTS_DIR, LEGACY_EXPERIMENTS_PREFIX
 from src.etf.mapping import MappingConfig
 from src.policy.adaptive_contribution import AdaptiveContributionConfig
 from src.policy.contribution_shape import ContributionShapeConfig
@@ -627,34 +628,57 @@ def assert_experiment_preregistration(
                             raise ValueError(f"ticker {ticker!r} not in allowed universe {sorted(allowed)!r}")
 
 
-def resolve_experiment_config_path(path: str | Path) -> Path:
-    """Resolve an experiment config path with archive fallback.
+def _relative_after_prefix(posix_path: str, prefix: str) -> tuple[str, ...] | None:
+    parts = [part for part in posix_path.split("/") if part not in ("", ".")]
+    head = prefix.split("/")
+    if parts[: len(head)] != head or len(parts) == len(head):
+        return None
+    return tuple(parts[len(head):])
 
-    If ``path`` exists as a file, return its resolved absolute path.
-    Else if the basename exists under ``configs/experiments/archive/``, return that
-    archive path (resolved). Else raise ``FileNotFoundError``.
+
+def resolve_experiment_config_path(path: str | Path) -> Path:
+    """Resolve an experiment config path, tolerating relocation and archiving.
+
+    Experiment definitions moved from ``configs/experiments/`` to ``experiments/`` and
+    superseded ones move into ``experiments/archive/``; commands, docs and stored result
+    payloads still cite the old locations, so lookup is:
+
+    1. ``path`` as given, if it is a file.
+    2. If ``path`` is under the legacy ``configs/experiments`` prefix: the same relative
+       path under ``experiments/``.
+    3. If ``path`` is under either prefix: ``experiments/archive/<basename>``.
+    4. Steps 2-3 retried relative to the repository root (cwd-independent).
+
+    Returns:
+        Resolved absolute path of the first existing candidate.
+
+    Raises:
+        FileNotFoundError: No candidate exists.
     """
     candidate = Path(path)
     if candidate.is_file():
         return candidate.resolve()
-    # Fallback only for historical configs/experiments/ paths.
-    path_str = str(path)
-    is_experiments_path = "configs/experiments" in path_str
-    if is_experiments_path:
-        archive_candidate = Path("configs/experiments/archive") / candidate.name
-        if archive_candidate.is_file():
-            logger.info("resolve_experiment_config_path fallback to archive: %s -> %s", path, archive_candidate)
-            return archive_candidate.resolve()
-        # Also try resolving relative to repo root via Path(__file__) parents if cwd differs
-        # Attempt absolute archive path based on this file's repo root
-        try:
-            repo_root = Path(__file__).resolve().parents[2]
-            alt_archive = repo_root / "configs" / "experiments" / "archive" / candidate.name
-            if alt_archive.is_file():
-                logger.info("resolve_experiment_config_path fallback to archive: %s -> %s", path, alt_archive)
-                return alt_archive.resolve()
-        except Exception:  # noqa: S110
-            pass
+    posix = candidate.as_posix()
+    legacy_rel = _relative_after_prefix(posix, LEGACY_EXPERIMENTS_PREFIX)
+    new_rel = _relative_after_prefix(posix, EXPERIMENTS_DIR.as_posix())
+    fallbacks: list[Path] = []
+    if legacy_rel is not None:
+        fallbacks.append(EXPERIMENTS_DIR.joinpath(*legacy_rel))
+        fallbacks.append(EXPERIMENT_ARCHIVE_DIR / candidate.name)
+    if new_rel is not None:
+        fallbacks.append(EXPERIMENT_ARCHIVE_DIR / candidate.name)
+    for fallback in fallbacks:
+        if fallback.is_file():
+            resolved = fallback.resolve()
+            logger.info("[DATA] event=experiment_config_fallback requested=%s resolved=%s", path, resolved)
+            return resolved
+    repo_root = Path(__file__).resolve().parents[2]
+    for fallback in fallbacks:
+        rooted = repo_root / fallback.as_posix()
+        if rooted.is_file():
+            resolved = rooted.resolve()
+            logger.info("[DATA] event=experiment_config_fallback requested=%s resolved=%s", path, resolved)
+            return resolved
     raise FileNotFoundError(f"experiment config not found: {path}")
 
 

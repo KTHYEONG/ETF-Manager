@@ -208,7 +208,7 @@ def write_ablation_run_record(
     record: ExperimentRecord,
     settings: DataSettings,
 ) -> Path:
-    """Persist ablation run JSON under data/experiments/{name}_ablation_{experiment_id}.json."""
+    """Persist ablation run JSON under the experiment's result directory."""
     arms = build_ablation_arm_outcomes(report)
     thesis_id_str = spec.thesis_id.value if spec.thesis_id is not None else None
     baseline_hash = freeze_baseline_config_hash(spec)
@@ -232,13 +232,16 @@ def write_ablation_run_record(
         "manifest_hash": record.manifest_hash,
         "git_commit": record.git_commit,
     }
-    from src.data.paths import experiments_dir
+    from src.data.result_store import ResultKind, write_result
 
-    out_dir = experiments_dir(settings)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{spec.name}_ablation_{record.experiment_id}.json"
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return out_path
+    ref = write_result(
+        settings,
+        experiment=spec.name,
+        kind=ResultKind.ABLATION,
+        run_id=record.experiment_id,
+        payload=payload,
+    )
+    return ref.json_path
 
 
 def write_prospective_freeze_record(
@@ -247,8 +250,8 @@ def write_prospective_freeze_record(
     freeze: ProspectiveFreezeRecord,
     settings: DataSettings,
 ) -> Path:
-    """Persist prospective freeze record under data/experiments."""
-    from src.data.paths import experiments_dir
+    """Persist prospective freeze record under the experiment's result directory."""
+    from src.data.result_store import ResultKind, write_result
 
     payload = {
         "thesis_id": freeze.thesis_id,
@@ -258,20 +261,22 @@ def write_prospective_freeze_record(
         "spec_name": spec.name,
         "baseline_config_hash": freeze_baseline_config_hash(spec),
     }
-    out_dir = experiments_dir(settings)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    safe_ts = freeze.frozen_at.isoformat().replace(":", "-")
-    out_path = out_dir / f"{spec.name}_prospective_{safe_ts}.json"
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return out_path
+    ref = write_result(
+        settings,
+        experiment=spec.name,
+        kind=ResultKind.PROSPECTIVE_FREEZE,
+        run_id=freeze.frozen_at.isoformat(),
+        payload=payload,
+    )
+    return ref.json_path
 
 
-def scan_executed_strategy_hash_census(experiments_dir: Path) -> TrialLineageHashCensus:
+def scan_executed_strategy_hash_census(results_dir: Path) -> TrialLineageHashCensus:
     hashes: list[str] = []
     total = 0
-    if experiments_dir.exists():
-        for p in experiments_dir.iterdir():
-            if not p.is_file() or p.suffix.lower() != ".json":
+    if results_dir.exists():
+        for p in sorted(results_dir.rglob("*.json")):
+            if p.name == "runs.jsonl" or p.suffix.lower() != ".json":
                 continue
             try:
                 payload = json.loads(p.read_text(encoding="utf-8"))

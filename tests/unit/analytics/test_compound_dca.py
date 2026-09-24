@@ -308,7 +308,7 @@ def test_wf_soxx_intensity_mdd_spec_loads() -> None:
     from src.validation.windows import walk_forward_windows
     from src.analytics.compound_dca import COMPOUND_DCA_WINDOW, qqq_soxx_intensity_targets
 
-    spec = load_experiment_config('configs/experiments/wf_qqq_soxx_intensity_mdd.json')
+    spec = load_experiment_config('experiments/wf_qqq_soxx_intensity_mdd.json')
     assert spec.objective == 'adaptive_growth'
     assert spec.adaptive_contribution is not None
     assert spec.baseline.id == 'qqq90_soxx10_adaptive_v5'

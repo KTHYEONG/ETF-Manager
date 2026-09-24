@@ -670,10 +670,12 @@ def write_pension_campaign_report(
 ) -> Path:
     """Persist a reproducible, reporting-only JSON and Markdown decision record.
 
+    The artifact lives under the experiment's result directory.
+
     Returns: The JSON report path.
     Raises: OSError when an output cannot be written safely.
     """
-    from src.data.paths import experiments_dir
+    from src.data.result_store import ResultKind, write_result
 
     payload = {
         "name": report.name,
@@ -754,12 +756,14 @@ def write_pension_campaign_report(
         for summary in report.summaries
     )
     try:
-        out_dir = experiments_dir(settings)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{report.name}_pension_{experiment_id}.json"
-        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        md_path = out_path.with_suffix(".md")
-        md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        ref = write_result(
+            settings,
+            experiment=report.name,
+            kind=ResultKind.PENSION,
+            run_id=experiment_id,
+            payload=payload,
+            markdown="\n".join(lines) + "\n",
+        )
     except OSError as exc:
         raise OSError(f"pension campaign report unwritable: {exc}") from exc
-    return out_path
+    return ref.json_path
