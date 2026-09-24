@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 __all__ = [
     "VehicleDcaPath",
     "VehicleFactorProfile",
+    "after_tax_research_tickers",
     "compare_vehicle_dca",
     "diagnostic_price_tickers",
     "history_price_tickers",
@@ -59,6 +60,11 @@ def research_satellite_tickers() -> tuple[str, ...]:
     return tuple(v.value for v in RESEARCH_SATELLITE_VEHICLES)
 
 
+def after_tax_research_tickers() -> tuple[str, ...]:
+    """Multi-asset research vehicles for the after-tax campaign (core, broad, bonds, gold, ex-US)."""
+    return ("EFA", "EWJ", "GLD", "IEF", "QQQ", "SOXX", "SPY", "TLT")
+
+
 def history_price_tickers() -> tuple[str, ...]:
     """Sorted union of policy sleeves, mapping implementations, diagnostics, and research satellites."""
     return tuple(
@@ -68,6 +74,7 @@ def history_price_tickers() -> tuple[str, ...]:
                 *diagnostic_price_tickers(),
                 *mapping_implementation_tickers(),
                 *research_satellite_tickers(),
+                *after_tax_research_tickers(),
             }
         )
     )

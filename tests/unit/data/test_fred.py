@@ -89,3 +89,22 @@ def test_missing_realtime_end_and_empty_observations_fail_closed() -> None:
     http2, _ = _client_serving(empty)
     with http2, pytest.raises(ProviderError, match="no observations"):
         FredClient(_TOKEN, http2).fetch_fx(*_WINDOW)
+
+
+def test_rates_keep_gap_rows() -> None:
+    """FRED latest observations persist '.' values as null RATES gap rows."""
+    import json
+
+    from src.data.schema import Dataset, spec_for
+
+    body = json.dumps({"observations": [{"date": "1998-01-02", "value": "5.10"}, {"date": "1998-01-05", "value": "."}]}).encode()
+    http, _ = _client_serving(body)
+    with http:
+        _payload, frame = FredClient(_TOKEN, http).fetch_rates("DTB3", date(1998, 1, 2), date(1998, 1, 5))
+
+    spec = spec_for(Dataset.RATES)
+    assert set(frame.columns) == set(spec.columns)
+    assert frame.get_column("series_id").unique().to_list() == ["DTB3"]
+    assert frame.get_column("observation_date").to_list() == [date(1998, 1, 2), date(1998, 1, 5)]
+    assert frame.get_column("value").to_list() == [5.10, None]
+    assert frame.get_column("source").unique().to_list() == ["fred"]

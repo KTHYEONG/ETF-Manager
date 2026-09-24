@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import polars as pl
 import pytest
@@ -100,3 +100,72 @@ def test_spec_m01_etf_metadata_schema(scenario_id: str) -> None:
     assert spec.observation_column == "effective_date"
     assert spec.columns["is_leveraged"] == pl.Int64()
     assert spec.columns["is_inverse"] == pl.Int64()
+
+
+def test_schema_after_tax_registry_covers_new_members() -> None:
+    """New FX_KRW_BASE and RATES members carry the declared keys, lags, and nullables."""
+    assert set(DATASET_SPECS) == set(Dataset)
+
+    base = spec_for(Dataset.FX_KRW_BASE)
+    assert base.key == ("date",)
+    assert base.observation_column == "date"
+    assert set(base.columns) == {"date", "usdkrw", "source", "retrieved_at"}
+    assert base.availability.kind is AvailabilityKind.FIXED_LAG
+    assert base.availability.lag == timedelta(hours=12)
+    assert base.missing_policy is MissingPolicy.EXPLICIT_GAP
+    assert base.nullable_columns == frozenset({"usdkrw"})
+    assert base.revisable is False
+    assert base.schema_version == "1"
+
+    rates = spec_for(Dataset.RATES)
+    assert rates.key == ("series_id", "observation_date")
+    assert rates.observation_column == "observation_date"
+    assert set(rates.columns) == {"series_id", "observation_date", "value", "source", "retrieved_at"}
+    assert rates.availability.kind is AvailabilityKind.FIXED_LAG
+    assert rates.availability.lag == timedelta(days=4)
+    assert rates.missing_policy is MissingPolicy.EXPLICIT_GAP
+    assert rates.nullable_columns == frozenset({"value"})
+    assert rates.revisable is False
+    assert rates.schema_version == "1"
+
+
+def test_schema_base_rate_visible_before_same_day_us_close() -> None:
+    """FX_KRW_BASE availability precedes the same-day XNYS close."""
+    import polars as pl
+
+    from src.data.calendar import load_calendar
+    from src.data.pit import stamp_availability
+
+    spec = spec_for(Dataset.FX_KRW_BASE)
+    frame = pl.DataFrame(
+        {
+            "date": [date(2024, 7, 3)],
+            "usdkrw": [1300.0],
+            "source": ["ecos"],
+            "retrieved_at": [datetime(2024, 7, 3, 5, 0, tzinfo=UTC)],
+        },
+        schema=dict(spec.columns),
+    )
+    stamped = stamp_availability(frame, spec, None)
+    assert stamped.get_column("available_at").to_list()[0] == datetime(2024, 7, 3, 12, 0, tzinfo=UTC)
+    assert stamped.get_column("available_at").to_list()[0] < load_calendar().close_ts(date(2024, 7, 3))
+
+
+def test_schema_korean_only_business_day_stamps_without_calendar() -> None:
+    """A Korean-only business day stamps without touching the XNYS calendar."""
+    import polars as pl
+
+    from src.data.pit import stamp_availability
+
+    spec = spec_for(Dataset.FX_KRW_BASE)
+    frame = pl.DataFrame(
+        {
+            "date": [date(2024, 7, 4)],
+            "usdkrw": [1300.0],
+            "source": ["ecos"],
+            "retrieved_at": [datetime(2024, 7, 4, 5, 0, tzinfo=UTC)],
+        },
+        schema=dict(spec.columns),
+    )
+    stamped = stamp_availability(frame, spec, None)
+    assert stamped.get_column("available_at").to_list()[0] == datetime(2024, 7, 4, 12, 0, tzinfo=UTC)

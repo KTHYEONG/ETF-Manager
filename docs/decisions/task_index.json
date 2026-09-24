@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_AFTER_TAX_ENGINE",
+      "date": "2026-09-24",
+      "adr_id": "ADR_20260924_AFTER_TAX_ENGINE",
+      "domain": "quant",
+      "title": "After-tax accumulation engine: 1998+ data foundation, KR tax lot ledger, rule family, cohort campaign",
+      "why": "Buy-only engine ignored deferred capital-gains tax (8-20% of terminal wealth) and could not evaluate sells, so sell/portfolio-management ideas had no fair after-tax yardstick.",
+      "resolution": "Fixed 1998 calendar start, shared-env loader, backfill windows, FX_KRW_BASE and RATES datasets; added KR overseas-equity tax regime, FIFO lot book, split/dividend normalization, raw-price after-tax engine with December tax-gain harvesting, preregistered rule family, after-tax cohort campaign CLI, py...",
+      "impact": "Terminal metric is after-tax liquidation net worth; TGH candidate won 10/10 ten-year cohorts (+1.1..1.6%) in probe while risk-off/TAA rules lost median wealth and stay prospective-watch; operational_unlock is always false.",
+      "caveat": "Real-data campaign not yet run: restore gdrive backup, run ingest history from 1998-01-02, then run after-tax-campaign; current tax law applied to all history and 30y index-proxy stress is a follow-up."
+    },
+    {
       "task_id": "TASK_PHASE2_FINAL_HISTORICAL_OPERATOR",
       "date": "2026-08-31",
       "adr_id": "ADR_20260831_PHASE2_FINAL_HISTORICAL_OPERATOR",

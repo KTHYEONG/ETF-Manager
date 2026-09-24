@@ -93,3 +93,19 @@ def test_monthly_time_and_bad_value_boundaries(tmp_path: Path) -> None:
     http2, _ = _client_serving(bad_value)
     with http2, pytest.raises(ProviderError, match="TIME"):
         EcosClient(_TOKEN, http2).fetch_fx(*_WINDOW)
+
+
+def test_fx_krw_base_lands_in_dedicated_dataset() -> None:
+    """ECOS base rate normalizes into the FX_KRW_BASE columns with source ecos."""
+    from src.data.schema import Dataset, spec_for
+
+    body = (FIXTURES / "ecos_fx_usdkrw.json").read_bytes()
+    http, _ = _client_serving(body)
+    with http:
+        _payload, frame = EcosClient(_TOKEN, http).fetch_fx_krw_base(*_WINDOW)
+
+    spec = spec_for(Dataset.FX_KRW_BASE)
+    assert set(frame.columns) == set(spec.columns)
+    assert frame.get_column("date").to_list() == [date(2024, 1, 16)]
+    assert frame.get_column("usdkrw").to_list() == [1350.1]
+    assert frame.get_column("source").unique().to_list() == ["ecos"]

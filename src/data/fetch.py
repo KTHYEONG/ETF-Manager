@@ -41,12 +41,14 @@ def resolve_price_http_window(
     *,
     correction_sessions: int = 5,
 ) -> tuple[date, date] | None:
-    """Determine per-ticker HTTP window with correction overlap.
+    """Determine the per-ticker HTTP window with forward correction overlap and backfill.
 
-    Returns None when the catalog already covers ``end`` for ``ticker``;
-    otherwise returns ``(effective_start, end)`` where ``effective_start`` is
-    ``max(start, d_max - L + 1)`` in XNYS sessions with ``L=correction_sessions``.
-    Missing or untrusted catalog yields the full ``[start, end]`` window.
+    Returns ``(start, end)`` when the catalog lacks the ticker or when ``start``
+    precedes the earliest stored bar for the ticker (backfill: Tiingo serves the whole
+    range in one request, so the request count is unchanged and the merged partition
+    keeps the vendor's latest adjustments). Returns ``None`` when stored bars already
+    cover ``[start, end]``. Otherwise returns ``(effective_start, end)`` with
+    ``effective_start = max(start, d_max - L + 1)`` in XNYS sessions, ``L = correction_sessions``.
     """
     if existing is None or existing.is_empty():
         return (start, end)
@@ -57,17 +59,25 @@ def resolve_price_http_window(
         return (start, end)
     try:
         d_max = filtered.get_column("date").max()
+        d_min = filtered.get_column("date").min()
     except Exception:
         return (start, end)
-    if d_max is None:
+    if d_max is None or d_min is None:
         return (start, end)
     if isinstance(d_max, str):
         try:
             d_max = date.fromisoformat(d_max[:10])
         except ValueError:
             return (start, end)
+    if isinstance(d_min, str):
+        try:
+            d_min = date.fromisoformat(d_min[:10])
+        except ValueError:
+            return (start, end)
     # polars date may be python date already
-    if not isinstance(d_max, date):
+    if not isinstance(d_max, date) or not isinstance(d_min, date):
+        return (start, end)
+    if start < d_min:
         return (start, end)
     if d_max >= end:
         return None
@@ -227,6 +237,80 @@ def fetch_and_persist_fx(
             payload, frame = EcosClient(secrets.ecos_api, session).fetch_fx(start, end)
         artifact = persist_ingest(frame, Dataset.FX, payload, settings)
     _log_done("fx", provider, artifact.manifest.row_count)
+    return artifact
+
+
+def fetch_and_persist_fx_krw_base(
+    start: date,
+    end: date,
+    *,
+    secrets: ProviderSecrets,
+    settings: DataSettings,
+    client: httpx.Client | None = None,
+) -> DatasetArtifact:
+    """Fetch ECOS 매매기준율 and persist Dataset.FX_KRW_BASE as one partition."""
+    with _http(client) as session:
+        payload, frame = EcosClient(secrets.ecos_api, session).fetch_fx_krw_base(start, end)
+        artifact = persist_ingest(frame, Dataset.FX_KRW_BASE, payload, settings)
+    _log_done("fx_krw_base", "ecos", artifact.manifest.row_count)
+    return artifact
+
+
+def fetch_and_persist_rates(
+    series_ids: Sequence[str],
+    start: date,
+    end: date,
+    *,
+    secrets: ProviderSecrets,
+    settings: DataSettings,
+    client: httpx.Client | None = None,
+) -> DatasetArtifact:
+    """Fetch FRED latest observations for each series and persist Dataset.RATES.
+
+    Rows of series outside ``series_ids`` are retained from the latest trusted RATES
+    partition so a single-series refresh never drops other series.
+
+    Raises:
+        ValueError: On empty or duplicate ``series_ids``.
+    """
+    ids = tuple(series_ids)
+    if not ids:
+        raise ValueError("fetch_and_persist_rates requires at least one series id")
+    if len(set(ids)) != len(ids):
+        raise ValueError(f"fetch_and_persist_rates received duplicate series ids: {ids!r}")
+    with _http(client) as session:
+        fred = FredClient(secrets.fred_api, session)
+        fetched = [fred.fetch_rates(sid, start, end) for sid in ids]
+        if len(fetched) == 1:
+            payload, frame = fetched[0]
+        else:
+            bodies = [payload.content for payload, _frame in fetched]
+            retrieved_at = max(payload.retrieved_at for payload, _frame in fetched)
+            frame = pl.concat([frame for _payload, frame in fetched], how="vertical")
+            payload = RawPayload(
+                provider="fred",
+                endpoint=f"series/observations/{'+'.join(ids)}",
+                request_params={
+                    "series_ids": ",".join(ids),
+                    "file_type": "json",
+                    "observation_start": start.isoformat(),
+                    "observation_end": end.isoformat(),
+                },
+                retrieved_at=retrieved_at,
+                extension="json",
+                content=b"\n".join(bodies),
+            )
+        spec = spec_for(Dataset.RATES)
+        store = DataStore(settings)
+        try:
+            prior = store.read_normalized(latest_artifact(settings, Dataset.RATES), spec)
+            kept = prior.select(*spec.columns).filter(~pl.col("series_id").is_in(ids))
+            if not kept.is_empty():
+                frame = pl.concat([kept, frame.select(*spec.columns)], how="vertical")
+        except UntrustedDatasetError:
+            pass
+        artifact = persist_ingest(frame, Dataset.RATES, payload, settings)
+    _log_done("rates", "fred", artifact.manifest.row_count)
     return artifact
 
 

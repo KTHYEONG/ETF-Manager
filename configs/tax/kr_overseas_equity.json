@@ -1,0 +1,12 @@
+{
+  "regime_id": "KR_OVERSEAS_EQUITY_2026",
+  "capital_gains_rate": 0.22,
+  "annual_deduction_krw": 2500000,
+  "loss_carryforward": false,
+  "dividend_withholding_rate": 0.15,
+  "interest_tax_rate": 0.154,
+  "settlement_sessions": 1,
+  "payment_month": 5,
+  "financial_income_threshold_krw": 20000000,
+  "basis_method": "fifo"
+}

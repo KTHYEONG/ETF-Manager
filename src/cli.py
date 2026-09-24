@@ -8,10 +8,10 @@ import logging
 from datetime import UTC, date
 
 from src.cli_commands.campaign import (
-    run_ablation_command, run_accumulation_cohort_command, run_audit_feasibility_command,
-    run_cadence_robustness_command, run_final_historical_campaign_command, run_prospective_monitor_command,
-    run_strategy_selection_command, run_validate_command, run_walk_forward_command,
-    run_walk_forward_costs_command, run_walk_forward_proxy_command,
+    run_ablation_command, run_accumulation_cohort_command, run_after_tax_campaign_command,
+    run_audit_feasibility_command, run_cadence_robustness_command, run_final_historical_campaign_command,
+    run_prospective_monitor_command, run_strategy_selection_command, run_validate_command,
+    run_walk_forward_command, run_walk_forward_costs_command, run_walk_forward_proxy_command,
 )
 from src.cli_commands.diagnose import (
     run_diagnose_compound_dca_command, run_diagnose_qqq_accumulation_alpha_command,
@@ -218,7 +218,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     elif dataset == "fx":
         fetch_and_persist_fx(provider=str(args.provider), start=start, end=end, secrets=secrets, settings=settings)
     elif dataset == "macro":
-        fetch_and_persist_macro(str(args.series_id), start, end, secrets=secrets, settings=settings)
+        fetch_and_persist_macro(str(args.series_id), start, end, secrets=secrets, settings=settings, retain_other_series=True)
     else:
         fetch_and_persist_cpi(start, end, secrets=secrets, settings=settings)
     logger.info("[DATA] event=cli_ingest_done dataset=%s start=%s end=%s", dataset, start.isoformat(), end.isoformat())
@@ -380,6 +380,8 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             seed=int(args.seed),
             bootstrap_paths=int(getattr(args, "bootstrap_paths", 400)),
         )
+    if args.target == "after-tax-campaign":
+        return run_after_tax_campaign_command(config_path=str(args.config), settings=DataSettings(), seed=int(args.seed))
     if args.target == "audit-feasibility":
         return run_audit_feasibility_command(
             config_path=str(args.config),

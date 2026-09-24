@@ -277,6 +277,52 @@ def run_final_historical_campaign_command(*, config_path: str, settings: DataSet
     return 0
 
 
+def run_after_tax_campaign_command(*, config_path: str, settings: DataSettings, seed: int) -> int:
+    """Run the after-tax cohort campaign (reporting-only; never changes the operational lock).
+
+    Loads PRICES, FX_KRW_BASE, CPI, and RATES once at the close of the last session in
+    the spec window, then runs every arm through ``run_after_tax`` on the in-memory
+    frames. ``experiment_id`` is the first 16 hex chars of SHA-256 over the config file
+    bytes, the resolved git commit, and the PRICES manifest hash.
+    """
+    from src.validation.after_tax_campaign import load_after_tax_campaign_spec, run_after_tax_campaign, write_after_tax_campaign_report
+
+    try:
+        import hashlib
+
+        from src.data.calendar import load_calendar
+        from src.data.catalog import load_visible
+        from src.data.schedule import build_decision_schedule
+        from src.sim.after_tax_engine import AfterTaxDataError, run_after_tax
+        from src.sim.tax import load_tax_regime
+
+        spec = load_after_tax_campaign_spec(config_path)
+        regime = load_tax_regime(spec.tax_regime_path)
+        schedule = build_decision_schedule(spec.start, spec.end, frequency="monthly", fill_delay_sessions=1)
+        if not schedule:
+            raise AfterTaxDataError(f"empty decision schedule over [{spec.start.isoformat()}, {spec.end.isoformat()}]")
+        calendar = load_calendar()
+        cutoff = calendar.close_ts(schedule[-1].execution_session)
+        prices = load_visible(settings, Dataset.PRICES, cutoff)
+        cpi = load_visible(settings, Dataset.CPI, cutoff)
+        last_settle = schedule[-1].execution_session
+        for _ in range(regime.settlement_sessions):
+            last_settle = calendar.next_session(last_settle)
+        fx = load_visible(settings, Dataset.FX_KRW_BASE, calendar.close_ts(last_settle))
+        rates = load_visible(settings, Dataset.RATES, cutoff)
+        manifest_hash = latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256
+        config_bytes = Path(config_path).read_bytes()
+        digest = hashlib.sha256(config_bytes + _resolve_git_commit().encode() + manifest_hash.encode()).hexdigest()[:16]
+
+        report = run_after_tax_campaign(spec, lambda cfg: run_after_tax(cfg, prices, fx, cpi, rates), seed=seed)
+        report_path = write_after_tax_campaign_report(report, settings, experiment_id=digest)
+    except (*_ERRORS, AfterTaxDataError) as exc:
+        logger.error("[DATA] event=after_tax_campaign_cli_failed reason_type=%s reason=%s", type(exc).__name__, exc)
+        return 1
+    logger.info("[DATA] event=after_tax_campaign_cli_done experiment=%s experiment_id=%s arms=%d report=%s", spec.name, digest, len(report.summaries), report_path)
+    return 0
+
+
 def run_audit_feasibility_command(*, config_path: str, settings: DataSettings, write_report: bool) -> int:
     """Load ExperimentSpec, run static DCA audit, optionally persist JSON."""
     from src.validation.feasibility_audit import WAVE2_MIN_120M_COHORTS, audit_static_dca_window, write_feasibility_audit_report
