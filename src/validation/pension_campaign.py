@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Final, Literal, cast
@@ -14,6 +15,7 @@ import polars as pl
 
 from src.analytics.metrics import max_drawdown, real_krw, xirr
 from src.data.catalog import latest_artifact, load_visible
+from src.data.pension_fx import build_krw_fx_series
 from src.data.query import load_as_of
 from src.data.schema import Dataset
 from src.data.settings import DataSettings
@@ -42,6 +44,10 @@ __all__ = [
 ]
 
 _INSUFFICIENT_EVIDENCE: Final[str] = "INSUFFICIENT_INDEPENDENT_20Y_EVIDENCE"
+_FX_FALLBACK_NOTE: Final[str] = (
+    "USD/KRW on Korean-holiday sessions comes from FRED DEXKOUS (NY-noon buying rate) "
+    "instead of the ECOS base rate; see fx_provenance for count and same-day basis."
+)
 _SOXX_BREAK_NOTE: Final[str] = "SOXX observations before 2021-06-21 carry the disclosed index-break label."
 _SHORT_LIVE_NOTE: Final[str] = "Current live Korean ETF history is too short for an observed 20-year test."
 ArmRole = Literal["baseline", "candidate", "sensitivity"]
@@ -78,6 +84,7 @@ class PensionCampaignSpec:
     baseline_arm_id: str
     arms: tuple[PensionArmSpec, ...]
     max_fx_age_days: int
+    max_fx_fallback_share: float
     max_cpi_age_days: int
     execution_spread_bps: float
     commission_bps: float
@@ -140,6 +147,7 @@ class PensionCampaignReport:
     summaries: tuple[PensionArmSummary, ...]
     real_data_status: str
     evidence_status: str
+    fx_provenance: Mapping[str, object] = field(default_factory=dict)
 
 
 def _parse_date(value: object, name: str) -> date:
@@ -353,6 +361,15 @@ def load_pension_campaign_spec(path: str | Path) -> PensionCampaignSpec:
         for label, value in (("max_fx_age_days", max_fx_age_days), ("max_cpi_age_days", max_cpi_age_days)):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{label} must be a nonnegative integer")
+        max_fx_fallback_share_raw = document["max_fx_fallback_share"]
+        if (
+            isinstance(max_fx_fallback_share_raw, bool)
+            or not isinstance(max_fx_fallback_share_raw, float | int)
+            or not math.isfinite(float(max_fx_fallback_share_raw))
+            or not 0.0 <= float(max_fx_fallback_share_raw) <= 1.0
+        ):
+            raise ValueError("max_fx_fallback_share must be a finite number in [0, 1]")
+        max_fx_fallback_share = float(max_fx_fallback_share_raw)
         for label, value in (("execution_spread_bps", spread), ("commission_bps", commission)):
             if isinstance(value, bool) or not isinstance(value, float | int) or not 0.0 <= float(value) < 10000.0:
                 raise ValueError(f"{label} must lie in [0, 10000)")
@@ -399,6 +416,7 @@ def load_pension_campaign_spec(path: str | Path) -> PensionCampaignSpec:
         baseline_arm_id=baseline_arm_id,
         arms=tuple(arms),
         max_fx_age_days=max_fx_age_days,
+        max_fx_fallback_share=max_fx_fallback_share,
         max_cpi_age_days=max_cpi_age_days,
         execution_spread_bps=float(spread),
         commission_bps=float(commission),
@@ -424,6 +442,7 @@ def run_pension_campaign(
     """
     _ = seed
     regime = load_pension_tax_regime(spec.tax_regime_path)
+    fx_provenance: dict[str, object] = {}
     try:
         if spec.market_mode is PensionMarketMode.KR_LIVE:
             prices = load_visible(settings, Dataset.KR_ETF_PRICES, _cutoff(spec.end))
@@ -433,6 +452,41 @@ def run_pension_campaign(
             fx = load_visible(settings, Dataset.FX_KRW_BASE, _cutoff(spec.end))
     except UntrustedDatasetError as exc:
         raise PensionDataError(f"pension campaign source is absent or stale: {exc}") from exc
+    if spec.market_mode is not PensionMarketMode.KR_LIVE:
+        assert fx is not None
+        try:
+            fallback = load_visible(settings, Dataset.FX, _cutoff(spec.end))
+        except UntrustedDatasetError:
+            fallback = None
+        try:
+            series = build_krw_fx_series(fx, fallback)
+        except ValueError as exc:
+            raise PensionDataError(f"pension campaign fx series is invalid: {exc}") from exc
+        fx = series.frame
+        targets_union = {ticker for arm in spec.arms for ticker in arm.targets}
+        sessions = sorted(
+            {
+                day
+                for day in prices.filter(pl.col("ticker").is_in(sorted(targets_union)))
+                .get_column("date")
+                .to_list()
+                if spec.start <= day <= spec.end
+            }
+        )
+        fallback_sessions = series.fallback_session_dates(sessions)
+        share = (len(fallback_sessions) / len(sessions)) if sessions else 0.0
+        if share > spec.max_fx_fallback_share:
+            raise PensionDataError(
+                f"pension campaign fx fallback share {share:.6f} exceeds cap "
+                f"{spec.max_fx_fallback_share:.6f} (source {series.fallback_source})"
+            )
+        fx_provenance = dict(series.provenance(sessions))
+        logger.info(
+            "[DATA] event=pension_fx_provenance status=%s fallback_sessions=%d share=%.6f",
+            str(series.status.value),
+            len(fallback_sessions),
+            share,
+        )
     try:
         cpi = load_visible(settings, Dataset.CPI, _cutoff(spec.end))
     except UntrustedDatasetError:
@@ -644,13 +698,14 @@ def run_pension_campaign(
             else "UNAVAILABLE_NO_TRUSTED_CPI" if cpi is None else "PARTIAL_CPI_COVERAGE"
         ),
         evidence_status=_INSUFFICIENT_EVIDENCE,
+        fx_provenance=fx_provenance,
     )
 
 
 def _manifest_hashes(settings: DataSettings, mode: PensionMarketMode) -> dict[str, str | None]:
     datasets = (
         (Dataset.KR_ETF_PRICES, Dataset.CPI)
-        if mode is PensionMarketMode.KR_LIVE else (Dataset.PRICES, Dataset.FX_KRW_BASE, Dataset.CPI)
+        if mode is PensionMarketMode.KR_LIVE else (Dataset.PRICES, Dataset.FX_KRW_BASE, Dataset.FX, Dataset.CPI)
     )
     hashes: dict[str, str | None] = {}
     for dataset in datasets:
@@ -677,6 +732,11 @@ def write_pension_campaign_report(
     """
     from src.data.result_store import ResultKind, write_result
 
+    fx_provenance: dict[str, object] = dict(report.fx_provenance)
+    evidence_notes: list[str] = [_SOXX_BREAK_NOTE, _SHORT_LIVE_NOTE]
+    fallback_session_count = int(cast("int", fx_provenance.get("fallback_session_count", 0) or 0))
+    if fallback_session_count > 0:
+        evidence_notes.append(_FX_FALLBACK_NOTE)
     payload = {
         "name": report.name,
         "experiment_id": experiment_id,
@@ -685,8 +745,9 @@ def write_pension_campaign_report(
         "market_coverage_start": report.market_coverage_start.isoformat(),
         "market_coverage_end": report.market_coverage_end.isoformat(),
         "real_data_status": report.real_data_status,
+        "fx_provenance": fx_provenance,
         "evidence_status": report.evidence_status,
-        "evidence_notes": [_SOXX_BREAK_NOTE, _SHORT_LIVE_NOTE],
+        "evidence_notes": evidence_notes,
         "manifest_hashes": _manifest_hashes(settings, report.market_mode),
         "household_view": None,
         "summaries": [
@@ -742,11 +803,24 @@ def write_pension_campaign_report(
         f"evidence_status: {report.evidence_status}",
         f"note: {_SHORT_LIVE_NOTE}",
         f"note: {_SOXX_BREAK_NOTE}",
-        "household_view: not provided",
-        "",
-        "| arm | horizon | cohorts | independent | median | worst | median XIRR | drawdown |",
-        "|---|---|---|---|---|---|---|---|",
     ]
+    if fx_provenance:
+        share_value = float(cast("float", fx_provenance.get("fallback_session_share") or 0.0))
+        lines.append(
+            f"fx_fallback: status={fx_provenance.get('fallback_status')} "
+            f"sessions={fx_provenance.get('fallback_session_count')} "
+            f"share={share_value:.4f}"
+        )
+        if fallback_session_count > 0:
+            lines.append(f"note: {_FX_FALLBACK_NOTE}")
+    lines.append("household_view: not provided")
+    lines.extend(
+        [
+            "",
+            "| arm | horizon | cohorts | independent | median | worst | median XIRR | drawdown |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+    )
     lines.extend(
         f"| {summary.arm_id} | {summary.horizon_months} | {summary.cohort_count} "
         f"| {summary.independent_window_count} | {summary.median_wealth_ratio:.4f} "

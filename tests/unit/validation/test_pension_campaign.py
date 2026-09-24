@@ -203,6 +203,7 @@ def _campaign_config(
         "execution_spread_bps": 0.0,
         "commission_bps": 0.0,
         "max_fx_age_days": 7,
+        "max_fx_fallback_share": 0.1,
         "max_cpi_age_days": 75,
         "extra_annual_drag_by_ticker": drag or {},
     }
@@ -597,3 +598,219 @@ def test_campaign_run_guards(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     blocked.write_text("blocked", encoding="utf-8")
     with pytest.raises(OSError, match="unwritable"):
         write_pension_campaign_report(report, settings, experiment_id="abc123")
+
+
+def _persist_proxy_lake_with_fx_gap(
+    settings: DataSettings, start: date, end: date, *, gap: tuple[date, ...],
+) -> tuple[date, ...]:
+    sessions = list(load_calendar("XNYS").sessions(start, end))
+    drifts = {"SPY": (400.0, 0.10), "QQQ": (300.0, 0.16)}
+    rows = []
+    for ticker, (base, drift) in drifts.items():
+        for index, day in enumerate(sessions):
+            price = base + drift * index
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "date": day,
+                    "open": price,
+                    "high": price,
+                    "low": price,
+                    "close": price,
+                    "volume": 10_000,
+                    "adjusted_close": price,
+                    "dividend": 0.0,
+                    "split_factor": 1.0,
+                    "source": "synthetic",
+                    "retrieved_at": _RETRIEVED_AT,
+                }
+            )
+    prices = pl.DataFrame(
+        rows,
+        schema={
+            "ticker": pl.String,
+            "date": pl.Date,
+            "open": pl.Float64,
+            "high": pl.Float64,
+            "low": pl.Float64,
+            "close": pl.Float64,
+            "volume": pl.Int64,
+            "adjusted_close": pl.Float64,
+            "dividend": pl.Float64,
+            "split_factor": pl.Float64,
+            "source": pl.String,
+            "retrieved_at": pl.Datetime("us", "UTC"),
+        },
+    ).select(list(spec_for(Dataset.PRICES).columns))
+    persist_ingest(prices, Dataset.PRICES, _payload(), settings)
+    fx_dates = [day for day in sessions if day not in set(gap)]
+    fx = pl.DataFrame(
+        {"date": fx_dates, "usdkrw": [1300.0] * len(fx_dates), "source": ["synthetic"] * len(fx_dates),
+         "retrieved_at": [_RETRIEVED_AT] * len(fx_dates)},
+        schema=dict(spec_for(Dataset.FX_KRW_BASE).columns),
+    )
+    persist_ingest(fx, Dataset.FX_KRW_BASE, _payload(), settings)
+    return tuple(sessions)
+
+
+def _persist_fx_fallback(settings: DataSettings, days: tuple[date, ...], *, quote: float = 1305.0) -> None:
+    frame = pl.DataFrame(
+        {"date": list(days), "usdkrw": [quote] * len(days), "source": ["fred"] * len(days),
+         "retrieved_at": [_RETRIEVED_AT] * len(days)},
+        schema=dict(spec_for(Dataset.FX).columns),
+    )
+    persist_ingest(frame, Dataset.FX, _payload(), settings)
+
+
+def _gap_fixture_sessions() -> tuple[tuple[date, date], tuple[date, ...]]:
+    sessions = list(load_calendar("XNYS").sessions(date(2023, 1, 1), date(2024, 12, 31)))
+    gap = tuple(sessions[100:112])
+    return (date(2023, 1, 1), date(2024, 12, 31)), gap
+
+
+def test_loader_requires_fallback_cap(tmp_path: Path) -> None:
+    """The campaign config must carry an explicit fallback share cap."""
+    config = _campaign_config()
+    del config["max_fx_fallback_share"]
+    with pytest.raises(ValueError, match="missing field"):
+        load_pension_campaign_spec(_write_config(tmp_path, config))
+    config["max_fx_fallback_share"] = 0.1
+    spec = load_pension_campaign_spec(_write_config(tmp_path, config))
+    assert spec.max_fx_fallback_share == 0.1
+
+
+def test_loader_rejects_invalid_cap(tmp_path: Path) -> None:
+    """Non-finite or out-of-range caps fail closed."""
+    for bad in (-0.1, 1.5, float("nan"), True, "0.1"):
+        config = _campaign_config()
+        config["max_fx_fallback_share"] = bad  # type: ignore[assignment]
+        with pytest.raises(ValueError, match=r"finite number in \[0, 1\]"):
+            load_pension_campaign_spec(_write_config(tmp_path, config))
+
+
+def test_holiday_gap_aborts_without_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A >7-day ECOS gap over US sessions aborts when no fallback partition exists."""
+    settings = _settings(tmp_path, monkeypatch)
+    (start, end), gap = _gap_fixture_sessions()
+    _persist_proxy_lake_with_fx_gap(settings, start, end, gap=gap)
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    with pytest.raises(PensionDataError, match="stale"):
+        run_pension_campaign(spec, settings, seed=7)
+
+
+def test_holiday_gap_completes_with_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """FRED quotes over the gap let the campaign complete without touching the staleness limit."""
+    settings = _settings(tmp_path, monkeypatch)
+    (start, end), gap = _gap_fixture_sessions()
+    _persist_proxy_lake_with_fx_gap(settings, start, end, gap=gap)
+    _persist_fx_fallback(settings, gap)
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    report = run_pension_campaign(spec, settings, seed=7)
+    assert spec.max_fx_age_days == 7
+    assert report.fx_provenance["fallback_status"] == "APPLIED"
+    assert report.fx_provenance["fallback_session_count"] > 0
+
+
+def test_fallback_share_cap_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A cap below the observed share aborts and names both numbers."""
+    settings = _settings(tmp_path, monkeypatch)
+    (start, end), gap = _gap_fixture_sessions()
+    _persist_proxy_lake_with_fx_gap(settings, start, end, gap=gap)
+    _persist_fx_fallback(settings, gap)
+    config = _campaign_config()
+    config["max_fx_fallback_share"] = 0.0
+    spec = load_pension_campaign_spec(_write_config(tmp_path, config))
+    with pytest.raises(PensionDataError, match="fallback share"):
+        run_pension_campaign(spec, settings, seed=7)
+
+
+def test_fallback_share_at_cap_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The cap comparison is strict: a share equal to the cap still runs."""
+    settings = _settings(tmp_path, monkeypatch)
+    (start, end), gap = _gap_fixture_sessions()
+    _persist_proxy_lake_with_fx_gap(settings, start, end, gap=gap)
+    _persist_fx_fallback(settings, gap)
+    wide = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    observed = run_pension_campaign(wide, settings, seed=7).fx_provenance["fallback_session_share"]
+    assert observed > 0
+    config = _campaign_config()
+    config["max_fx_fallback_share"] = observed
+    spec = load_pension_campaign_spec(_write_config(tmp_path, config))
+    report = run_pension_campaign(spec, settings, seed=7)
+    assert report.fx_provenance["fallback_session_share"] == pytest.approx(observed)
+
+
+def test_report_discloses_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A run that uses fallback discloses it in JSON evidence notes and markdown."""
+    settings = _settings(tmp_path, monkeypatch)
+    (start, end), gap = _gap_fixture_sessions()
+    _persist_proxy_lake_with_fx_gap(settings, start, end, gap=gap)
+    _persist_fx_fallback(settings, gap)
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    report = run_pension_campaign(spec, settings, seed=7)
+    json_path = write_pension_campaign_report(report, settings, experiment_id="fxdisclose")
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["fx_provenance"]["fallback_status"] == "APPLIED"
+    assert any("DEXKOUS" in note for note in payload["evidence_notes"])
+    markdown = json_path.with_suffix(".md").read_text(encoding="utf-8")
+    assert "fx_fallback:" in markdown
+    assert "DEXKOUS" in markdown
+
+
+def test_no_fallback_note_when_unused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A gap-free run records zero fallback sessions and adds no note."""
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    report = run_pension_campaign(spec, settings, seed=7)
+    assert report.fx_provenance["fallback_session_count"] == 0
+    json_path = write_pension_campaign_report(report, settings, experiment_id="fxunused")
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert not any("DEXKOUS" in note for note in payload["evidence_notes"])
+    assert "fx_fallback:" not in json_path.with_suffix(".md").read_text(encoding="utf-8") or "sessions=0" in json_path.with_suffix(".md").read_text(encoding="utf-8")
+
+
+def test_kr_live_unaffected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """KR_LIVE reports carry no FX provenance."""
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_live_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    config = _campaign_config(
+        mode="kr_live", arms=[{"arm_id": "sp500", "role": "baseline", "targets": {"379800": 1.0}}],
+    )
+    spec = load_pension_campaign_spec(_write_config(tmp_path, config))
+    report = run_pension_campaign(spec, settings, seed=7)
+    assert report.fx_provenance == {}
+    json_path = write_pension_campaign_report(report, settings, experiment_id="fxlive")
+    assert json.loads(json_path.read_text(encoding="utf-8"))["fx_provenance"] == {}
+    assert "fx_fallback:" not in json_path.with_suffix(".md").read_text(encoding="utf-8")
+
+
+def test_manifest_hashes_include_fallback_dataset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """US-proxy manifest hashes cover the fallback dataset, present or absent."""
+    from src.validation.pension_campaign import _manifest_hashes
+
+    from src.sim.pension_engine import PensionMarketMode
+
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    hashes = _manifest_hashes(settings, PensionMarketMode.US_PROXY)
+    assert str(Dataset.FX) in hashes
+    assert hashes[str(Dataset.FX)] is None
+    _persist_fx_fallback(settings, (date(2023, 6, 1),))
+    hashes = _manifest_hashes(settings, PensionMarketMode.US_PROXY)
+    assert hashes[str(Dataset.FX)] is not None
+
+
+def test_invalid_fx_series_converted_to_data_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A corrupt fallback quote aborts through the campaign's documented failure type."""
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    bad = pl.DataFrame(
+        {"date": [date(2023, 6, 1)], "usdkrw": [0.0], "source": ["fred"],
+         "retrieved_at": [_RETRIEVED_AT]},
+        schema=dict(spec_for(Dataset.FX).columns),
+    )
+    persist_ingest(bad, Dataset.FX, _payload(), settings)
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    with pytest.raises(PensionDataError, match="fx series is invalid"):
+        run_pension_campaign(spec, settings, seed=7)

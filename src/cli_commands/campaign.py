@@ -369,6 +369,10 @@ def run_pension_campaign_command(*, config_path: str, settings: DataSettings, se
                 latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
                 latest_artifact(settings, Dataset.FX_KRW_BASE).manifest.normalized_sha256,
             ]
+            try:
+                manifest_hashes.append(latest_artifact(settings, Dataset.FX).manifest.normalized_sha256)
+            except UntrustedDatasetError:
+                manifest_hashes.append("NO_FX_FALLBACK")
         try:
             manifest_hashes.append(latest_artifact(settings, Dataset.CPI).manifest.normalized_sha256)
         except UntrustedDatasetError:

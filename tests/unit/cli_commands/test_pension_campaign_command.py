@@ -110,6 +110,7 @@ def _campaign_config(mode: str, tax_path: str, identity_path: str) -> dict[str, 
         "execution_spread_bps": 0.0,
         "commission_bps": 0.0,
         "max_fx_age_days": 7,
+        "max_fx_fallback_share": 0.1,
         "max_cpi_age_days": 75,
         "extra_annual_drag_by_ticker": {},
     }
@@ -214,3 +215,37 @@ def test_pension_campaign_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
     assert exit_code == 0
     assert captured == {"config_path": "c.json", "seed": 7}
     assert main(["run", "pension-campaign", "--config", "c.json"]) == 2
+
+
+def test_digest_changes_with_fallback_data(
+    workspace: tuple[DataSettings, Path, Path],
+) -> None:
+    """Persisted fallback partitions participate in the experiment digest."""
+    from datetime import timedelta
+
+    settings, proxy_path, _ = workspace
+    _persist_proxy_lake(settings)
+    assert campaign_mod.run_pension_campaign_command(config_path=str(proxy_path), settings=settings, seed=7) == 0
+    first = sorted(p.name for p in (results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
+    frame = pl.DataFrame(
+        {"date": [date(2023, 6, 1)], "usdkrw": [1305.0], "source": ["fred"],
+         "retrieved_at": [_RETRIEVED_AT + timedelta(days=1)]},
+        schema=dict(spec_for(Dataset.FX).columns),
+    )
+    persist_ingest(frame, Dataset.FX, _payload(), settings)
+    assert campaign_mod.run_pension_campaign_command(config_path=str(proxy_path), settings=settings, seed=7) == 0
+    second = sorted(p.name for p in (results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
+    assert len(second) == 2
+    assert set(second) != set(first)
+
+
+def test_missing_fallback_tolerated_when_unneeded(
+    workspace: tuple[DataSettings, Path, Path],
+) -> None:
+    """A gap-free ECOS frame needs no fallback partition to succeed."""
+    settings, proxy_path, _ = workspace
+    _persist_proxy_lake(settings)
+    assert campaign_mod.run_pension_campaign_command(config_path=str(proxy_path), settings=settings, seed=7) == 0
+    reports = sorted((results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
+    payload = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert payload["fx_provenance"]["fallback_status"] == "UNAVAILABLE"
