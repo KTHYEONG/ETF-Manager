@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence as _Seq  # noqa: F401
 
 _XIRR_TOLERANCE: Final[float] = 1e-6
+_XIRR_RELATIVE_TOLERANCE: Final[float] = 1e-12
 _XIRR_MAX_ITERATIONS: Final[int] = 50
 _DAYS_PER_YEAR: Final[float] = 365.25
 _SECONDS_PER_DAY: Final[float] = 86400.0
@@ -24,8 +25,10 @@ def xirr(cashflows: Sequence[tuple[datetime, float]]) -> float:
     """Money-weighted annual rate; fails closed if Newton does not converge.
 
     Year fractions measure ``(t - t0)`` on a 365.25-day year from the earliest
-    timestamp. Raises XirrError when amounts lack a sign change or |NPV| stays
-    above tolerance after 50 iterations.
+    timestamp. Convergence needs |NPV| below ``max(1e-6, 1e-12 * sum|amounts|)`` so
+    multi-billion KRW paths are not held to an absolute bound below float resolution.
+    Raises XirrError when amounts lack a sign change or |NPV| stays above that
+    tolerance after 50 iterations.
     """
     if not cashflows:
         raise XirrError("xirr requires at least one cashflow")
@@ -36,10 +39,11 @@ def xirr(cashflows: Sequence[tuple[datetime, float]]) -> float:
     if not (any(amount > 0.0 for amount in amounts) and any(amount < 0.0 for amount in amounts)):
         raise XirrError("cashflows must contain both negative and positive legs")
 
+    tolerance = max(_XIRR_TOLERANCE, _XIRR_RELATIVE_TOLERANCE * sum(abs(amount) for amount in amounts))
     rate = 0.1
     npv = _net_present_value(amounts, times, rate)
     for _ in range(_XIRR_MAX_ITERATIONS):
-        if abs(npv) <= _XIRR_TOLERANCE:
+        if abs(npv) <= tolerance:
             return rate
         derivative = sum(
             -step * amount * (1.0 + rate) ** (-step - 1.0) for step, amount in zip(times, amounts, strict=True)
@@ -51,7 +55,7 @@ def xirr(cashflows: Sequence[tuple[datetime, float]]) -> float:
             break
         rate = candidate
         npv = _net_present_value(amounts, times, rate)
-    if abs(npv) > _XIRR_TOLERANCE:
+    if abs(npv) > tolerance:
         raise XirrError(f"xirr did not converge: |NPV|={abs(npv):.3e} after {_XIRR_MAX_ITERATIONS} iterations")
     return rate
 
