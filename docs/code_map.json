@@ -577,5 +577,8 @@
   },
   "src/data/result_store.py": {
     "testing": "tests/unit/data/test_result_store.py"
+  },
+  "src/data/pension_fx.py": {
+    "testing": "tests/unit/data/test_pension_fx.py"
   }
 }

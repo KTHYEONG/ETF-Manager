@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_PENSION_FX_FALLBACK",
+      "date": "2026-09-24",
+      "adr_id": "ADR_20260924_PENSION_FX_FALLBACK",
+      "domain": "data",
+      "title": "Pension US-proxy USD/KRW holiday-gap fallback (ECOS primary, FRED DEXKOUS interior fill)",
+      "why": "Korean holidays coinciding with US sessions left ECOS base-rate gaps beyond max_fx_age_days=7, aborting every 10y/20y pension cohort.",
+      "resolution": "Added build_krw_fx_series filling only interior primary gaps from FRED DEXKOUS (PIT-admitted, primary-wins), a max_fx_fallback_share fail-closed cap, fx_provenance disclosure with same-day basis stats, and FX hash in the experiment digest.",
+      "impact": "Pension campaign runs with the staleness guard unchanged and reports how many sessions and how much source basis the fallback introduced.",
+      "caveat": "ECOS vs FRED same-day basis is ~0.5% mean abs (99th pct 2.7%), so fallback sessions are disclosed reporting-only evidence, and mixed source labels in the fallback frame could understate the share."
+    },
+    {
       "task_id": "TASK_RESULTS_LAYOUT",
       "date": "2026-09-24",
       "adr_id": "ADR_20260924_RESULTS_LAYOUT",
