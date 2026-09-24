@@ -9,6 +9,8 @@ import subprocess
 from datetime import date
 from typing import NoReturn
 
+from src.data.result_store import ResultKind
+from src.data.paths import THESES_DIR
 from src.policy.targets import OPERATIONAL_POLICY_ID, POLICY_ALIASES, PolicyId
 from src.policy.tilt import TILT_FACTORS
 from src.sim.baseline import BASELINE_ALIASES
@@ -378,7 +380,7 @@ def _build_parser() -> _Parser:
         help="Inspect thesis registry (reporting only, never an adoption gate)",
     )
     thesis.add_argument("--id", dest="thesis_id", default=None, help="Thesis id to inspect (omit to list)")
-    thesis.add_argument("--config-dir", default="configs/theses", help="Thesis registry directory")
+    thesis.add_argument("--config-dir", default=str(THESES_DIR), help="Thesis registry directory")
     thesis.add_argument("--compute-evidence", action="store_true", help="Compute evidence vector for thesis via compute_evidence_vector")
     thesis_report = run_targets.add_parser(
         "thesis-report",
@@ -433,4 +435,22 @@ def _build_parser() -> _Parser:
     prune.add_argument("--no-drop-nport-zip-mirrors", dest="drop_nport_zip_mirrors", action="store_false", help="Keep N-PORT ZIP mirrors")
     prune.add_argument("--migrate-results-layout", action="store_true", default=True, help="Migrate results layout")
     prune.add_argument("--no-migrate-results-layout", dest="migrate_results_layout", action="store_false", help="Skip results migration")
+    results = maintain_targets.add_parser("results", help="Inspect, promote, prune, and migrate run artifacts")
+    results_actions = results.add_subparsers(dest="results_action", required=True)
+    results_actions.add_parser("list", help="List latest run artifact per experiment, kind, and run id")
+    results_promote = results_actions.add_parser("promote", help="Copy one run artifact into curated docs/results")
+    results_promote.add_argument("--experiment", required=True, help="Experiment slug (e.g. wf_qqq_adaptive_v5)")
+    results_promote.add_argument(
+        "--kind",
+        required=True,
+        choices=[kind.value for kind in ResultKind],
+        help="Artifact family (e.g. walk_forward, legacy)",
+    )
+    results_promote.add_argument("--run-id", dest="run_id", required=True, help="Run id slug")
+    results_promote.add_argument("--dest-root", dest="dest_root", default="docs/results", help="Curated destination root")
+    results_prune = results_actions.add_parser("prune", help="Delete all but the keep most recent runs per kind (dry-run by default)")
+    results_prune.add_argument("--keep", type=int, default=3, help="Runs to keep per experiment and kind")
+    results_prune.add_argument("--apply", action="store_true", help="Apply deletions; omit for dry-run")
+    results_migrate = results_actions.add_parser("migrate", help="Move pre-layout flat outputs into per-experiment layout (dry-run by default)")
+    results_migrate.add_argument("--apply", action="store_true", help="Apply moves; omit for dry-run")
     return parser

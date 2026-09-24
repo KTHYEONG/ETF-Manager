@@ -88,3 +88,18 @@ def test_plan_prune_keeps_latest_drops_stale_and_nport_mirrors(tmp_path: Path, m
 
     latest = latest_artifact(settings, Dataset.FX)
     assert latest.manifest.normalized_sha256 == late_art.manifest.normalized_sha256
+
+
+def test_plan_prune_stages_legacy_flat_results_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ancient flat result dirs are staged into the per-layout staging dirs."""
+    root = tmp_path / "retention"
+    root.mkdir()
+    monkeypatch.chdir(root)
+    settings = DataSettings(data_root="data")
+    legacy = root / "data" / "thesis_reports"
+    legacy.mkdir(parents=True)
+    (legacy / "wave_old.json").write_text("{}", encoding="utf-8")
+
+    plan = plan_prune(settings, keep_latest_only=True, drop_nport_zip_mirrors=False)
+
+    assert (legacy / "wave_old.json", root / "data" / "results" / "thesis" / "wave_old.json") in plan.to_migrate

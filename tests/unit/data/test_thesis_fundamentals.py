@@ -363,3 +363,29 @@ def test_fundamentals_registry_union_includes_neworder(scenario_id: str) -> None
     # AI_POWER_BOTTLENECK ids remain ('A35SNO', 'PNFI')
     ai_power_spec = load_thesis_fundamentals(thesis_id=ThesisId.AI_POWER_BOTTLENECK)
     assert fundamental_series_ids(ai_power_spec) == ("A35SNO", "PNFI")
+
+
+def test_fetch_thesis_fundamentals_missing_registry_dir(
+  tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+  """Registry dir resolves against cwd; absent dir fails closed."""
+  from datetime import date
+  from pathlib import Path
+
+  import pytest
+
+  from src.data.secrets import ProviderSecrets
+  from src.data.settings import DataSettings
+  from src.data.thesis_fundamentals import fetch_and_persist_thesis_fundamentals
+
+  monkeypatch.chdir(tmp_path)
+  settings = DataSettings(data_root=tmp_path / "data")
+  secrets = ProviderSecrets(tiingo_api="x", fred_api="x", ecos_api="x")
+  with pytest.raises(FileNotFoundError, match="fundamentals registry dir missing"):
+    fetch_and_persist_thesis_fundamentals(
+      start=date(2024, 1, 1),
+      end=date(2024, 12, 31),
+      settings=settings,
+      secrets=secrets,
+    )
+  assert not (Path("configs/data/thesis_fundamentals")).exists()

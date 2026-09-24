@@ -259,7 +259,7 @@ def test_walk_forward_compound_growth_objective_wires() -> None:
     from src.validation.experiment import load_experiment_config
     from src.validation.walk_forward import run_walk_forward_adoption
 
-    spec = load_experiment_config("configs/experiments/wf_soxx100_compound_growth.json")
+    spec = load_experiment_config("experiments/wf_soxx100_compound_growth.json")
 
     def runner(cfg: AllocationConfig) -> AllocationResult:
         snap = Snapshot(session=date(2020, 1, 31), contribution_krw=1.0, nav_krw=1.0)

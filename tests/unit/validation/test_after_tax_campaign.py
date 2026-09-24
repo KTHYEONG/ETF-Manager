@@ -276,8 +276,8 @@ def test_unlock_is_always_false() -> None:
     assert report.operational_unlock is False
 
 
-def test_report_written_under_experiments_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """JSON and markdown reports land under the experiments directory."""
+def test_report_written_under_experiment_result_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """JSON and markdown reports land under the experiment result directory."""
     monkeypatch.chdir(Path.cwd())
     settings = DataSettings(data_root=tmp_path / "data")
 
@@ -287,7 +287,8 @@ def test_report_written_under_experiments_dir(tmp_path: Path, monkeypatch: pytes
     report = run_after_tax_campaign(_spec(), _runner, seed=7)
     out = write_after_tax_campaign_report(report, settings, experiment_id="abc123")
     assert out.is_file()
-    assert out.parent == tmp_path / "data" / "results" / "experiments"
+    assert out.parent == tmp_path / "data" / "results" / report.name
+    assert out.name.startswith("after_tax_")
     assert out.with_suffix(".md").is_file()
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert len(payload["summaries"]) == len(report.summaries)

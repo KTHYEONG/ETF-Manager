@@ -15,7 +15,7 @@ from src import cli
 from src.cli import main
 from src.data.calendar import load_calendar
 from src.data.catalog import latest_artifact
-from src.data.paths import experiments_dir
+from src.data.paths import results_root
 from src.data.pipeline import persist_ingest
 from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
@@ -152,7 +152,7 @@ def test_pension_campaign_command_is_reporting_only(
     code = campaign_mod.run_pension_campaign_command(config_path=str(proxy_path), settings=settings, seed=7)
 
     assert code == 0
-    reports = sorted(experiments_dir(settings).glob("pension_cli_smoke_pension_*.json"))
+    reports = sorted((results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
     assert len(reports) == 1
     payload = json.loads(reports[0].read_text(encoding="utf-8"))
     assert payload["evidence_status"] == "INSUFFICIENT_INDEPENDENT_20Y_EVIDENCE"
@@ -176,9 +176,9 @@ def test_pension_campaign_command_experiment_id_is_deterministic(
     _persist_proxy_lake(settings)
 
     assert campaign_mod.run_pension_campaign_command(config_path=str(proxy_path), settings=settings, seed=1) == 0
-    first = sorted(p.name for p in experiments_dir(settings).glob("pension_cli_smoke_pension_*.json"))
+    first = sorted(p.name for p in (results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
     assert campaign_mod.run_pension_campaign_command(config_path=str(proxy_path), settings=settings, seed=1) == 0
-    second = sorted(p.name for p in experiments_dir(settings).glob("pension_cli_smoke_pension_*.json"))
+    second = sorted(p.name for p in (results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
 
     assert first == second
     assert len(first) == 1
@@ -196,7 +196,7 @@ def test_pension_campaign_command_missing_source_returns_one(
 
     assert code == 1
     assert "pension_campaign_cli_failed" in caplog.text
-    assert not list(experiments_dir(settings).glob("pension_cli_smoke_pension_*.json"))
+    assert not list((results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
 
 
 def test_pension_campaign_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:

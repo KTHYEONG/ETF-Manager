@@ -48,7 +48,7 @@ def _write(tmp_path: Path, payload: dict[str, object]) -> str:
 @pytest.mark.parametrize("scenario_id", ["EXP-J-mapping-json"])
 def test_exp_j_mapping_json(scenario_id: str) -> None:
     """EXP-J-mapping-json"""
-    spec = load_experiment_config("configs/experiments/wf_vti_mapping.json")
+    spec = load_experiment_config("experiments/wf_vti_mapping.json")
 
     assert spec.mapping is not None
     assert spec.mapping.min_improvement == pytest.approx(0.02)
@@ -116,7 +116,7 @@ def test_exp_j_mapping_json(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-K-currency-json"])
 def test_exp_k_currency_json(scenario_id: str) -> None:
     """EXP-K-currency-json"""
-    spec = load_experiment_config("configs/experiments/wf_vti_currency.json")
+    spec = load_experiment_config("experiments/wf_vti_currency.json")
 
     assert spec.contribution_krw == pytest.approx(1_000_000.0)
     assert spec.train_months == 60
@@ -186,7 +186,7 @@ def test_exp_k_currency_json(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-L-cadence-json"])
 def test_exp_l_cadence_json(scenario_id: str) -> None:
     """EXP-L-cadence-json"""
-    spec = load_experiment_config("configs/experiments/wf_vti_cadence.json")
+    spec = load_experiment_config("experiments/wf_vti_cadence.json")
 
     assert spec.cadence is not None
     assert spec.cadence.anchor == "month_open"
@@ -231,7 +231,7 @@ def test_exp_l_cadence_json(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-L-qqq-cadence-json"])
 def test_exp_l_qqq_cadence_json(scenario_id: str) -> None:
     """EXP-L-qqq-cadence-json"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_cadence.json")
+    spec = load_experiment_config("experiments/wf_qqq_cadence.json")
 
     assert spec.name == "wf_qqq_cadence"
     assert spec.start == date(2007, 8, 31)
@@ -259,7 +259,7 @@ def test_exp_l_qqq_cadence_json(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-L-qqq-cadence-twice"])
 def test_exp_l_qqq_cadence_twice(scenario_id: str) -> None:
     """EXP-L-qqq-cadence-twice"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_cadence_twice.json")
+    spec = load_experiment_config("experiments/wf_qqq_cadence_twice.json")
 
     assert spec.name == "wf_qqq_cadence_twice"
     assert spec.start == date(2007, 8, 31)

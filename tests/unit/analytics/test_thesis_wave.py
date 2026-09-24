@@ -47,9 +47,9 @@ def test_wave_a_three_entries(scenario_id: str, tmp_path: Path, monkeypatch: pyt
 
     def fake_load_map(path=Path("configs/theses/experiment_map.json")):
         return {
-            ThesisId.AI_COMPUTE: Path("configs/experiments/m_thesis_ai_compute_soxx_120m.json"),
-            ThesisId.AI_POWER_BOTTLENECK: Path("configs/experiments/m_thesis_ai_power_bottleneck_grid.json"),
-            ThesisId.PHYSICAL_AUTOMATION: Path("configs/experiments/m_thesis_physical_automation_botz_prospective.json"),
+            ThesisId.AI_COMPUTE: Path("experiments/m_thesis_ai_compute_soxx_120m.json"),
+            ThesisId.AI_POWER_BOTTLENECK: Path("experiments/m_thesis_ai_power_bottleneck_grid.json"),
+            ThesisId.PHYSICAL_AUTOMATION: Path("experiments/m_thesis_physical_automation_botz_prospective.json"),
         }
 
     monkeypatch.setattr(tw, "load_thesis_experiment_map", fake_load_map)
@@ -82,7 +82,7 @@ def test_wave_b_experiment_map_fail(scenario_id: str, tmp_path: Path, monkeypatc
     bad_path = tmp_path / "bad_map.json"
     import json
 
-    bad_path.write_text(json.dumps({"ai_compute": "configs/experiments/m_thesis_ai_compute_soxx_120m.json", "physical_automation": "configs/experiments/m_thesis_physical_automation_botz_prospective.json"}), encoding="utf-8")
+    bad_path.write_text(json.dumps({"ai_compute": "experiments/m_thesis_ai_compute_soxx_120m.json", "physical_automation": "experiments/m_thesis_physical_automation_botz_prospective.json"}), encoding="utf-8")
 
     with pytest.raises(ValueError, match="missing"):  # noqa: PT011
         load_thesis_experiment_map(bad_path)
@@ -92,9 +92,9 @@ def test_wave_b_experiment_map_fail(scenario_id: str, tmp_path: Path, monkeypatc
 
     def fake_bad_load(path=Path("configs/theses/experiment_map.json")):
         return {
-            ThesisId.AI_COMPUTE: Path("configs/experiments/m_thesis_ai_compute_soxx_120m.json"),
+            ThesisId.AI_COMPUTE: Path("experiments/m_thesis_ai_compute_soxx_120m.json"),
             # missing ai_power_bottleneck
-            ThesisId.PHYSICAL_AUTOMATION: Path("configs/experiments/m_thesis_physical_automation_botz_prospective.json"),
+            ThesisId.PHYSICAL_AUTOMATION: Path("experiments/m_thesis_physical_automation_botz_prospective.json"),
         }
 
     monkeypatch.setattr(tw, "load_thesis_experiment_map", fake_bad_load)
@@ -135,3 +135,75 @@ def test_wave_c_markdown_panel_freshness(scenario_id: str, tmp_path: Path) -> No
     assert "lag_days: 29" in text
     assert "freshness_status: FRESH" in text
     assert f"panel_as_of: {panel_as_of.isoformat()}" in text
+
+
+def test_thesis_wave_cli_never_touches_docs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Thesis wave artifacts land under results/thesis_wave without creating docs/."""
+    import src.cli_commands.thesis as thesis_cli
+    from src.data.panel_freshness import CatalogPanelReport, PanelFreshnessStatus
+
+    monkeypatch.chdir(tmp_path)
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2026, 6, 30, 20, 0, tzinfo=UTC)
+
+    from src.analytics.thesis_evidence import EvidenceSlot, EvidenceSnapshot
+    from src.analytics.thesis_report import ThesisReport
+    from src.policy.thesis import ThesisStatus
+
+    def fake_build(*, thesis_id, settings, as_of, runner, experiment_path=None, include_regime=False):  # type: ignore[no-untyped-def]
+        slot = EvidenceSlot(status="computed", summary="ok", metrics={"median_ratio": 1.0, "overlap_pct": 10.0})
+        snap = EvidenceSnapshot(thesis_id=thesis_id, as_of=as_of, historical=slot, structural=slot, valuation=slot, overlap=slot, crowding=slot)
+        return ThesisReport(
+            thesis_id=thesis_id,
+            evidence=snap,
+            long_horizon=None,
+            prospective=__import__("src.validation.prospective", fromlist=["ProspectiveEligibility"]).ProspectiveEligibility(
+                eligible=False, catalog_span_years=8.0, min_years_required=5, reason="test"
+            ),
+            suggested_status=ThesisStatus.RESEARCH,
+            next_falsifier="f1",
+            divergence=None,
+        )
+
+    import src.analytics.thesis_wave as tw
+
+    def fake_load_map(path=Path("configs/theses/experiment_map.json")):  # type: ignore[no-untyped-def]
+        return {
+            ThesisId.AI_COMPUTE: Path("experiments/m_thesis_ai_compute_soxx_120m.json"),
+            ThesisId.AI_POWER_BOTTLENECK: Path("experiments/m_thesis_ai_power_bottleneck_grid.json"),
+            ThesisId.PHYSICAL_AUTOMATION: Path("experiments/m_thesis_physical_automation_botz_prospective.json"),
+        }
+
+    def fake_runner(config):  # type: ignore[no-untyped-def]
+        from src.sim.allocation import AllocationResult, AllocationSnapshot
+
+        return AllocationResult(
+            config=config,
+            snapshots=(AllocationSnapshot(session=date(2024, 1, 31), cash_krw=0, cash_usd=0, shares={}, mark_krw=100.0, contribution_krw=0, fees_krw=0),),
+            terminal_wealth_krw=100.0,
+            xirr=0.0,
+            max_drawdown=0.0,
+            terminal_wealth_real_krw=100.0,
+            xirr_real=0.0,
+        )
+
+    def fake_panel(settings, reference_now=None):  # type: ignore[no-untyped-def]
+        return CatalogPanelReport(
+            panel_as_of=as_of,
+            lag_days=1,
+            status=PanelFreshnessStatus.FRESH,
+            ticker_last_session={},
+            cpi_last_observation=None,
+            fx_last_observation=None,
+            holdings_last_filing=None,
+        )
+
+    monkeypatch.setattr(tw, "build_thesis_report", fake_build)
+    monkeypatch.setattr(tw, "load_thesis_experiment_map", fake_load_map)
+    monkeypatch.setattr(thesis_cli, "resolve_catalog_panel_as_of", fake_panel)
+    monkeypatch.setattr("src.sim.allocation.run_allocation_from_store", fake_runner)
+
+    code = thesis_cli.run_thesis_wave_command(as_of=as_of.isoformat(), settings=settings)
+    assert code == 0
+    assert not (tmp_path / "docs").exists()
+    assert list((tmp_path / "data" / "results" / "thesis_wave").glob("thesis_wave_*.json")) != []

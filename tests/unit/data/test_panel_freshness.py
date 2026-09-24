@@ -14,6 +14,7 @@ from src.data.panel_freshness import (
     apply_hard_stop,
     effective_thesis_end,
     iter_nport_quarters_for_panel,
+    load_panel_hard_stop,
     resolve_catalog_panel_as_of,
 )
 from src.data.settings import DataSettings
@@ -157,3 +158,11 @@ def test_panel_f_naive_reference_rejected(scenario_id: str, tmp_path: Path) -> N
     naive = datetime(2026, 7, 15, 0, 0)  # no tzinfo
     with pytest.raises(ValueError, match=r"tz|timezone"):
         resolve_catalog_panel_as_of(settings, reference_now=naive)
+
+
+def test_load_panel_hard_stop_default_path_without_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default registry path resolves against cwd; absent file yields None."""
+    monkeypatch.chdir(tmp_path)
+    assert load_panel_hard_stop() is None

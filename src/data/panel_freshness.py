@@ -15,6 +15,7 @@ from typing import Final
 import polars as pl
 
 from src.data.calendar import DEFAULT_CALENDAR_NAME, TradingCalendar, load_calendar
+from src.data.paths import PANEL_HARD_STOP_PATH
 from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
 
@@ -50,7 +51,7 @@ class CatalogPanelReport:
 
 
 def load_panel_hard_stop(path: Path | None = None) -> PanelHardStop | None:
-    target = Path(path) if path is not None else Path("configs/data/panel_hard_stop.json")
+    target = Path(path) if path is not None else PANEL_HARD_STOP_PATH
     if not target.is_file():
         return None
     try:

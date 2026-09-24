@@ -10,6 +10,7 @@ from pathlib import Path
 from src.analytics.metrics import XirrError
 from src.cli_commands.parser import _UsageError, _resolve_git_commit
 from src.data.catalog import latest_artifact
+from src.data.paths import THESES_DIR
 from src.data.schema import Dataset
 from src.data.settings import DataSettings
 from src.data.storage import UntrustedDatasetError
@@ -74,7 +75,7 @@ def run_ablation_command(*, config_path: str, settings: DataSettings) -> int:
     """Run an identical-cashflow ablation from an experiment JSON and log each gate."""
     try:
         spec = load_experiment_config(config_path)
-        assert_experiment_preregistration(spec, load_thesis_registry(Path("configs/theses")))
+        assert_experiment_preregistration(spec, load_thesis_registry(THESES_DIR))
         assert_experiment_feasible(spec, settings)
         report = run_ablation(spec, lambda cfg: run_allocation_from_store(cfg, settings))
         metrics: dict[str, float] = {"candidates": float(len(report.rows)), "adopted": float(sum(row.adopted for row in report.rows))}
@@ -146,7 +147,7 @@ def run_strategy_selection_command(*, config_path: str, settings: DataSettings) 
             raise ValueError("experiment JSON lacks train_months and test_months")
         assert_experiment_feasible(spec, settings)
         if spec.thesis_id is not None:
-            assert_experiment_preregistration(spec, load_thesis_registry(Path("configs/theses")))
+            assert_experiment_preregistration(spec, load_thesis_registry(THESES_DIR))
         report = run_strategy_selection(spec, make_selection_runner(settings, spec))
         record = make_experiment(
             config=AllocationConfig(policy=spec.candidates[0].policy, start=spec.start, end=spec.end, monthly_contribution_krw=spec.contribution_krw, fill_delay_sessions=1, commission_bps=0.0, targets_override=resolve_arm_targets(spec.candidates[0])),

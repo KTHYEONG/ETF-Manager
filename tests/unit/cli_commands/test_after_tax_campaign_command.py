@@ -11,7 +11,7 @@ import pytest
 
 import src.cli_commands.campaign as campaign_mod
 from src.data.calendar import load_calendar
-from src.data.paths import experiments_dir
+from src.data.paths import results_root
 from src.data.pipeline import persist_ingest
 from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
@@ -153,7 +153,7 @@ def test_after_tax_campaign_command_writes_reports(workspace: tuple[DataSettings
     code = campaign_mod.run_after_tax_campaign_command(config_path=str(config_path), settings=settings, seed=7)
 
     assert code == 0
-    reports = sorted(experiments_dir(settings).glob("after_tax_cli_smoke_after_tax_*.json"))
+    reports = sorted((results_root(settings) / "after_tax_cli_smoke").glob("after_tax_*.json"))
     assert len(reports) == 1
     payload = json.loads(reports[0].read_text(encoding="utf-8"))
     assert payload["operational_unlock"] is False
@@ -170,9 +170,9 @@ def test_after_tax_campaign_command_experiment_id_is_deterministic(workspace: tu
     _persist_lake(settings)
 
     assert campaign_mod.run_after_tax_campaign_command(config_path=str(config_path), settings=settings, seed=1) == 0
-    first = sorted(p.name for p in experiments_dir(settings).glob("after_tax_cli_smoke_after_tax_*.json"))
+    first = sorted(p.name for p in (results_root(settings) / "after_tax_cli_smoke").glob("after_tax_*.json"))
     assert campaign_mod.run_after_tax_campaign_command(config_path=str(config_path), settings=settings, seed=2) == 0
-    second = sorted(p.name for p in experiments_dir(settings).glob("after_tax_cli_smoke_after_tax_*.json"))
+    second = sorted(p.name for p in (results_root(settings) / "after_tax_cli_smoke").glob("after_tax_*.json"))
 
     assert first == second
     assert len(first) == 1
@@ -190,7 +190,7 @@ def test_after_tax_campaign_command_missing_dataset_returns_one(
 
     assert code == 1
     assert "after_tax_campaign_cli_failed" in caplog.text
-    assert not list(experiments_dir(settings).glob("after_tax_cli_smoke_after_tax_*.json"))
+    assert not list((results_root(settings) / "after_tax_cli_smoke").glob("after_tax_*.json"))
 
 
 def test_after_tax_campaign_command_empty_schedule_returns_one(workspace: tuple[DataSettings, Path]) -> None:

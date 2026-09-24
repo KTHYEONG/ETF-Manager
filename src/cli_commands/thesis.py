@@ -14,6 +14,7 @@ from src.analytics.thesis_report import build_thesis_report, write_thesis_report
 from src.analytics.thesis_wave import run_thesis_wave
 from src.data.catalog import load_visible
 from src.data.panel_freshness import apply_hard_stop, load_panel_hard_stop, resolve_catalog_panel_as_of
+from src.data.paths import THESES_DIR
 from src.data.schema import Dataset
 from src.data.settings import DataSettings
 
@@ -282,9 +283,15 @@ def run_thesis_wave_command(*, as_of: str | None, settings: DataSettings, allow_
         wave = run_thesis_wave(settings=settings, as_of=as_of_dt, runner=_runner, panel_report=gate_report)
         # Also write markdown
         from src.analytics.thesis_wave import write_thesis_wave_markdown
+        from src.data.result_store import ResultKind, result_ref
 
-        md_path = Path(f"docs/results/thesis-wave/{as_of_dt.date().isoformat()}_v2_thesis_wave.md")
-        write_thesis_wave_markdown(wave, md_path)
+        ref = result_ref(
+            settings,
+            experiment="thesis_wave",
+            kind=ResultKind.THESIS_WAVE,
+            run_id=as_of_dt.isoformat(),
+        )
+        write_thesis_wave_markdown(wave, ref.markdown_path)
         if not wave.entries:
             raise ValueError("thesis wave produced zero successful entries")
     except (ValueError, OSError) as exc:
@@ -379,7 +386,7 @@ def run_thesis_incremental_command(
         # anchor keep for wiring: only ai_compute supported
         _ = "only ai_compute supported"
         try:
-            registry = load_thesis_registry(Path("configs/theses"))
+            registry = load_thesis_registry(THESES_DIR)
             thesis_spec = registry[tid]
             vehicle_ticker = str(thesis_spec.historical_proxies[0].value) if thesis_spec.historical_proxies else "SOXX"
         except Exception as exc:
@@ -401,17 +408,16 @@ def run_thesis_incremental_command(
             thesis_id=str(tid.value),
             vehicle_ticker=str(vehicle_ticker),
         )
-        out_path = Path(f"docs/results/thesis-incremental/{as_of_dt.date().isoformat()}_incremental_{thesis_id}.json")
-        # also write under data root for history
-        write_incremental_portfolio_report(report, out_path)
-        # also write under data dir
-        try:
-            from src.data.paths import thesis_reports_dir
+        from src.data.result_store import ResultKind, record_run, result_ref
 
-            data_path = thesis_reports_dir(settings) / f"incremental_{thesis_id}_{as_of_dt.date().isoformat()}.json"
-            write_incremental_portfolio_report(report, data_path)
-        except Exception:  # noqa: S110
-            pass
+        ref = result_ref(
+            settings,
+            experiment=f"thesis_{thesis_id}",
+            kind=ResultKind.THESIS_INCREMENTAL,
+            run_id=as_of_dt.date().isoformat(),
+        )
+        write_incremental_portfolio_report(report, ref.json_path)
+        record_run(settings, ref)
         logger.info("[DATA] event=thesis_incremental_done thesis_id=%s portfolio_status=%s arms=%d", thesis_id, report.portfolio_status.value, len(report.arms))
     except (ValueError, OSError) as exc:
         logger.error("[DATA] event=thesis_incremental_failed reason=%s", exc)

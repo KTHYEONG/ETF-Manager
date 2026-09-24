@@ -216,13 +216,13 @@ def plan_prune(
     # Migrate results layout
     if migrate_results_layout:
         # Existing flat dirs: data/experiments, data/audits, data/thesis_reports
-        # New dirs: data/results/experiments, data/results/audits, data/results/thesis
-        from src.data.paths import audits_dir, experiments_dir, thesis_reports_dir
+        # New dirs: data/results/<flat-name> staging dirs consumed by Spec 2 migration.
+        from src.data.paths import LEGACY_FLAT_RESULT_SUBDIRS, results_root
 
+        _legacy_old = {"experiments": "experiments", "audits": "audits", "thesis": "thesis_reports"}
         old_new = [
-            (root / "experiments", experiments_dir(settings)),
-            (root / "audits", audits_dir(settings)),
-            (root / "thesis_reports", thesis_reports_dir(settings)),
+            (root / _legacy_old[name], results_root(settings) / name)
+            for name in LEGACY_FLAT_RESULT_SUBDIRS
         ]
         for old, new in old_new:
             if old.is_dir():

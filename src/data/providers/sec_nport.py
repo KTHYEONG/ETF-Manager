@@ -445,9 +445,9 @@ class SecNportClient:
         _ = filing_quarter  # quarter label retained for lineage; not used for parsing
         raw_tables = _parse_raw_tables(content)
         # Load default series map if exists else empty
-        from pathlib import Path
+        from src.data.paths import NPORT_SERIES_MAP_PATH
 
-        default_map_path = Path("configs/etf_metadata/nport_series_map.json")
+        default_map_path = NPORT_SERIES_MAP_PATH
         series_map: Mapping[str, str] = {}
         if default_map_path.is_file():
             import json

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from src.data.paths import EXPERIMENTS_DIR, EXPERIMENT_ARCHIVE_DIR, EXPERIMENT_INDEX_PATH
 from src.validation.experiment import load_experiment_config, resolve_experiment_config_path
 
 
@@ -26,18 +27,18 @@ ARCHIVE_SET = [
 
 
 def _load_index() -> dict:
-    return json.loads(Path("configs/experiments/INDEX.json").read_text(encoding="utf-8"))
+    return json.loads(Path(EXPERIMENT_INDEX_PATH).read_text(encoding="utf-8"))
 
 
 def test_taxonomy_index_covers_all_json() -> None:
     data = _load_index()
     assert "files" in data
     basenames = set()
-    for p in Path("configs/experiments").glob("*.json"):
+    for p in Path(EXPERIMENTS_DIR).glob("*.json"):
         if p.name == "INDEX.json":
             continue
         basenames.add(p.name)
-    for p in Path("configs/experiments/archive").glob("*.json"):
+    for p in Path(EXPERIMENT_ARCHIVE_DIR).glob("*.json"):
         basenames.add(p.name)
     assert set(data["files"].keys()) == basenames
     for name, meta in data["files"].items():
@@ -49,10 +50,10 @@ def test_taxonomy_archive_set_moved() -> None:
     data = _load_index()
     for name in ARCHIVE_SET:
         # archived entry must exist under archive/
-        archive_path = Path("configs/experiments/archive") / name
+        archive_path = Path(EXPERIMENT_ARCHIVE_DIR) / name
         assert archive_path.is_file(), f"archive missing {name}"
         # top-level should not exist (or if exists, status must be archived but we assert missing)
-        top_path = Path("configs/experiments") / name
+        top_path = Path(EXPERIMENTS_DIR) / name
         # spec says not is_file OR status==archived; we enforce not is_file for archived set
         assert not top_path.is_file(), f"top-level should not contain archived {name}"
         assert data["files"][name]["status"] == "archived"
@@ -61,7 +62,7 @@ def test_taxonomy_archive_set_moved() -> None:
 def test_taxonomy_active_v5_and_reserve_v4_remain() -> None:
     data = _load_index()
     for name in ("wf_qqq_adaptive_v5.json", "wf_qqq_reserve_v4.json"):
-        p = Path("configs/experiments") / name
+        p = Path(EXPERIMENTS_DIR) / name
         assert p.is_file(), f"active file missing {name}"
         assert data["files"][name]["status"] == "active"
 
@@ -70,7 +71,7 @@ def test_resolve_experiment_config_path_archive_fallback() -> None:
     # m_qqq_grid is archived; historical path should resolve to archive
     historic = "configs/experiments/m_qqq_grid.json"
     resolved = resolve_experiment_config_path(historic)
-    expected = (Path("configs/experiments/archive") / "m_qqq_grid.json").resolve()
+    expected = (Path(EXPERIMENT_ARCHIVE_DIR) / "m_qqq_grid.json").resolve()
     # also accept repo-root absolute fallback
     assert resolved == expected or (resolved.name == "m_qqq_grid.json" and "archive" in str(resolved))
     # load via old path must still return ExperimentSpec
@@ -85,41 +86,34 @@ def test_resolve_experiment_config_path_missing_raises() -> None:
         resolve_experiment_config_path("configs/experiments/does_not_exist_zz.json")
 
 
-def test_taxonomy_readme_statuses_match_index() -> None:
-    readme_path = Path("configs/experiments/README.md")
+def test_taxonomy_readme_describes_catalog_without_mirror_table() -> None:
+    readme_path = Path(EXPERIMENTS_DIR) / "README.md"
     assert readme_path.is_file()
     text = readme_path.read_text(encoding="utf-8")
-    data = _load_index()
-    for name in data["files"].keys():  # noqa: SIM118
-        assert name in text, f"{name} not found in README"
-    # If markdown table exists, assert status column equals INDEX
-    # Parse table rows: | File | Status | ...
-    lines = text.splitlines()
-    table_rows: dict[str, str] = {}
-    for line in lines:
-        # match markdown table row with pipes
-        if line.strip().startswith("|") and "|" in line:
-            parts = [p.strip() for p in line.strip().strip("|").split("|")]
-            if len(parts) >= 2:
-                file_col = parts[0]
-                status_col = parts[1].lower()
-                # skip header row
-                if file_col.lower() == "file" or "---" in file_col:
-                    continue
-                # file_col should be a json basename
-                if file_col.endswith(".json") and status_col in {"active", "fixture", "archived"}:  # noqa: SIM102
-                    table_rows[file_col] = status_col
-    if table_rows:
-        for name, meta in data["files"].items():
-            if name in table_rows:
-                assert table_rows[name] == meta["status"], f"README status mismatch for {name}"
+    assert "INDEX.json` is the only catalog" in text
+    assert "tests/unit/validation/test_experiment_taxonomy.py" in text
+    assert "trial-lineage census counts them" in text
 
 
 def test_taxonomy_soxx10_adaptive_v5_indexed() -> None:
     import json
     from pathlib import Path
-    data = json.loads(Path('configs/experiments/INDEX.json').read_text(encoding='utf-8'))
+    data = json.loads(Path(EXPERIMENT_INDEX_PATH).read_text(encoding='utf-8'))
     name = 'wf_qqq_soxx10_adaptive_v5.json'
     assert data['files'][name]['status'] == 'active'
-    assert (Path('configs/experiments') / name).is_file()
-    assert not (Path('configs/experiments/archive') / name).is_file()
+    assert (Path(EXPERIMENTS_DIR) / name).is_file()
+    assert not (Path(EXPERIMENT_ARCHIVE_DIR) / name).is_file()
+
+
+def test_configs_holds_no_experiment_definitions() -> None:
+    assert not Path("configs/experiments").exists()
+
+
+def test_experiment_map_points_at_existing_configs() -> None:
+    from src.analytics.thesis.wave import load_thesis_experiment_map
+
+    mapping = load_thesis_experiment_map()
+    assert mapping
+    for thesis_id, path in mapping.items():
+        assert str(path).startswith(f"{EXPERIMENTS_DIR.as_posix()}/"), f"{thesis_id}: {path}"
+        assert Path(path).is_file(), f"{thesis_id}: missing {path}"

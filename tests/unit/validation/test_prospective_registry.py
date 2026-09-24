@@ -47,6 +47,39 @@ def test_freeze_prospective_bundle_writes_registry(tmp_path) -> None:
     reloaded = load_prospective_bundle(written)
     assert reloaded.frozen_at == record.frozen_at
 
+def test_freeze_prospective_bundle_filename_follows_bundle_id(tmp_path) -> None:
+    import json
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    from src.data.settings import DataSettings
+    from src.validation.prospective_registry import freeze_prospective_bundle
+
+    source = Path("configs/prospective/prospective_2026_v1.json")
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    payload["bundle_id"] = "PROSPECTIVE_2027_V2"
+    staged = tmp_path / "prospective_2027_v2.json"
+    staged.write_text(json.dumps(payload), encoding="utf-8")
+    out = tmp_path / "out"
+    record = freeze_prospective_bundle(
+        bundle_path=staged,
+        output_dir=out,
+        frozen_at=datetime(2027, 8, 31, 12, 0, tzinfo=UTC),
+        git_commit="abc123",
+        settings=DataSettings(data_root=str(tmp_path / "data")),
+    )
+    assert record.bundle_id == "PROSPECTIVE_2027_V2"
+    assert (out / "prospective_2027_v2_frozen.json").is_file()
+
+
+def test_committed_prospective_record_location() -> None:
+    from pathlib import Path
+
+    from src.data.paths import PROSPECTIVE_RECORDS_DIR
+
+    assert (Path(PROSPECTIVE_RECORDS_DIR) / "prospective_2026_v1_frozen.json").is_file()
+    assert not Path("configs/prospective/registry").exists()
+
 def test_assert_strategy_identity_unchanged_rejects_edit() -> None:
     from datetime import date
 

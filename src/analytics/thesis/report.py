@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import contextlib
-import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 from src.analytics.thesis.evidence import EvidenceSnapshot, compute_evidence_vector
+from src.data.paths import THESES_DIR
 from src.data.settings import DataSettings
 from src.policy.thesis import ThesisId, ThesisSpec, ThesisStatus, get_thesis, load_thesis_registry
 from src.sim.allocation import AllocationConfig, AllocationResult
@@ -133,7 +133,7 @@ def build_thesis_report(
     include_regime: bool = False,
 ) -> ThesisReport:
     """Compose evidence, long-horizon gate, prospective, and divergence."""
-    registry = load_thesis_registry(Path("configs/theses"))
+    registry = load_thesis_registry(THESES_DIR)
     thesis = get_thesis(registry, thesis_id)
 
     evidence = compute_evidence_vector(
@@ -405,7 +405,7 @@ def build_thesis_report(
 
 
 def write_thesis_report(report: ThesisReport, settings: DataSettings) -> Path:
-    """Persist thesis report JSON under thesis_reports."""
+    """Persist thesis report JSON under the experiment's result directory."""
     payload = {
         "thesis_id": report.thesis_id.value,
         "as_of": report.evidence.as_of.isoformat(),
@@ -434,11 +434,13 @@ def write_thesis_report(report: ThesisReport, settings: DataSettings) -> Path:
         "next_falsifier": report.next_falsifier,
         "divergence": dict(report.divergence) if report.divergence is not None else None,
     }
-    from src.data.paths import thesis_reports_dir
+    from src.data.result_store import ResultKind, write_result
 
-    out_dir = thesis_reports_dir(settings)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    safe_as_of = report.evidence.as_of.isoformat().replace(":", "-")
-    out_path = out_dir / f"{report.thesis_id.value}_{safe_as_of}.json"
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return out_path
+    ref = write_result(
+        settings,
+        experiment=f"thesis_{report.thesis_id.value}",
+        kind=ResultKind.THESIS_REPORT,
+        run_id=report.evidence.as_of.isoformat(),
+        payload=payload,
+    )
+    return ref.json_path

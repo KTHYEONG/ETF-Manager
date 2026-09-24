@@ -91,7 +91,7 @@ def _catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, days: tuple[date, 
 @pytest.mark.parametrize("scenario_id", ["WAV2-AUD-static-deps"])
 def test_WAV2_AUD_static_deps(scenario_id: str) -> None:  # noqa: N802
     """WAV2-AUD-static-deps"""
-    spec = load_experiment_config("configs/experiments/m_qqq_grid.json")
+    spec = load_experiment_config("experiments/m_qqq_grid.json")
     profile = resolve_dependency_profile(spec)
     assert profile.profile == "static_dca"
     assert profile.requires_macro is False

@@ -65,7 +65,7 @@ _FAIL_CASES = [
 @pytest.mark.parametrize("scenario_id", ["EXP-G-overlay-json"])
 def test_exp_g_overlay_json(scenario_id: str) -> None:
     """EXP-G-overlay-json"""
-    spec = load_experiment_config("configs/experiments/wf_vti_overlay.json")
+    spec = load_experiment_config("experiments/wf_vti_overlay.json")
 
     assert spec.overlay is not None
     assert spec.overlay.max_shift == pytest.approx(0.10)
@@ -118,7 +118,7 @@ def test_exp_g_overlay_fail_closed(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-H-reserve-json"])
 def test_exp_h_reserve_json(scenario_id: str) -> None:
     """EXP-H-reserve-json"""
-    spec = load_experiment_config("configs/experiments/wf_vti_reserve.json")
+    spec = load_experiment_config("experiments/wf_vti_reserve.json")
 
     assert spec.reserve is not None
     assert spec.reserve.max_withhold == pytest.approx(0.10)
@@ -172,7 +172,7 @@ def test_exp_h_reserve_json(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-H-qqq-reserve-json"])
 def test_exp_h_qqq_reserve_json(scenario_id: str) -> None:
     """EXP-H-qqq-reserve-json"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_reserve.json")
+    spec = load_experiment_config("experiments/wf_qqq_reserve.json")
 
     assert spec.name == "wf_qqq_reserve"
     assert spec.start == date(2007, 8, 31)
@@ -200,7 +200,7 @@ def test_exp_h_qqq_reserve_json(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-H-qqq-reserve-v2-json"])
 def test_exp_h_qqq_reserve_v2_json(scenario_id: str) -> None:
     """EXP-H-qqq-reserve-v2-json"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_reserve_v2.json")
+    spec = load_experiment_config("experiments/wf_qqq_reserve_v2.json")
 
     assert spec.name == "wf_qqq_reserve_v2"
     assert spec.start == date(2007, 8, 31)
@@ -226,7 +226,7 @@ def test_exp_h_qqq_reserve_v2_json(scenario_id: str) -> None:
     assert resolved.max_invest_multiplier == pytest.approx(2.00)
     assert resolved.reserve_max_months == pytest.approx(6.0)
 
-    legacy_resolved = resolve_reserve(load_experiment_config("configs/experiments/wf_qqq_reserve.json"))
+    legacy_resolved = resolve_reserve(load_experiment_config("experiments/wf_qqq_reserve.json"))
     assert isinstance(legacy_resolved, ReserveConfig)
     assert legacy_resolved.schedule == "v1"
     assert legacy_resolved.max_withhold == pytest.approx(0.10)
@@ -235,7 +235,7 @@ def test_exp_h_qqq_reserve_v2_json(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-G-qqq-overlay-json"])
 def test_exp_g_qqq_overlay_json(scenario_id: str) -> None:
     """EXP-G-qqq-overlay-json"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_overlay.json")
+    spec = load_experiment_config("experiments/wf_qqq_overlay.json")
 
     assert spec.name == "wf_qqq_overlay"
     assert spec.start == date(2007, 8, 31)
@@ -313,7 +313,7 @@ def test_nam_a02_experiment_json_aliases(scenario_id: str, tmp_path: Path) -> No
 @pytest.mark.parametrize("scenario_id", ["NAM-A-json-keys"])
 def test_nam_a_json_keys(scenario_id: str) -> None:
     """NAM-A-json-keys"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_cadence.json")
+    spec = load_experiment_config("experiments/wf_qqq_cadence.json")
 
     assert spec.baseline.policy is PolicyId.QQQ
     assert spec.cadence is not None
@@ -338,14 +338,14 @@ def test_nam_a_json_keys(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["NAM-A03-shipped-wf-canonical"])
 def test_nam_a03_shipped_wf_canonical(scenario_id: str) -> None:
     """NAM-A03-shipped-wf-canonical"""
-    spec = load_experiment_config("configs/experiments/wf_vti_overlay.json")
+    spec = load_experiment_config("experiments/wf_vti_overlay.json")
 
     assert spec.baseline.policy is PolicyId.VTI
     assert spec.overlay is not None
     assert spec.overlay.max_shift == pytest.approx(0.10)
     assert spec.start == date(2014, 1, 3)
 
-    text = Path("configs/experiments/wf_vti_overlay.json").read_text(encoding="utf-8")
+    text = Path("experiments/wf_vti_overlay.json").read_text(encoding="utf-8")
     for key in ("hurdle", "modules", "max_shift"):
         assert key in text
     for legacy in ("delta0", "extra_rules", "max_tilt", "withhold_cap"):

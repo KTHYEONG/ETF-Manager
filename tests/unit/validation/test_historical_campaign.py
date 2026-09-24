@@ -105,13 +105,12 @@ def test_audit_regime_coverage_flags_gaps() -> None:
 
 
 def test_build_trial_lineage_census_from_index() -> None:
-    from pathlib import Path
-
+    from src.data.paths import EXPERIMENT_INDEX_PATH, EXPERIMENTS_DIR
     from src.validation.historical_campaign import build_trial_lineage_census
 
     census = build_trial_lineage_census(
-        index_path=Path("configs/experiments/INDEX.json"),
-        experiments_dir=Path("configs/experiments"),
+        index_path=EXPERIMENT_INDEX_PATH,
+        experiments_dir=EXPERIMENTS_DIR,
     )
     families = {row.family_id for row in census.families}
     assert "soxx" in families

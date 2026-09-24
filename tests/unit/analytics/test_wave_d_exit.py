@@ -61,7 +61,7 @@ def _make_wave(
         thesis_id=ThesisId.AI_COMPUTE,
         report=report,
         decision=decision,
-        experiment_path=Path("configs/experiments/m_thesis_ai_compute_soxx_120m.json"),
+        experiment_path=Path("experiments/m_thesis_ai_compute_soxx_120m.json"),
     )
     return ThesisWaveReport(
         as_of=as_of,
@@ -204,3 +204,42 @@ def test_write_wave_d_exit_markdown_evidence_table(scenario_id: str, tmp_path: P
     for slot in ("structural", "valuation", "crowding", "overlap", "historical"):
         assert slot in text
     assert "reference_slice_ready" in text
+
+
+@pytest.mark.parametrize("scenario_id", ["test_run_thesis_pipeline_writes_result_store"])
+def test_run_thesis_pipeline_writes_result_store(scenario_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pipeline artifacts land under results/thesis_<id>/ without touching docs/."""
+    import src.analytics.thesis.incremental as incremental_mod
+    import src.analytics.thesis.wave as wave_mod
+    import src.analytics.wave_d_exit as wde_mod
+    import src.data.panel_freshness as panel_mod
+    from src.data.panel_freshness import CatalogPanelReport, PanelFreshnessStatus
+    from src.data.settings import DataSettings
+
+    monkeypatch.chdir(tmp_path)
+    settings = DataSettings(data_root=tmp_path / "data")
+    as_of = datetime(2026, 6, 30, 20, 0, tzinfo=UTC)
+    wave = _make_wave()
+    inc = _make_incremental()
+
+    def fake_panel(settings, reference_now=None):  # type: ignore[no-untyped-def]
+        return CatalogPanelReport(
+            panel_as_of=as_of,
+            lag_days=1,
+            status=PanelFreshnessStatus.FRESH,
+            ticker_last_session={},
+            cpi_last_observation=None,
+            fx_last_observation=None,
+            holdings_last_filing=None,
+        )
+
+    monkeypatch.setattr(panel_mod, "resolve_catalog_panel_as_of", fake_panel)
+    monkeypatch.setattr(wave_mod, "run_thesis_wave", lambda **kwargs: wave)  # type: ignore[arg-type]
+    monkeypatch.setattr(incremental_mod, "run_incremental_portfolio", lambda **kwargs: inc)  # type: ignore[arg-type]
+
+    code = wde_mod.run_thesis_pipeline_command(thesis_id="ai_compute", as_of=None, settings=settings)
+    assert code == 0
+    assert not (tmp_path / "docs").exists()
+    artifacts = list((tmp_path / "data" / "results" / "thesis_ai_compute").glob("wave_d_exit_*.json"))
+    assert len(artifacts) == 1
+    assert artifacts[0].with_suffix(".md").is_file()

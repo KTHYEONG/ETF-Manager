@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_RESULTS_LAYOUT",
+      "date": "2026-09-24",
+      "adr_id": "ADR_20260924_RESULTS_LAYOUT",
+      "domain": "data",
+      "title": "Per-experiment result layout, experiments/ relocation, results maintenance CLI",
+      "why": "Run outputs were scattered across flat data/results dirs, git-tracked docs/results, and configs/, with no run history, latest pointer, or curation path.",
+      "resolution": "Added result_store (data/results/<experiment>/<kind>_<run_id>.json + runs.jsonl ledger), maintain results list/promote/prune/migrate, moved experiment definitions to experiments/ and freeze records to records/prospective/, centralized repo paths in paths.py, and kept legacy configs/experiments paths...",
+      "impact": "All 15 report writers share one atomic writer and CLIs no longer write into docs/results; INDEX.json stays the trial-lineage census source so archived experiments still count.",
+      "caveat": "Legacy flat outputs under data/results/{experiments,audits,thesis} still need 'maintain results migrate --apply' (ablation files lacking a name key go to _legacy/)."
+    },
+    {
       "task_id": "TASK_PENSION_PORTFOLIO",
       "date": "2026-09-24",
       "adr_id": "ADR_20260924_PENSION_PORTFOLIO",

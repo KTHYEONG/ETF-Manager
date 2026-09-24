@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
@@ -105,10 +104,13 @@ def write_cost_grid_report(report: CostGridReport, settings: DataSettings, exper
             for outcome in report.outcomes
         ],
     }
-    from src.data.paths import experiments_dir
+    from src.data.result_store import ResultKind, write_result
 
-    out_dir = experiments_dir(settings)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{report.name}_costs_{experiment_id}.json"
-    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return out_path
+    ref = write_result(
+        settings,
+        experiment=report.name,
+        kind=ResultKind.COSTS,
+        run_id=experiment_id,
+        payload=payload,
+    )
+    return ref.json_path

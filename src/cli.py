@@ -94,6 +94,10 @@ def _dispatch(args: argparse.Namespace) -> int:
                 len(report.migrated),
             )
             return 0
+        if getattr(args, "target", None) == "results":
+            from src.cli_commands.results import run_results_command
+
+            return run_results_command(args, DataSettings())
         raise _UsageError(f"unsupported maintain target {getattr(args, 'target', None)!r}")
     if args.command == "run":
         return _dispatch_run(args)

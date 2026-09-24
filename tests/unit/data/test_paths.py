@@ -4,18 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.data.paths import audits_dir, experiments_dir, thesis_reports_dir
+from src.data.paths import legacy_results_dir, results_root
 from src.data.settings import DataSettings
 
 
-def test_result_paths_resolve_under_data_results(tmp_path: Path) -> None:
+def test_results_root_under_data_root(tmp_path: Path) -> None:
     settings = DataSettings(data_root=tmp_path / "data")
-    root = settings.resolved_data_root()
-
-    assert experiments_dir(settings) == root / "results" / "experiments"
-    assert audits_dir(settings) == root / "results" / "audits"
-    assert thesis_reports_dir(settings) == root / "results" / "thesis"
-
-    assert str(experiments_dir(settings)).endswith("data/results/experiments")
-    assert str(audits_dir(settings)).endswith("data/results/audits")
-    assert str(thesis_reports_dir(settings)).endswith("data/results/thesis")
+    assert results_root(settings) == tmp_path / "data" / "results"
+    assert legacy_results_dir(settings) == tmp_path / "data" / "results" / "_legacy"
+    assert not (tmp_path / "data" / "results").exists()
+    assert not (tmp_path / "data" / "results" / "_legacy").exists()

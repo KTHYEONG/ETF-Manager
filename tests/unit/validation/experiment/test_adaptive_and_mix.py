@@ -89,7 +89,7 @@ def _adaptive_payload(**overrides: object) -> dict[str, object]:
 @pytest.mark.parametrize("scenario_id", ["EXP-ACG-schema-wiring"])
 def test_exp_acg_schema_wiring(scenario_id: str) -> None:
     """EXP-ACG-schema-wiring"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_contribution.json")
+    spec = load_experiment_config("experiments/wf_qqq_adaptive_contribution.json")
 
     assert spec.objective == "adaptive_growth"
     assert spec.contribution_krw == pytest.approx(1_000_000.0)
@@ -155,7 +155,7 @@ def test_exp_acg_schema_wiring(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["ACR-EXP-schema-defaults"])
 def test_acr_exp_schema_defaults(scenario_id: str) -> None:
     """ACR-EXP-schema-defaults"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_contribution.json")
+    spec = load_experiment_config("experiments/wf_qqq_adaptive_contribution.json")
 
     module = spec.adaptive_contribution
     assert module is not None
@@ -196,7 +196,7 @@ def test_acr_exp_schema_defaults(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-AG-baseline-adaptive"])
 def test_exp_ag_baseline_adaptive(scenario_id: str) -> None:
     """EXP-AG-baseline-adaptive"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_v2.json")
+    spec = load_experiment_config("experiments/wf_qqq_adaptive_v2.json")
 
     assert spec.objective == "adaptive_growth"
     assert spec.train_months == 60
@@ -254,7 +254,7 @@ def test_exp_ag_baseline_adaptive(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-AG-v3-config"])
 def test_exp_ag_v3_config(scenario_id: str) -> None:
     """EXP-AG-v3-config"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_v3.json")
+    spec = load_experiment_config("experiments/wf_qqq_adaptive_v3.json")
 
     assert spec.objective == "adaptive_growth"
     baseline_spec = spec.baseline_adaptive_contribution
@@ -293,7 +293,7 @@ def test_exp_ag_v3_config(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-AG-v4-json"])
 def test_exp_ag_v4_json(scenario_id: str) -> None:
     """EXP-AG-v4-json"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_v4.json")
+    spec = load_experiment_config("experiments/wf_qqq_adaptive_v4.json")
 
     assert spec.objective == "adaptive_growth"
     baseline_spec = spec.baseline_adaptive_contribution
@@ -318,7 +318,7 @@ def test_exp_ag_v4_json(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-AG-v5-resolve"])
 def test_exp_ag_v5_resolve(scenario_id: str) -> None:
     """EXP-AG-v5-resolve"""
-    spec = load_experiment_config("configs/experiments/wf_qqq_adaptive_v5.json")
+    spec = load_experiment_config("experiments/wf_qqq_adaptive_v5.json")
 
     assert spec.objective == "adaptive_growth"
     baseline_spec = spec.baseline_adaptive_contribution
@@ -355,7 +355,7 @@ def test_exp_ag_v5_resolve(scenario_id: str) -> None:
 def test_exp_ag_soxx10_adaptive_v5_resolve() -> None:
     import pytest
     from src.validation.experiment import load_experiment_config, resolve_adaptive_contribution, resolve_baseline_adaptive_contribution
-    spec = load_experiment_config('configs/experiments/wf_qqq_soxx10_adaptive_v5.json')
+    spec = load_experiment_config('experiments/wf_qqq_soxx10_adaptive_v5.json')
     assert spec.objective == 'adaptive_growth'
     assert spec.thesis_id is not None and spec.thesis_id.value == 'ai_compute'
     assert spec.baseline.modules == 1
@@ -381,7 +381,7 @@ def test_exp_ag_soxx10_adaptive_v5_resolve() -> None:
 def test_wf_soxx100_compound_growth_spec_loads() -> None:
     from src.validation.experiment import load_experiment_config
 
-    spec = load_experiment_config("configs/experiments/wf_soxx100_compound_growth.json")
+    spec = load_experiment_config("experiments/wf_soxx100_compound_growth.json")
     assert spec.objective == "compound_growth"
     assert len(spec.candidates) == 1
     assert spec.candidates[0].id == "soxx100_adaptive_v5"
