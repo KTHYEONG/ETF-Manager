@@ -24,6 +24,8 @@ class Dataset(StrEnum):
     ETF_METADATA = "etf_metadata"
     RESEARCH_RETURNS = "research_returns"
     ETF_HOLDINGS = "etf_holdings"
+    FX_KRW_BASE = "fx_krw_base"
+    RATES = "rates"
 
 
 class AvailabilityKind(StrEnum):
@@ -247,6 +249,41 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         schema_version="1",
         nullable_columns=frozenset({"cusip", "isin", "lei", "issuer_name", "value_usd"}),
     )
+    fx_krw_base = DatasetSpec(
+        dataset=Dataset.FX_KRW_BASE,
+        columns={
+            "date": pl.Date(),
+            "usdkrw": pl.Float64(),
+            "source": pl.String(),
+            "retrieved_at": TS_DTYPE,
+        },
+        key=("date",),
+        observation_column="date",
+        availability=AvailabilityRule(kind=AvailabilityKind.FIXED_LAG, lag=timedelta(hours=12)),
+        missing_policy=MissingPolicy.EXPLICIT_GAP,
+        revisable=False,
+        total_return_source=TotalReturnSource.NOT_APPLICABLE,
+        schema_version="1",
+        nullable_columns=frozenset({"usdkrw"}),
+    )
+    rates = DatasetSpec(
+        dataset=Dataset.RATES,
+        columns={
+            "series_id": pl.String(),
+            "observation_date": pl.Date(),
+            "value": pl.Float64(),
+            "source": pl.String(),
+            "retrieved_at": TS_DTYPE,
+        },
+        key=("series_id", "observation_date"),
+        observation_column="observation_date",
+        availability=AvailabilityRule(kind=AvailabilityKind.FIXED_LAG, lag=timedelta(days=4)),
+        missing_policy=MissingPolicy.EXPLICIT_GAP,
+        revisable=False,
+        total_return_source=TotalReturnSource.NOT_APPLICABLE,
+        schema_version="1",
+        nullable_columns=frozenset({"value"}),
+    )
     return {
         Dataset.PRICES: prices,
         Dataset.FX: fx,
@@ -256,6 +293,8 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         Dataset.ETF_METADATA: etf_metadata,
         Dataset.RESEARCH_RETURNS: research_returns,
         Dataset.ETF_HOLDINGS: etf_holdings,
+        Dataset.FX_KRW_BASE: fx_krw_base,
+        Dataset.RATES: rates,
     }
 
 

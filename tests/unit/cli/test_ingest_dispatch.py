@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from src import cli
 from src.cli import main
 from src.data.providers.base import ProviderError
 from src.data.schema import Dataset
+from src.data.settings import DataSettings
 
 
 class _FakeManifest:
@@ -115,6 +118,8 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(ingest_mod, "fetch_and_persist_macro", fake_macro)
     monkeypatch.setattr(ingest_mod, "fetch_and_persist_research_returns", fake_research)
     monkeypatch.setattr(ingest_mod, "persist_bootstrap_etf_metadata", fake_metadata)
+    monkeypatch.setattr(ingest_mod, "fetch_and_persist_fx_krw_base", lambda *a, **k: _FakeArtifact(8))
+    monkeypatch.setattr(ingest_mod, "fetch_and_persist_rates", lambda *a, **k: _FakeArtifact(8))
     monkeypatch.setattr(ingest_mod, "latest_artifact", fake_latest)
 
     exit_code = main(["ingest", "history", "--start", "2020-01-01", "--end", "2020-12-31"])
@@ -125,6 +130,9 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
     assert "QQQ" in seen_tickers
     assert set(seen_tickers) - set(all_policy_tickers()) == {
         "BOTZ",
+        "EFA",
+        "EWJ",
+        "GLD",
         "GRID",
         "IBB",
         "IEMG",
@@ -135,6 +143,7 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
         "ROBO",
         "SCHF",
         "SOXX",
+        "SPY",
         "XLI",
     }
     assert seen_series_ids == [("VIXCLS", "BAA10Y")]
@@ -146,7 +155,62 @@ def test_cli_f03_ingest_history(scenario_id: str, monkeypatch: pytest.MonkeyPatc
         Dataset.MACRO,
         Dataset.RESEARCH_RETURNS,
         Dataset.ETF_METADATA,
+        Dataset.FX_KRW_BASE,
+        Dataset.RATES,
     }
     assert set(seen_datasets) == expected_datasets
 
     assert main(["ingest", "history"]) == 2
+
+
+def test_history_ingest_empty_base_rate_fails_with_reason(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An empty FX_KRW_BASE partition fails history ingest with an empty-catalog reason."""
+    import src.cli_commands.ingest as ingest_mod
+
+    monkeypatch.setattr(ingest_mod, "fetch_and_persist_fx", lambda **k: _FakeArtifact(8))
+    monkeypatch.setattr(ingest_mod, "fetch_and_persist_prices", lambda *a, **k: _FakeArtifact(8))
+    monkeypatch.setattr(ingest_mod, "fetch_and_persist_cpi", lambda *a, **k: _FakeArtifact(8))
+    monkeypatch.setattr(ingest_mod, "fetch_and_persist_factors", lambda *a, **k: _FakeArtifact(8))
+    monkeypatch.setattr(ingest_mod, "fetch_and_persist_macro", lambda *a, **k: _FakeArtifact(8))
+    monkeypatch.setattr(ingest_mod, "fetch_and_persist_research_returns", lambda *a, **k: _FakeArtifact(8))
+    monkeypatch.setattr(ingest_mod, "persist_bootstrap_etf_metadata", lambda *a, **k: _FakeArtifact(8))
+    monkeypatch.setattr(ingest_mod, "fetch_and_persist_fx_krw_base", lambda *a, **k: _FakeArtifact(0))
+    monkeypatch.setattr(ingest_mod, "fetch_and_persist_rates", lambda *a, **k: _FakeArtifact(8))
+
+    def fake_latest(settings: object, dataset: Dataset) -> _FakeArtifact:
+        return _FakeArtifact(0 if dataset is Dataset.FX_KRW_BASE else 8)
+
+    monkeypatch.setattr(ingest_mod, "latest_artifact", fake_latest)
+
+    with caplog.at_level("ERROR"):
+        code = ingest_mod.run_ingest_history(
+            start=date(2020, 1, 1),
+            end=date(2020, 12, 31),
+            fx_provider="fred",
+            settings=DataSettings(),
+            secrets=None,  # type: ignore[arg-type]
+        )
+
+    assert code == 1
+    assert any("reason=empty_catalog" in record.message and "fx_krw_base" in record.message for record in caplog.records)
+
+
+def test_macro_cli_retains_other_series(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A single-series macro CLI refresh never drops other series rows."""
+    import src.cli as cli_mod
+
+    seen: dict[str, object] = {}
+
+    def fake_macro(series_id: object, start: object, end: object, **kwargs: object) -> _FakeArtifact:
+        seen.update(kwargs)
+        return _FakeArtifact(8)
+
+    monkeypatch.setattr(cli_mod, "fetch_and_persist_macro", fake_macro)
+    monkeypatch.setattr(cli_mod, "load_provider_secrets", lambda: object())
+
+    code = main(["ingest", "macro", "--series-id", "DTB3", "--start", "2020-01-01", "--end", "2020-12-31"])
+
+    assert code == 0
+    assert seen.get("retain_other_series") is True

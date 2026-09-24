@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 _SECRET_NAMES: Final[tuple[str, ...]] = ("TIINGO_API", "FRED_API", "ECOS_API")
 _SOPS_TIMEOUT_S: Final[int] = 30
+SHARED_ENV_FILE: Path = Path("..") / ".quant.env"
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,20 +25,30 @@ class ProviderSecrets:
     ecos_api: str
 
 
-def load_provider_secrets(*, env_enc: Path = Path(".env.enc"), env_file: Path = Path(".env")) -> ProviderSecrets:
+def load_provider_secrets(
+    *,
+    env_enc: Path = Path(".env.enc"),
+    env_file: Path = Path(".env"),
+    shared_env_file: Path | None = None,
+) -> ProviderSecrets:
     """Resolve TIINGO_API, FRED_API, and ECOS_API without writing a decrypted file.
 
-    Lookup order: process environment, then ``env_file``, then ``sops -d``
-    stdout of ``env_enc``; later layers are consulted only while tokens are
-    still missing. Empty strings count as missing values.
+    Lookup order: process environment, then ``env_file``, then the workspace-shared
+    secrets file (``shared_env_file`` or, when ``None``, the module-level
+    ``SHARED_ENV_FILE`` read at call time so tests can redirect it), then ``sops -d``
+    stdout of ``env_enc``. Later layers are consulted only while tokens are still
+    missing. Empty strings count as missing values. Shell-style ``export KEY=VALUE``
+    lines are accepted so a sourced shell profile can double as the dotenv source.
 
     Raises:
-        ValueError: When any token is missing after all lookups; the message
-            names the missing keys and never includes secret values.
+        ValueError: When any token is missing after all lookups; the message names
+            the missing keys and never includes secret values.
     """
+    shared_path = SHARED_ENV_FILE if shared_env_file is None else shared_env_file
     layers: tuple[Callable[[], Mapping[str, str]], ...] = (
         lambda: dict(os.environ),
         lambda: _parse_dotenv(_read_text(env_file)),
+        lambda: _parse_dotenv(_read_text(shared_path)),
         lambda: _decrypt_dotenv(env_enc),
     )
     resolved: dict[str, str] = {}
@@ -76,6 +87,9 @@ def _parse_dotenv(text: str) -> dict[str, str]:
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, _, raw_value = stripped.partition("=")
+        key = key.strip()
+        if key.startswith("export"):
+            key = key[len("export"):].strip()
         value = raw_value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]

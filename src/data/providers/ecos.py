@@ -40,6 +40,15 @@ class EcosClient:
         stat_code, cycle, item = _FX_STAT
         return self._fetch(_fx_record, Dataset.FX, stat_code, cycle, item, start, end)
 
+    def fetch_fx_krw_base(self, start: date, end: date) -> tuple[RawPayload, pl.DataFrame]:
+        """Fetch the ECOS USD/KRW 매매기준율 (731Y001/D/0000001) as Dataset.FX_KRW_BASE.
+
+        Same statistic as ``fetch_fx`` but normalized into the dedicated base-rate dataset
+        so tax translation and conversion pricing never splice vendors.
+        """
+        stat_code, cycle, item = _FX_STAT
+        return self._fetch(_fx_record, Dataset.FX_KRW_BASE, stat_code, cycle, item, start, end)
+
     def fetch_cpi(self, start: date, end: date) -> tuple[RawPayload, pl.DataFrame]:
         """StatisticSearch 901Y009 monthly as Dataset.CPI; period_end is month-end."""
         stat_code, cycle, item = _CPI_STAT

@@ -67,6 +67,40 @@ class FredClient:
         logger.info("[DATA] event=fetch dataset=fx provider=fred series=%s rows=%d", _FX_SERIES, frame.height)
         return _payload(_FX_SERIES, response.content, retrieved_at, lineage), frame
 
+    def fetch_rates(self, series_id: str, start: date, end: date) -> tuple[RawPayload, pl.DataFrame]:
+        """Fetch latest FRED observations of a non-revised daily rate series as Dataset.RATES.
+
+        Used for series whose ALFRED vintage history is unavailable for early dates
+        (e.g. DTB3 before its first vintage). '.' values persist as null gap rows.
+
+        Raises:
+            ProviderError: On HTTP failure or an empty observation list.
+        """
+        spec = spec_for(Dataset.RATES)
+        retrieved_at = datetime.now(UTC)
+        lineage = {
+            "series_id": series_id,
+            "file_type": "json",
+            "observation_start": start.isoformat(),
+            "observation_end": end.isoformat(),
+        }
+        response, observations = self._get(lineage)
+        records: list[dict[str, object]] = []
+        for row in observations:
+            day, value = _observed(row)
+            records.append({"series_id": series_id, "observation_date": day, "value": value})
+        frame = (
+            pl.DataFrame(records)
+            .with_columns(
+                pl.lit("fred", dtype=pl.String()).alias("source"),
+                pl.lit(retrieved_at, dtype=TS_DTYPE).alias("retrieved_at"),
+            )
+            .select(*spec.columns)
+            .cast(pl.Schema(dict(spec.columns)))
+        )
+        logger.info("[DATA] event=fetch dataset=rates provider=fred series=%s rows=%d", series_id, frame.height)
+        return _payload(series_id, response.content, retrieved_at, lineage), frame
+
     def fetch_macro_vintages(self, series_id: str, start: date, end: date) -> tuple[RawPayload, pl.DataFrame]:
         """Fetch ALFRED vintage history as Dataset.MACRO; release_date comes from realtime_end.
 

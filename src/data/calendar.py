@@ -10,6 +10,7 @@ import exchange_calendars as xcals
 import pandas as pd
 
 DEFAULT_CALENDAR_NAME: Final[str] = "XNYS"
+CALENDAR_HISTORY_START: Final[date] = date(1998, 1, 2)
 
 
 class TradingCalendar:
@@ -67,8 +68,15 @@ class TradingCalendar:
 
 @cache
 def load_calendar(calendar_name: str = DEFAULT_CALENDAR_NAME) -> TradingCalendar:
-    """Memoized per-name wrapper around ``exchange_calendars``."""
-    return TradingCalendar(calendar_name, xcals.get_calendar(calendar_name))
+    """Memoized per-name wrapper around ``exchange_calendars`` with a fixed history start.
+
+    ``exchange_calendars`` defaults to a rolling 20-year window measured from the wall
+    clock, which silently moves the first available session every day and makes
+    historical experiments non-reproducible. Anchoring the start at
+    ``CALENDAR_HISTORY_START`` keeps session sets identical across run dates and admits
+    the 1998+ research history (dot-com and GFC regimes).
+    """
+    return TradingCalendar(calendar_name, xcals.get_calendar(calendar_name, start=CALENDAR_HISTORY_START))
 
 
 def next_execution_session(

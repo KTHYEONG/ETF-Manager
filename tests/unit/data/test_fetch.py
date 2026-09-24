@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import httpx
+import polars as pl
 import pytest
 
 from src.data.fetch import (
@@ -205,29 +206,26 @@ def test_resolve_price_http_window_skips_when_catalog_covers_end() -> None:
     retrieved = datetime(2024, 2, 1, tzinfo=UTC)
     covered = pl.DataFrame(
         {
-            "ticker": ["SPY"],
-            "date": [end],
-            "open": [1.0],
-            "high": [1.0],
-            "low": [1.0],
-            "close": [1.0],
-            "volume": [1],
-            "adjusted_close": [1.0],
-            "dividend": [0.0],
-            "split_factor": [1.0],
-            "source": ["tiingo"],
-            "retrieved_at": [retrieved],
+            "ticker": ["SPY", "SPY"],
+            "date": [start, end],
+            "open": [1.0, 1.0],
+            "high": [1.0, 1.0],
+            "low": [1.0, 1.0],
+            "close": [1.0, 1.0],
+            "volume": [1, 1],
+            "adjusted_close": [1.0, 1.0],
+            "dividend": [0.0, 0.0],
+            "split_factor": [1.0, 1.0],
+            "source": ["tiingo", "tiingo"],
+            "retrieved_at": [retrieved, retrieved],
         }
     ).cast({"retrieved_at": TS_DTYPE})
     assert resolve_price_http_window("SPY", covered, start, end) is None
 
     partial = covered.with_columns(pl.lit(date(2024, 1, 20)).alias("date"))
+    # Single stored bar on 2024-01-20 predates nothing: start < d_min triggers backfill.
     window = resolve_price_http_window("SPY", partial, start, end)
-    assert window is not None
-    effective_start, window_end = window
-    assert effective_start > start
-    assert effective_start <= end
-    assert window_end == end
+    assert window == (start, end)
 
 
 def test_incremental_prices_skips_http_for_covered_ticker(
@@ -251,7 +249,7 @@ def test_incremental_prices_skips_http_for_covered_ticker(
         prior_rows = first.manifest.row_count
         requests.clear()
         second = fetch_and_persist_prices(
-            ("SPY",), start, end, secrets=_SECRETS, settings=settings, client=http, incremental=True
+            ("SPY",), end, end, secrets=_SECRETS, settings=settings, client=http, incremental=True
         )
 
     assert len(requests) == 0
@@ -293,3 +291,171 @@ def test_static_dca_prices_path_uses_incremental(monkeypatch: pytest.MonkeyPatch
         settings=DataSettings(data_root=Path("data")),
     )
     assert prices_kwargs.get("incremental") is True
+
+
+def _price_frame(rows: list[tuple[str, date]]) -> pl.DataFrame:
+    from src.data.schema import TS_DTYPE
+
+    n = len(rows)
+    return pl.DataFrame(
+        {
+            "ticker": [ticker for ticker, _day in rows],
+            "date": [day for _ticker, day in rows],
+            "open": [1.0] * n,
+            "high": [1.0] * n,
+            "low": [1.0] * n,
+            "close": [1.0] * n,
+            "volume": [1] * n,
+            "adjusted_close": [1.0] * n,
+            "dividend": [0.0] * n,
+            "split_factor": [1.0] * n,
+            "source": ["tiingo"] * n,
+            "retrieved_at": [datetime(2026, 8, 28, tzinfo=UTC)] * n,
+        }
+    ).cast({"retrieved_at": TS_DTYPE})
+
+
+def test_resolve_price_window_backfill_triggers_full_window() -> None:
+    """Stored QQQ from 2006 with a 1999 request returns the full window."""
+    from src.data.calendar import load_calendar
+
+    cal = load_calendar()
+    stored_days = cal.sessions(date(2006, 8, 31), date(2026, 8, 28))
+    existing = _price_frame([("QQQ", day) for day in stored_days])
+    assert resolve_price_http_window("QQQ", existing, date(1999, 3, 10), date(2026, 8, 28)) == (
+        date(1999, 3, 10),
+        date(2026, 8, 28),
+    )
+
+
+def test_resolve_price_window_covered_range_stays_skipped() -> None:
+    """Stored bars covering the request return None."""
+    from src.data.calendar import load_calendar
+
+    cal = load_calendar()
+    stored_days = cal.sessions(date(1999, 3, 10), date(2026, 8, 28))
+    existing = _price_frame([("QQQ", day) for day in stored_days])
+    assert resolve_price_http_window("QQQ", existing, date(2000, 1, 3), date(2026, 8, 28)) is None
+
+
+def test_resolve_price_window_forward_correction_unchanged() -> None:
+    """Forward overlap starts four sessions before the stored maximum."""
+    from src.data.calendar import load_calendar
+
+    cal = load_calendar()
+    stored_days = cal.sessions(date(2006, 8, 31), date(2026, 8, 21))
+    existing = _price_frame([("QQQ", day) for day in stored_days])
+    window = resolve_price_http_window("QQQ", existing, date(2006, 8, 31), date(2026, 8, 28))
+    assert window is not None
+    sessions = cal.sessions(date(2006, 8, 31), date(2026, 8, 21))
+    assert window[0] == sessions[-5]
+    assert window[1] == date(2026, 8, 28)
+
+
+def test_rates_refresh_retains_other_series(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Persisting DTB3 keeps rows of series outside the refresh list."""
+    import json as _json
+
+    from src.data.fetch import fetch_and_persist_rates
+
+    settings = _fresh_settings(monkeypatch, tmp_path)
+    first_body = _json.dumps({"observations": [{"date": "2024-01-02", "value": "5.0"}]}).encode()
+    with _client_serving(first_body) as http:
+        fetch_and_persist_rates(("X",), date(2024, 1, 2), date(2024, 1, 2), secrets=_SECRETS, settings=settings, client=http)
+    second_body = _json.dumps({"observations": [{"date": "2024-01-02", "value": "5.1"}]}).encode()
+    with _client_serving(second_body) as http:
+        artifact = fetch_and_persist_rates(
+            ("DTB3",), date(2024, 1, 2), date(2024, 1, 2), secrets=_SECRETS, settings=settings, client=http
+        )
+
+    stored = DataStore(settings).read_normalized(artifact, spec_for(Dataset.RATES))
+    assert set(stored.get_column("series_id").unique().to_list()) == {"X", "DTB3"}
+    with pytest.raises(ValueError, match="at least one series"):
+        fetch_and_persist_rates((), date(2024, 1, 2), date(2024, 1, 2), secrets=_SECRETS, settings=settings)
+    with pytest.raises(ValueError, match="duplicate"):
+        fetch_and_persist_rates(
+            ("DTB3", "DTB3"), date(2024, 1, 2), date(2024, 1, 2), secrets=_SECRETS, settings=settings
+        )
+
+
+def test_after_tax_research_tickers_in_history_universe() -> None:
+    """After-tax research vehicles are a subset of the history price universe."""
+    from src.analytics.us_vehicles import after_tax_research_tickers, history_price_tickers
+
+    assert after_tax_research_tickers() == ("EFA", "EWJ", "GLD", "IEF", "QQQ", "SOXX", "SPY", "TLT")
+    assert set(after_tax_research_tickers()) <= set(history_price_tickers())
+
+
+def test_resolve_price_window_string_dates_backfill() -> None:
+    """String-decoded date columns still trigger the backfill window."""
+    stored = _price_frame([("QQQ", date(2006, 8, 31)), ("QQQ", date(2026, 8, 21))]).with_columns(
+        pl.col("date").cast(pl.String())
+    )
+    assert resolve_price_http_window("QQQ", stored, date(1999, 3, 10), date(2026, 8, 28)) == (
+        date(1999, 3, 10),
+        date(2026, 8, 28),
+    )
+    non_date = _price_frame([("QQQ", date(2006, 8, 31))]).with_columns(
+        pl.lit(1).alias("date")
+    )
+    assert resolve_price_http_window("QQQ", non_date, date(1999, 3, 10), date(2026, 8, 28)) == (
+        date(1999, 3, 10),
+        date(2026, 8, 28),
+    )
+    malformed = _price_frame([("QQQ", date(2006, 8, 31))]).with_columns(
+        pl.lit("not-a-date").alias("date")
+    )
+    assert resolve_price_http_window("QQQ", malformed, date(1999, 3, 10), date(2026, 8, 28)) == (
+        date(1999, 3, 10),
+        date(2026, 8, 28),
+    )
+    mixed_malformed_min = _price_frame([("QQQ", date(2026, 8, 21)), ("QQQ", date(2026, 8, 21))]).with_columns(
+        pl.when(pl.int_range(0, 2) == 0)
+        .then(pl.lit("2026-08-21"))
+        .otherwise(pl.lit(""))
+        .alias("date")
+    )
+    assert resolve_price_http_window("QQQ", mixed_malformed_min, date(1999, 3, 10), date(2026, 8, 28)) == (
+        date(1999, 3, 10),
+        date(2026, 8, 28),
+    )
+
+
+def test_fx_krw_base_persists_dedicated_partition(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """ECOS base-rate persist writes the FX_KRW_BASE partition."""
+    from src.data.fetch import fetch_and_persist_fx_krw_base
+
+    settings = _fresh_settings(monkeypatch, tmp_path)
+    body = (FIXTURES / "ecos_fx_usdkrw.json").read_bytes()
+    with _client_serving(body) as http:
+        artifact = fetch_and_persist_fx_krw_base(
+            date(2024, 1, 1), date(2024, 1, 31), secrets=_SECRETS, settings=settings, client=http
+        )
+    stored = DataStore(settings).read_normalized(artifact, spec_for(Dataset.FX_KRW_BASE))
+    assert stored.get_column("usdkrw").to_list() == [1350.1]
+
+
+def test_rates_multi_series_merge_persists(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A two-series RATES refresh persists both series in one partition."""
+    import json as _json
+
+    import httpx
+
+    from src.data.fetch import fetch_and_persist_rates
+
+    settings = _fresh_settings(monkeypatch, tmp_path)
+    bodies = {
+        "AAA": _json.dumps({"observations": [{"date": "2024-01-02", "value": "1.0"}]}).encode(),
+        "BBB": _json.dumps({"observations": [{"date": "2024-01-02", "value": "2.0"}]}).encode(),
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        series = str(request.url.params.get("series_id", "AAA"))
+        return httpx.Response(200, content=bodies.get(series, bodies["AAA"]))
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        artifact = fetch_and_persist_rates(
+            ("AAA", "BBB"), date(2024, 1, 2), date(2024, 1, 2), secrets=_SECRETS, settings=settings, client=http
+        )
+    stored = DataStore(settings).read_normalized(artifact, spec_for(Dataset.RATES))
+    assert set(stored.get_column("series_id").unique().to_list()) == {"AAA", "BBB"}

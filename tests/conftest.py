@@ -25,3 +25,13 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     import os
 
     os.environ["TMPDIR"] = str(_PROJECT_TMP)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_shared_provider_secrets(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """Keep tests hermetic from the developer's real parent-folder shared secrets file."""
+    import src.data.secrets as _secrets
+
+    monkeypatch.setattr(_secrets, "SHARED_ENV_FILE", tmp_path_factory.mktemp("secrets") / "absent.quant.env")

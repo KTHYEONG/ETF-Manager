@@ -206,3 +206,99 @@ def test_cli_wf_dispatch(
     assert "process_adopted_vs_baseline" in written
 
     assert main(["run", "walk-forward", "--config", "configs/experiments/m0_m1.json"]) == 1
+
+
+def test_after_tax_campaign_dispatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """After-tax campaign dispatch calls the command once with config and seed."""
+    import src.cli_commands.campaign as camp_mod
+
+    captured: dict[str, object] = {}
+
+    def fake_command(*, config_path: str, settings: object, seed: int) -> int:
+        captured["config_path"] = config_path
+        captured["seed"] = seed
+        return 0
+
+    monkeypatch.setattr(camp_mod, "run_after_tax_campaign_command", fake_command)
+    monkeypatch.setattr(cli, "run_after_tax_campaign_command", fake_command, raising=False)
+    exit_code = main(["run", "after-tax-campaign", "--config", "c.json", "--seed", "7"])
+    assert exit_code == 0
+    assert captured == {"config_path": "c.json", "seed": 7}
+
+
+def test_after_tax_campaign_missing_seed_is_usage_error() -> None:
+    """Omitting --seed is a usage error with exit code 2."""
+    assert main(["run", "after-tax-campaign", "--config", "c.json"]) == 2
+
+
+def test_shipped_after_tax_configs_load() -> None:
+    """Each shipped after-tax config loads with one baseline and one candidate."""
+    from src.validation.after_tax_campaign import ArmRole, load_after_tax_campaign_spec
+
+    for name in (
+        "after_tax_campaign_long_v1.json",
+        "after_tax_campaign_taa_v1.json",
+        "after_tax_campaign_japan_v1.json",
+    ):
+        spec = load_after_tax_campaign_spec(f"configs/experiments/{name}")
+        baselines = [arm for arm in spec.arms if arm.role is ArmRole.BASELINE]
+        candidates = [arm for arm in spec.arms if arm.role is ArmRole.OPERATIONAL_CANDIDATE]
+        assert len(baselines) == 1
+        assert len(candidates) >= 1
+
+
+def test_after_tax_campaign_command_runs_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The after-tax command loads frames once and writes one report."""
+    import polars as pl
+
+    import src.cli_commands.campaign as camp_mod
+    import src.data.catalog as catalog_mod
+    import src.sim.after_tax_engine as engine_mod
+
+    frame = pl.DataFrame(
+        [
+            {
+                "ticker": "QQQ",
+                "date": __import__("datetime").date(2020, 1, 31),
+                "adjusted_close": 100.0,
+                "available_at": __import__("datetime").datetime(
+                    2020, 1, 31, tzinfo=__import__("datetime").UTC
+                ),
+            }
+        ]
+    )
+    monkeypatch.setattr(catalog_mod, "load_visible", lambda settings, dataset, cutoff: frame)
+    monkeypatch.setattr(camp_mod, "latest_artifact", lambda settings, dataset: _FakeArtifact(8))
+    monkeypatch.setattr(camp_mod, "_resolve_git_commit", lambda: "abc123")
+
+    from src.sim.after_tax_engine import AfterTaxResult
+
+    def fake_run_after_tax(config, prices, fx, cpi, rates):
+        return AfterTaxResult(
+            config=config,
+            snapshots=(),
+            disposals=(),
+            terminal_after_tax_krw=100.0,
+            terminal_after_tax_real_krw=100.0,
+            terminal_pre_liquidation_krw=100.0,
+            liquidation_tax_krw=0.0,
+            taxes_paid_krw=0.0,
+            xirr_after_tax_real=0.0,
+            total_contribution_real_krw=1.0,
+            max_drawdown_after_tax=-0.01,
+            annual_financial_income_krw={},
+            financial_income_breach_years=(),
+            sell_count=0,
+        )
+
+    monkeypatch.setattr(engine_mod, "run_after_tax", fake_run_after_tax)
+    data_root = tmp_path / "data"
+    monkeypatch.setattr(camp_mod, "DataSettings", lambda: DataSettings(data_root=data_root))
+    exit_code = camp_mod.run_after_tax_campaign_command(
+        config_path="configs/experiments/after_tax_campaign_japan_v1.json",
+        settings=DataSettings(data_root=data_root),
+        seed=7,
+    )
+    assert exit_code == 0
+    reports = list((data_root / "results" / "experiments").glob("*after_tax_*.json"))
+    assert len(reports) >= 1

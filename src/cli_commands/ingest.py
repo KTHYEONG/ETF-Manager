@@ -15,8 +15,10 @@ from src.data.fetch import (
     fetch_and_persist_cpi,
     fetch_and_persist_factors,
     fetch_and_persist_fx,
+    fetch_and_persist_fx_krw_base,
     fetch_and_persist_macro,
     fetch_and_persist_prices,
+    fetch_and_persist_rates,
     fetch_and_persist_research_returns,
     fetch_and_persist_static_dca_datasets,
 )
@@ -42,6 +44,7 @@ _SMOKE_DATA_ROOT: Final[Path] = Path("scratch/smoke_data")
 _HISTORY_FX_PROVIDER: Final[str] = "fred"
 _HISTORY_MACRO_SERIES: Final[tuple[str, ...]] = ("VIXCLS", "BAA10Y")
 _HISTORY_MACRO_START: Final[date] = date(2012, 6, 1)
+_HISTORY_RATE_SERIES: Final[tuple[str, ...]] = ("DTB3",)
 
 
 def run_ingest_smoke(
@@ -101,10 +104,10 @@ def run_ingest_history(
     secrets: ProviderSecrets,
     client: httpx.Client | None = None,
 ) -> int:
-    """Persist FX, prices, CPI, factors, one combined VIXCLS+HY-OAS MACRO partition, and research returns.
+    """Persist FX, prices, CPI, factors, one combined VIXCLS+HY-OAS MACRO partition, research returns, ETF metadata, the ECOS base-rate FX_KRW_BASE partition, and RATES (DTB3).
 
     ``tickers`` defaults to the policy sleeves plus the diagnostic vehicles (QQQ).
-    Returns 0 only when every fetch persists and each of the seven latest catalog
+    Returns 0 only when every fetch persists and each of the nine latest catalog
     partitions holds row_count >= 1; vendor/catalog messages never reach the log.
     """
     price_tickers = tickers if tickers is not None else history_price_tickers()
@@ -128,6 +131,10 @@ def run_ingest_history(
                 raise
             logger.warning("[DATA] event=history_prices_skipped reason=provider_error")
         cpi = fetch_and_persist_cpi(start, end, secrets=secrets, settings=settings, client=client)
+        fx_krw_base = fetch_and_persist_fx_krw_base(start, end, secrets=secrets, settings=settings, client=client)
+        rates = fetch_and_persist_rates(
+            _HISTORY_RATE_SERIES, start, end, secrets=secrets, settings=settings, client=client
+        )
         factors = fetch_and_persist_factors(start, end, settings=settings, client=client)
         macro_start = start if start >= _HISTORY_MACRO_START else _HISTORY_MACRO_START
         try:
@@ -151,6 +158,8 @@ def run_ingest_history(
                 Dataset.MACRO,
                 Dataset.RESEARCH_RETURNS,
                 Dataset.ETF_METADATA,
+                Dataset.FX_KRW_BASE,
+                Dataset.RATES,
             )
         }
     except (ProviderError, ValueError, UntrustedDatasetError, OSError) as exc:
@@ -162,7 +171,7 @@ def run_ingest_history(
         logger.error("[DATA] event=history_failed reason=empty_catalog dataset=%s", ",".join(underfilled))
         return 1
     logger.info(
-        "[DATA] event=history_ok tickers=%s price_rows=%d fx_rows=%d cpi_rows=%d factor_rows=%d macro_rows=%d research_rows=%d metadata_rows=%d",
+        "[DATA] event=history_ok tickers=%s price_rows=%d fx_rows=%d cpi_rows=%d factor_rows=%d macro_rows=%d research_rows=%d metadata_rows=%d fx_krw_base_rows=%d rates_rows=%d",
         ",".join(price_tickers),
         prices.manifest.row_count,
         fx.manifest.row_count,
@@ -171,6 +180,8 @@ def run_ingest_history(
         macro.manifest.row_count,
         research.manifest.row_count,
         metadata.manifest.row_count,
+        fx_krw_base.manifest.row_count,
+        rates.manifest.row_count,
     )
     return 0
 

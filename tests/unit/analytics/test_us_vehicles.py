@@ -52,6 +52,9 @@ def test_veh_e_history_union(scenario_id: str) -> None:
     assert history_price_tickers() == (
         "BND",
         "BOTZ",
+        "EFA",
+        "EWJ",
+        "GLD",
         "GRID",
         "IBB",
         "IEF",
@@ -65,6 +68,7 @@ def test_veh_e_history_union(scenario_id: str) -> None:
         "ROBO",
         "SCHF",
         "SOXX",
+        "SPY",
         "TLT",
         "VEA",
         "VT",
@@ -75,6 +79,9 @@ def test_veh_e_history_union(scenario_id: str) -> None:
     )
     assert set(history_price_tickers()) - set(all_policy_tickers()) == {
         "BOTZ",
+        "EFA",
+        "EWJ",
+        "GLD",
         "GRID",
         "IBB",
         "IEMG",
@@ -85,6 +92,7 @@ def test_veh_e_history_union(scenario_id: str) -> None:
         "ROBO",
         "SCHF",
         "SOXX",
+        "SPY",
         "XLI",
     }
 

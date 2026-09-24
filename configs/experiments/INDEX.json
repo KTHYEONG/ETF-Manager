@@ -239,6 +239,21 @@
       "status": "active",
       "kind": "wf",
       "notes": "SOXX 100 compound growth walk-forward screen"
+    },
+    "after_tax_campaign_long_v1.json": {
+      "status": "active",
+      "kind": "after_tax",
+      "notes": "after-tax cohort campaign long 120/240m TGH candidate watch disclosure"
+    },
+    "after_tax_campaign_taa_v1.json": {
+      "status": "active",
+      "kind": "after_tax",
+      "notes": "after-tax cohort campaign multi-asset TAA GEM satellite 120m"
+    },
+    "after_tax_campaign_japan_v1.json": {
+      "status": "active",
+      "kind": "after_tax",
+      "notes": "after-tax cohort campaign adverse-regime EWJ 120m"
     }
   }
 }

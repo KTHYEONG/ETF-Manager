@@ -355,6 +355,12 @@ def _build_parser() -> _Parser:
         default=400,
         help="Paired path bootstrap paths (must be >=1)",
     )
+    after_tax_campaign = run_targets.add_parser(
+        "after-tax-campaign",
+        help="After-tax cohort campaign (TGH candidate, watch, disclosure arms)",
+    )
+    after_tax_campaign.add_argument("--config", required=True, help="Path to the after-tax campaign JSON")
+    after_tax_campaign.add_argument("--seed", type=int, required=True, help="Bootstrap RNG seed")
     audit_feasibility = run_targets.add_parser(
         "audit-feasibility",
         help="Static DCA feasibility window audit (reporting only)",
