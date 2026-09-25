@@ -26,6 +26,7 @@ from src.validation.pension_campaign import (
 
 _REPO = Path(__file__).resolve().parents[3]
 _TAX_PATH = str(_REPO / "configs" / "tax" / "kr_pension_2026.json")
+_GENERAL_TAX_PATH = str(_REPO / "configs" / "tax" / "kr_overseas_equity.json")
 _IDENTITY_PATH = str(_REPO / "configs" / "data" / "pension_etfs_2026.json")
 _RETRIEVED_AT = datetime(2024, 1, 1, 5, 0, tzinfo=UTC)
 
@@ -135,6 +136,19 @@ def _persist_cpi_lake(settings: DataSettings) -> None:
             "value": [100.0, 110.0],
             "source": ["synthetic", "synthetic"],
             "retrieved_at": [_RETRIEVED_AT, _RETRIEVED_AT],
+        },
+        schema=dict(spec_for(Dataset.CPI).columns),
+    )
+    persist_ingest(frame, Dataset.CPI, _payload(), settings)
+
+
+def _persist_cpi_yearly(settings: DataSettings, years: list[int]) -> None:
+    frame = pl.DataFrame(
+        {
+            "period_end": [date(year, 6, 30) for year in years],
+            "value": [95.0 + 0.5 * index for index in range(len(years))],
+            "source": ["synthetic"] * len(years),
+            "retrieved_at": [_RETRIEVED_AT] * len(years),
         },
         schema=dict(spec_for(Dataset.CPI).columns),
     )
@@ -299,18 +313,20 @@ def test_cashflow_normalized_rate_uses_settled_refund_and_terminal_nav(
     spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config(horizons=[24])))
     report = run_pension_campaign(spec, settings, seed=7)
     row = next(row for row in report.cohort_rows if row.arm_id == "sp500")
+    terminal_net = row.liquidation_wealth_krw - row.credit_received_krw - (row.after_tax_payout_krw or 0)
     def at(day: date) -> datetime:
         return datetime.combine(day, datetime.min.time(), tzinfo=UTC)
     expected = xirr([
         (at(date(2023, 1, 15)), -6_000_000.0),
         (at(date(2024, 1, 15)), -6_000_000.0),
         (at(date(2024, 5, 31)), 990_000.0),
-        (at(row.cohort_end), float(row.terminal_nav_krw)),
+        (at(row.cohort_end), float(terminal_net)),
     ])
+    assert terminal_net < row.terminal_nav_krw
     without_refund = xirr([
         (at(date(2023, 1, 15)), -6_000_000.0),
         (at(date(2024, 1, 15)), -6_000_000.0),
-        (at(row.cohort_end), float(row.terminal_nav_krw)),
+        (at(row.cohort_end), float(terminal_net)),
     ])
     assert row.cashflow_normalized_rate == pytest.approx(expected)
     assert row.cashflow_normalized_rate > without_refund
@@ -399,7 +415,7 @@ def test_retirement_payout_uses_threshold_branch(tmp_path: Path, monkeypatch: py
     for row in (baseline, candidate):
         assert row.after_tax_wealth_krw == row.terminal_nav_krw + row.credit_received_krw + row.after_tax_payout_krw
         assert row.is_retirement_terminal is False
-    assert candidate.paired_wealth_ratio == pytest.approx(candidate.after_tax_wealth_krw / baseline.after_tax_wealth_krw)
+    assert candidate.paired_wealth_ratio == pytest.approx(candidate.liquidation_wealth_krw / baseline.liquidation_wealth_krw)
 
 
 def test_payout_shortfall_is_reported_without_negative_account_value(
@@ -951,3 +967,247 @@ def test_report_omits_undefined_note_when_nothing_excluded(
     markdown = json_path.with_suffix(".md").read_text(encoding="utf-8")
     assert f"note: {_UNDEFINED_RATIO_NOTE}" not in markdown
     assert "fully_undefined_profiles:" not in markdown
+
+
+def _household_config(years: list[int]) -> dict[str, Any]:
+    config = _campaign_config(
+        start=f"{years[0]}-01-01",
+        end=f"{years[-1]}-12-31",
+        horizons=[12 * len(years)],
+        step=12 * len(years),
+        profiles=[
+            _profile_entry("zero", "1985-01-01", "2015-01-01", years, national=0, local=0),
+            _profile_entry("full", "1985-01-01", "2015-01-01", years),
+        ],
+    )
+    config["household_view"] = {
+        "general_tax_regime_path": _GENERAL_TAX_PATH,
+        "commission_bps": 10.0,
+        "fx_spread_bps": 20.0,
+        "harvest_gains": True,
+        "fractional_shares": False,
+    }
+    return config
+
+
+def test_household_absent_keeps_placeholder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without a household_view block the report carries a null placeholder."""
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    assert spec.household is None
+    report = run_pension_campaign(spec, settings, seed=7)
+    assert report.household is None
+    json_path = write_pension_campaign_report(report, settings, experiment_id="nohousehold")
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["household_view"] is None
+    markdown = json_path.with_suffix(".md").read_text(encoding="utf-8")
+    assert "household_view: not provided" in markdown
+    assert "## Household same-cash view" not in markdown
+
+
+def test_household_on_kr_live_rejected(tmp_path: Path) -> None:
+    """A household block with live Korean prices fails closed at load."""
+    config = _campaign_config(
+        mode="kr_live", arms=[{"arm_id": "sp500", "role": "baseline", "targets": {"379800": 1.0}}],
+    )
+    config["household_view"] = {
+        "general_tax_regime_path": _GENERAL_TAX_PATH,
+        "commission_bps": 10.0,
+        "fx_spread_bps": 20.0,
+        "harvest_gains": True,
+        "fractional_shares": False,
+    }
+    with pytest.raises(ValueError, match="requires us_proxy"):
+        load_pension_campaign_spec(_write_config(tmp_path, config))
+
+
+def test_household_requires_cpi(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A household view without a trusted CPI partition aborts the campaign."""
+    from src.sim.pension_engine import PensionDataError
+
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    years = [2023, 2024]
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _household_config(years)))
+    with pytest.raises(PensionDataError, match="requires trusted CPI"):
+        run_pension_campaign(spec, settings, seed=7)
+
+
+def test_household_computed_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ten-year same-cash rows show a unit zero-credit advantage and a positive full advantage."""
+    from src.validation.pension_campaign import _HOUSEHOLD_NOTE
+
+    settings = _settings(tmp_path, monkeypatch)
+    years = list(range(2015, 2025))
+    _persist_proxy_lake(settings, date(2015, 1, 1), date(2025, 12, 31))
+    _persist_cpi_yearly(settings, [2014, *years])
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _household_config(years)))
+    report = run_pension_campaign(spec, settings, seed=7)
+    assert report.household is not None
+    household_rows = report.household.rows
+    assert {(row.arm_id, row.profile_id) for row in household_rows} == {
+        ("sp500", "zero"), ("sp500", "full"), ("nasdaq", "zero"), ("nasdaq", "full"),
+    }
+    for row in household_rows:
+        assert row.cohort_start == date(2015, 1, 1)
+        assert row.cohort_end == date(2024, 12, 31)
+        assert row.household_annuity_low_krw >= row.household_annuity_high_krw >= row.household_liquidation_krw
+    zero_rows = [row for row in household_rows if row.profile_id == "zero"]
+    assert zero_rows
+    for row in zero_rows:
+        assert row.account_advantage_liquidation == 1.0
+        assert row.account_advantage_annuity_low == 1.0
+        assert row.account_advantage_annuity_high == 1.0
+    full_rows = [row for row in household_rows if row.profile_id == "full"]
+    assert full_rows
+    for row in full_rows:
+        assert row.account_advantage_liquidation > 1.0
+    assert {(s.arm_id, s.profile_id) for s in report.household.summaries} == {
+        ("sp500", "zero"), ("sp500", "full"), ("nasdaq", "zero"), ("nasdaq", "full"),
+    }
+    for summary in report.household.summaries:
+        assert summary.cohort_count == 1
+        assert summary.excluded_payout_cohorts == 0
+    json_path = write_pension_campaign_report(report, settings, experiment_id="household10y")
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["household_view"] is not None
+    assert payload["household_view"]["config"]["general_tax_regime_path"] == _GENERAL_TAX_PATH
+    assert len(payload["household_view"]["rows"]) == len(household_rows)
+    assert _HOUSEHOLD_NOTE in payload["evidence_notes"]
+    markdown = json_path.with_suffix(".md").read_text(encoding="utf-8")
+    assert "## Household same-cash view" in markdown
+    assert _HOUSEHOLD_NOTE in markdown
+    assert "household_view: not provided" not in markdown
+
+
+def test_household_deterministic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two runs with identical inputs produce identical household rows and summaries."""
+    settings = _settings(tmp_path, monkeypatch)
+    years = list(range(2023, 2025))
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2025, 12, 31))
+    _persist_cpi_yearly(settings, [2022, *years])
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _household_config(years)))
+    first = run_pension_campaign(spec, settings, seed=7)
+    second = run_pension_campaign(spec, settings, seed=7)
+    assert first.household is not None
+    assert second.household is not None
+    assert first.household.rows == second.household.rows
+    assert first.household.summaries == second.household.summaries
+
+
+def test_liquidation_wealth_applies_exit_tax(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exit-taxed liquidation sits below the pre-exit balance inside the annuity bracket."""
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    report = run_pension_campaign(spec, settings, seed=7)
+    assert report.cohort_rows
+    for row in report.cohort_rows:
+        assert row.liquidation_wealth_krw < row.after_tax_wealth_krw
+        assert row.annuity_low_wealth_krw >= row.annuity_high_wealth_krw >= row.liquidation_wealth_krw
+        assert row.liquidation_wealth_real_krw is None
+        assert row.foreign_tax_withheld_krw == 0
+
+
+def test_paired_ratio_uses_liquidation_wealth(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Candidate paired ratios divide liquidation wealth, not the pre-exit balance."""
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    report = run_pension_campaign(spec, settings, seed=7)
+    baselines = {
+        (row.profile_id, row.cohort_start, row.cohort_end, row.horizon_months): row
+        for row in report.cohort_rows if row.arm_id == "sp500"
+    }
+    candidates = [row for row in report.cohort_rows if row.arm_id == "nasdaq"]
+    assert candidates
+    for row in candidates:
+        base = baselines[(row.profile_id, row.cohort_start, row.cohort_end, row.horizon_months)]
+        assert row.paired_wealth_ratio == pytest.approx(row.liquidation_wealth_krw / base.liquidation_wealth_krw)
+
+
+def test_report_discloses_exit_convention(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """JSON echoes the lump-sum convention and rates; markdown shows the annuity bracket."""
+    from src.validation.pension_campaign import _EXIT_CONVENTION_NOTE
+
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    report = run_pension_campaign(spec, settings, seed=7)
+    json_path = write_pension_campaign_report(report, settings, experiment_id="exitdisclose")
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["exit_convention"]["primary"] == "lump_sum"
+    assert payload["exit_convention"]["brackets"] == ["annuity_low", "annuity_high"]
+    assert payload["exit_convention"]["foreign_tax_credit_rate"] == pytest.approx(0.0)
+    assert payload["exit_convention"]["foreign_dividend_withholding_rate"] == pytest.approx(0.15)
+    assert _EXIT_CONVENTION_NOTE in payload["evidence_notes"]
+    assert payload["summaries"][0]["median_annuity_low_ratio"] is not None
+    assert payload["summaries"][0]["median_annuity_high_ratio"] is not None
+    assert payload["rows"][0]["liquidation_wealth_krw"] > 0
+    assert payload["rows"][0]["years_to_draw_at_threshold"] >= 1
+    markdown = json_path.with_suffix(".md").read_text(encoding="utf-8")
+    assert "annuity low" in markdown
+    assert "annuity high" in markdown
+    assert _EXIT_CONVENTION_NOTE in markdown
+
+
+def test_withholding_reaches_campaign_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A positive proxy dividend accrues withheld tax on rows holding that ticker."""
+    settings = _settings(tmp_path, monkeypatch)
+    start, end = date(2023, 1, 1), date(2024, 12, 31)
+    sessions = list(load_calendar("XNYS").sessions(start, end))
+    div_on = sessions[len(sessions) // 4]
+    drifts = {"SPY": (400.0, 0.10), "QQQ": (300.0, 0.16), "SOXX": (200.0, 0.22)}
+    rows = []
+    for ticker, (base, drift) in drifts.items():
+        for index, day in enumerate(sessions):
+            price = base + drift * index
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "date": day,
+                    "open": price,
+                    "high": price,
+                    "low": price,
+                    "close": price,
+                    "volume": 10_000,
+                    "adjusted_close": price,
+                    "dividend": 0.01 * price if ticker == "SPY" and day == div_on else 0.0,
+                    "split_factor": 1.0,
+                    "source": "synthetic",
+                    "retrieved_at": _RETRIEVED_AT,
+                }
+            )
+    spec_columns = spec_for(Dataset.PRICES).columns
+    prices = pl.DataFrame(
+        rows,
+        schema={
+            "ticker": pl.String,
+            "date": pl.Date,
+            "open": pl.Float64,
+            "high": pl.Float64,
+            "low": pl.Float64,
+            "close": pl.Float64,
+            "volume": pl.Int64,
+            "adjusted_close": pl.Float64,
+            "dividend": pl.Float64,
+            "split_factor": pl.Float64,
+            "source": pl.String,
+            "retrieved_at": pl.Datetime("us", "UTC"),
+        },
+    ).select(list(spec_columns))
+    persist_ingest(prices, Dataset.PRICES, _payload(), settings)
+    fx = pl.DataFrame(
+        {"date": sessions, "usdkrw": [1300.0] * len(sessions), "source": ["synthetic"] * len(sessions),
+         "retrieved_at": [_RETRIEVED_AT] * len(sessions)},
+        schema=dict(spec_for(Dataset.FX_KRW_BASE).columns),
+    )
+    persist_ingest(fx, Dataset.FX_KRW_BASE, _payload(), settings)
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    report = run_pension_campaign(spec, settings, seed=7)
+    spy_rows = [row for row in report.cohort_rows if row.arm_id == "sp500"]
+    assert spy_rows
+    exposed = [row for row in spy_rows if row.cohort_start <= div_on <= row.cohort_end]
+    assert exposed
+    assert all(row.foreign_tax_withheld_krw > 0 for row in exposed)

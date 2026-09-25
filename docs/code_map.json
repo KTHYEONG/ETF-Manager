@@ -583,5 +583,8 @@
   },
   "src/validation/pension_campaign.py": {
     "testing": "tests/unit/validation/test_pension_campaign.py"
+  },
+  "src/validation/pension_household.py": {
+    "testing": "tests/unit/validation/test_pension_household.py"
   }
 }

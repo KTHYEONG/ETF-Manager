@@ -5,7 +5,8 @@ from __future__ import annotations
 import bisect
 import logging
 import math
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final, Literal, cast
@@ -24,8 +25,6 @@ from src.sim.tax import KrOverseasTaxRegime, annual_capital_gains_tax_krw
 from src.sim.tax_lots import RealizedDisposal, TaxLotBook
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from src.data.settings import DataSettings
 
 logger = logging.getLogger(__name__)
@@ -67,11 +66,16 @@ class AfterTaxConfig:
     tax for frictionless decomposition (callers also pass zero commission/spread).
     ``price_mode="adjusted"`` exists only for parity with the legacy engine: fills and
     marks use adjusted closes and corporate actions are not applied.
+    Exactly one funding mode applies: a positive ``monthly_contribution_krw`` with no
+    schedule, or ``monthly_contribution_krw == 0`` with a non-empty
+    ``contribution_schedule_krw`` of positive KRW amounts dated within ``[start, end]``;
+    scheduled cash is deposited at the first execution session on or after its date.
     """
 
     start: date
     end: date
     monthly_contribution_krw: float
+    contribution_schedule_krw: Mapping[date, float] | None = field(default=None, kw_only=True)
     tax_regime: KrOverseasTaxRegime
     targets: Mapping[str, float] | None = None
     rule: WeightRule | None = None
@@ -126,6 +130,17 @@ class AfterTaxResult:
     sell_count: int
 
 
+def _check_scheduled_cash_before_final_execution(
+    funding: Mapping[date, float], last_execution: date
+) -> None:
+    """Fail closed on scheduled cash that the final execution session would never invest."""
+    late = sorted(day for day in funding if day > last_execution)
+    if late:
+        raise AfterTaxDataError(
+            f"scheduled cash on {late[0].isoformat()} falls after the final execution session {last_execution.isoformat()}"
+        )
+
+
 def run_after_tax(
     config: AfterTaxConfig,
     prices: pl.DataFrame,
@@ -133,7 +148,7 @@ def run_after_tax(
     cpi: pl.DataFrame,
     rates: pl.DataFrame | None = None,
 ) -> AfterTaxResult:
-    """Simulate monthly accumulation with lot-level Korean overseas-equity taxation.
+    """Simulate accumulation with lot-level Korean overseas-equity taxation.
 
     Month-end signals, fills at the ``fill_delay_sessions``-later close (raw prices in
     raw mode), per-sleeve USD earmarks so unaffordable sleeves accumulate until a whole
@@ -144,12 +159,16 @@ def run_after_tax(
     liquidation net worth marked at every execution close. ``fx`` is a USD/KRW frame with
     ``date``, ``usdkrw``, ``available_at`` (FX_KRW_BASE in production; the legacy FX frame
     only for parity) resolved as-of each instant within ``fx_max_staleness_days``.
+    Funding is either a positive ``monthly_contribution_krw`` deposited every step or,
+    with ``monthly_contribution_krw == 0``, a dated ``contribution_schedule_krw`` whose
+    amounts land at the first execution session on or after their date.
 
     Raises:
         ValueError: On a non-positive contribution, both/neither of ``targets``/``rule``,
             a non-simplex static target, a missing/invalid band for REBALANCE_BAND,
             ``fill_delay_sessions < 1``, or ``fx_max_staleness_days < 0``.
-        AfterTaxDataError: On an empty schedule or missing/stale price, FX, CPI, or rate.
+        AfterTaxDataError: On an empty schedule, missing/stale price, FX, CPI, or rate,
+            or scheduled cash dated after the final execution session.
         PitMarketError: When a rule lacks visible history at a signal instant.
         CorporateActionError: On unmappable vendor split factors.
         TaxLotError: On an internally inconsistent disposal (never expected; fail closed).
@@ -162,6 +181,10 @@ def run_after_tax(
     )
     if not schedule:
         raise AfterTaxDataError(f"empty decision schedule over [{config.start.isoformat()}, {config.end.isoformat()}]")
+    if config.contribution_schedule_krw is not None:
+        _check_scheduled_cash_before_final_execution(
+            config.contribution_schedule_krw, schedule[-1].execution_session
+        )
     price_index = _PriceIndex(prices)
     fx_index = _FxIndex(fx)
     cpi_index = _CpiIndex(cpi)
@@ -225,8 +248,35 @@ def _validate_config(config: AfterTaxConfig) -> None:
         config.monthly_contribution_krw, bool
     ):
         raise ValueError("monthly_contribution_krw must be a number")
-    if not math.isfinite(config.monthly_contribution_krw) or config.monthly_contribution_krw <= 0:
-        raise ValueError("monthly_contribution_krw must be positive")
+    funding = config.contribution_schedule_krw
+    if funding is None:
+        if not math.isfinite(config.monthly_contribution_krw) or config.monthly_contribution_krw <= 0:
+            raise ValueError("monthly_contribution_krw must be positive")
+    else:
+        if config.monthly_contribution_krw != 0.0:
+            raise ValueError(
+                "monthly_contribution_krw must be 0.0 when contribution_schedule_krw is set, "
+                f"got {config.monthly_contribution_krw!r}"
+            )
+        if not isinstance(funding, Mapping) or not funding:
+            raise ValueError("contribution_schedule_krw must be a non-empty mapping of dates to KRW amounts")
+        for day, amount in funding.items():
+            if not isinstance(day, date) or isinstance(day, datetime):
+                raise ValueError(f"contribution_schedule_krw key {day!r} must be a date")
+            if day < config.start or day > config.end:
+                raise ValueError(
+                    f"contribution_schedule_krw date {day.isoformat()} lies outside "
+                    f"[{config.start.isoformat()}, {config.end.isoformat()}]"
+                )
+            if (
+                isinstance(amount, bool)
+                or not isinstance(amount, int | float)
+                or not math.isfinite(amount)
+                or amount <= 0
+            ):
+                raise ValueError(
+                    f"contribution_schedule_krw[{day.isoformat()}] must be a finite positive amount, got {amount!r}"
+                )
     if (config.targets is None) == (config.rule is None):
         raise ValueError("exactly one of targets or rule must be set")
     if config.targets is not None:
@@ -528,7 +578,16 @@ class _EngineState:
             if due_tax > 0:
                 self._pending.append(_Payable(date(assessed_year + 1, self._regime.payment_month, 1), due_tax))
                 self._tax_payable += due_tax
-        self._cash_krw += config.monthly_contribution_krw
+        funding = config.contribution_schedule_krw
+        if funding is None:
+            deposit = config.monthly_contribution_krw
+        elif previous_execution is None:
+            deposit = float(sum(amount for funded_day, amount in funding.items() if funded_day <= day))
+        else:
+            deposit = float(
+                sum(amount for funded_day, amount in funding.items() if previous_execution < funded_day <= day)
+            )
+        self._cash_krw += deposit
         due_now = sum(entry.amount for entry in self._pending if entry.due <= day)
         if due_now > 0:
             paid = min(due_now, self._cash_krw)
@@ -641,7 +700,7 @@ class _EngineState:
         self._snapshots.append(
             AfterTaxSnapshot(
                 session=day,
-                contribution_krw=config.monthly_contribution_krw,
+                contribution_krw=deposit,
                 cash_krw=self._cash_krw,
                 cash_usd=usd_total,
                 shares=dict(positions),

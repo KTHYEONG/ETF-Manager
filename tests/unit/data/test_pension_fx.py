@@ -15,8 +15,13 @@ _TS = datetime(2024, 1, 1, 5, 0, tzinfo=UTC)
 
 def _primary(rows: list[tuple[date, float | None, str]]) -> pl.DataFrame:
     return pl.DataFrame(
-        {"date": [r[0] for r in rows], "usdkrw": [r[1] for r in rows], "source": [r[2] for r in rows]},
-        schema={"date": pl.Date, "usdkrw": pl.Float64, "source": pl.String},
+        {
+            "date": [r[0] for r in rows],
+            "usdkrw": [r[1] for r in rows],
+            "source": [r[2] for r in rows],
+            "available_at": [datetime(r[0].year, r[0].month, r[0].day, 12, 0, tzinfo=UTC) for r in rows],
+        },
+        schema={"date": pl.Date, "usdkrw": pl.Float64, "source": pl.String, "available_at": pl.Datetime("us", "UTC")},
     )
 
 
@@ -248,8 +253,10 @@ def test_session_before_first_quote_is_not_fallback() -> None:
 def test_non_date_value_rejected() -> None:
     """A non-date observation key fails closed."""
     bad = pl.DataFrame(
-        {"date": ["2017-09-29"], "usdkrw": [1100.0], "source": ["ecos"]},
-        schema={"date": pl.String, "usdkrw": pl.Float64, "source": pl.String},
+        {"date": ["2017-09-29"], "usdkrw": [1100.0], "source": ["ecos"],
+         "available_at": [datetime(2017, 9, 29, 12, 0, tzinfo=UTC)]},
+        schema={"date": pl.String, "usdkrw": pl.Float64, "source": pl.String,
+                "available_at": pl.Datetime("us", "UTC")},
     )
     with pytest.raises(ValueError, match="non-date"):
         build_krw_fx_series(bad, None)
@@ -258,8 +265,10 @@ def test_non_date_value_rejected() -> None:
 def test_missing_source_rejected() -> None:
     """A valid quote without a source label cannot disclose provenance."""
     bad = pl.DataFrame(
-        {"date": [date(2017, 9, 29), date(2017, 10, 10)], "usdkrw": [1100.0, 1110.0], "source": ["ecos", None]},
-        schema={"date": pl.Date, "usdkrw": pl.Float64, "source": pl.String},
+        {"date": [date(2017, 9, 29), date(2017, 10, 10)], "usdkrw": [1100.0, 1110.0], "source": ["ecos", None],
+         "available_at": [datetime(2017, 9, 29, 12, 0, tzinfo=UTC), datetime(2017, 10, 10, 12, 0, tzinfo=UTC)]},
+        schema={"date": pl.Date, "usdkrw": pl.Float64, "source": pl.String,
+                "available_at": pl.Datetime("us", "UTC")},
     )
     with pytest.raises(ValueError, match="missing source"):
         build_krw_fx_series(bad, None)
@@ -288,3 +297,117 @@ def test_missing_available_at_rejected() -> None:
     )
     with pytest.raises(ValueError, match="missing available_at"):
         build_krw_fx_series(primary, bad)
+
+
+def test_merged_frame_carries_available_at() -> None:
+    """Primary rows keep the primary stamp and admitted rows keep the fallback stamp."""
+    primary = _primary([(date(2017, 9, 29), 1100.0, "ecos"), (date(2017, 10, 10), 1110.0, "ecos")])
+    gap = [date(2017, 10, 2), date(2017, 10, 3), date(2017, 10, 4), date(2017, 10, 5), date(2017, 10, 6)]
+    fallback = _fallback([(d, 1105.0, "fred") for d in gap])
+    series = build_krw_fx_series(primary, fallback)
+    assert series.frame.schema["available_at"] == pl.Datetime("us", "UTC")
+    by_date = {row["date"]: row for row in series.frame.to_dicts()}
+    primary_stamps = {row["date"]: row["available_at"] for row in primary.to_dicts()}
+    fallback_stamps = {row["date"]: row["available_at"] for row in fallback.to_dicts()}
+    assert by_date[date(2017, 9, 29)]["available_at"] == primary_stamps[date(2017, 9, 29)]
+    assert by_date[date(2017, 10, 10)]["available_at"] == primary_stamps[date(2017, 10, 10)]
+    for day in gap:
+        assert by_date[day]["available_at"] == fallback_stamps[day]
+    for row in series.frame.to_dicts():
+        stamp = row["available_at"]
+        assert stamp <= datetime(row["date"].year, row["date"].month, row["date"].day, tzinfo=UTC) + timedelta(days=1)
+
+
+def test_primary_without_available_at_rejected() -> None:
+    """A primary frame without a tz-aware stamp column cannot feed the merge."""
+    good = _primary([(date(2017, 9, 29), 1100.0, "ecos"), (date(2017, 10, 10), 1110.0, "ecos")])
+    bare = good.drop("available_at")
+    with pytest.raises(ValueError, match="available_at"):
+        build_krw_fx_series(bare, None)
+    naive = good.with_columns(pl.col("available_at").dt.replace_time_zone(None))
+    with pytest.raises(ValueError, match="available_at"):
+        build_krw_fx_series(naive, None)
+
+
+def test_merged_frame_feeds_general_engine() -> None:
+    """The merged frame (with stamps) runs the general engine across a primary gap."""
+    from src.data.calendar import load_calendar
+    from src.data.schedule import build_decision_schedule
+    from src.sim.after_tax_engine import AfterTaxConfig, AfterTaxDataError, run_after_tax
+    from src.sim.tax import load_tax_regime
+
+    sessions = list(load_calendar("XNYS").sessions(date(2024, 1, 2), date(2024, 7, 31)))
+    points = build_decision_schedule(date(2024, 1, 15), date(2024, 6, 28), frequency="monthly", fill_delay_sessions=1)
+    executions = [point.execution_session for point in points]
+    target = executions[2]
+    ordered = sorted(sessions)
+    gap = ordered[ordered.index(target) - 9: ordered.index(target) + 1]
+    assert not set(executions[:2]) & set(gap)
+    primary = pl.DataFrame(
+        {
+            "date": [d for d in ordered if d not in set(gap)],
+            "usdkrw": [1300.0] * (len(ordered) - len(gap)),
+            "source": ["synthetic"] * (len(ordered) - len(gap)),
+            "available_at": [datetime(d.year, d.month, d.day, 12, 0, tzinfo=UTC) for d in ordered if d not in set(gap)],
+        },
+        schema={"date": pl.Date, "usdkrw": pl.Float64, "source": pl.String, "available_at": pl.Datetime("us", "UTC")},
+    )
+    fallback = pl.DataFrame(
+        {
+            "date": gap,
+            "usdkrw": [1305.0] * len(gap),
+            "source": ["fallback"] * len(gap),
+            "available_at": [datetime(d.year, d.month, d.day, 18, 0, tzinfo=UTC) for d in gap],
+        },
+        schema={"date": pl.Date, "usdkrw": pl.Float64, "source": pl.String, "available_at": pl.Datetime("us", "UTC")},
+    )
+    series = build_krw_fx_series(primary, fallback)
+    assert series.status is FxFallbackStatus.APPLIED
+    closes = [100.0] * len(ordered)
+    prices = pl.DataFrame(
+        {
+            "ticker": ["QQQ"] * len(ordered),
+            "date": ordered,
+            "open": closes,
+            "high": closes,
+            "low": closes,
+            "close": closes,
+            "volume": [10_000] * len(ordered),
+            "adjusted_close": closes,
+            "dividend": [0.0] * len(ordered),
+            "split_factor": [1.0] * len(ordered),
+            "source": ["synthetic"] * len(ordered),
+            "retrieved_at": [datetime(2024, 1, 1, 5, 0, tzinfo=UTC)] * len(ordered),
+            "available_at": [datetime(d.year, d.month, d.day, 12, 0, tzinfo=UTC) for d in ordered],
+        },
+        schema={
+            "ticker": pl.String, "date": pl.Date, "open": pl.Float64, "high": pl.Float64, "low": pl.Float64,
+            "close": pl.Float64, "volume": pl.Int64, "adjusted_close": pl.Float64, "dividend": pl.Float64,
+            "split_factor": pl.Float64, "source": pl.String, "retrieved_at": pl.Datetime("us", "UTC"),
+            "available_at": pl.Datetime("us", "UTC"),
+        },
+    )
+    cpi = pl.DataFrame(
+        {
+            "period_end": [date(2023, 12, 1)],
+            "value": [100.0],
+            "source": ["synthetic"],
+            "retrieved_at": [datetime(2024, 1, 1, 5, 0, tzinfo=UTC)],
+            "available_at": [datetime(2023, 12, 15, 12, 0, tzinfo=UTC)],
+        },
+        schema={
+            "period_end": pl.Date, "value": pl.Float64, "source": pl.String,
+            "retrieved_at": pl.Datetime("us", "UTC"), "available_at": pl.Datetime("us", "UTC"),
+        },
+    )
+    config = AfterTaxConfig(
+        start=date(2024, 1, 15),
+        end=date(2024, 6, 28),
+        monthly_contribution_krw=1_300_000.0,
+        tax_regime=load_tax_regime("configs/tax/kr_overseas_equity.json"),
+        targets={"QQQ": 1.0},
+    )
+    merged = run_after_tax(config, prices, series.frame, cpi)
+    assert merged.snapshots
+    with pytest.raises(AfterTaxDataError, match="within staleness bound"):
+        run_after_tax(config, prices, primary, cpi)

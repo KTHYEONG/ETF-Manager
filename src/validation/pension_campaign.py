@@ -14,20 +14,37 @@ from typing import Final, Literal, cast
 import polars as pl
 
 from src.analytics.metrics import max_drawdown, real_krw, xirr
+from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
 from src.data.catalog import latest_artifact, load_visible
 from src.data.pension_fx import build_krw_fx_series
 from src.data.query import load_as_of
 from src.data.schema import Dataset
 from src.data.settings import DataSettings
 from src.data.storage import UntrustedDatasetError
+from src.sim.after_tax_engine import AfterTaxConfig, run_after_tax
 from src.sim.pension_engine import (
     PensionBacktestConfig,
     PensionDataError,
     PensionMarketMode,
     run_pension_backtest,
 )
-from src.sim.pension_tax import PensionTaxProfile, load_pension_tax_regime
+from src.sim.pension_tax import (
+    PensionExitKind,
+    PensionTaxProfile,
+    load_pension_tax_regime,
+    quote_pension_exit,
+    years_to_draw_at_threshold,
+)
+from src.sim.tax import KrOverseasTaxRegime, load_tax_regime
 from src.validation.gate import wealth_quantile
+from src.validation.pension_household import (
+    HouseholdRow,
+    PensionHouseholdReport,
+    PensionHouseholdSpec,
+    evaluate_household_arm_cohort,
+    parse_household_spec,
+    summarize_household,
+)
 from src.validation.windows import rolling_cohorts
 
 logger = logging.getLogger(__name__)
@@ -54,6 +71,17 @@ _UNDEFINED_RATIO_NOTE: Final[str] = (
     "Cohorts whose baseline after-tax wealth is zero (no contribution was made, for example a profile "
     "with no usable tax credit) have no defined paired ratio and are excluded from ratio, rate, "
     "and drawdown statistics; see the undefined column."
+)
+_EXIT_CONVENTION_NOTE: Final[str] = (
+    "Ratios value each account as if closed at the cohort end with the non-pension tax "
+    "(credit clawed back); pension-receipt values are a bracket that assumes deferral to "
+    "eligibility and no further return; see years_to_draw_at_threshold."
+)
+_HOUSEHOLD_NOTE: Final[str] = (
+    "Household view compares the same available cash: pension (credit-optimal contributions, "
+    "valued at exit) plus a general account holding leftover cash and credit refunds, versus "
+    "all cash in a general account holding the same US-listed ETFs under Korean overseas-equity "
+    "tax with year-end gain harvesting."
 )
 ArmRole = Literal["baseline", "candidate", "sensitivity"]
 _ARM_ROLES: Final[tuple[str, ...]] = ("baseline", "candidate", "sensitivity")
@@ -94,15 +122,19 @@ class PensionCampaignSpec:
     execution_spread_bps: float
     commission_bps: float
     extra_annual_drag_by_ticker: Mapping[str, float]
+    household: PensionHouseholdSpec | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class PensionCohortRow:
     """One arm/cohort outcome with source status and paired tax-aware measures.
 
-    ``paired_wealth_ratio`` is ``None`` when the baseline's after-tax wealth for
+    ``paired_wealth_ratio`` is ``None`` when the baseline's liquidation wealth for
     the same profile and cohort is zero, because a ratio against zero is
     undefined and is never imputed.
+
+    ``after_tax_wealth_krw`` is the *pre-exit* (tax-deferred) balance plus received
+    cash; the liquidation fields apply the exit tax.
     """
 
     arm_id: str
@@ -115,6 +147,12 @@ class PensionCohortRow:
     after_tax_wealth_krw: int
     terminal_nav_real_krw: float | None
     after_tax_wealth_real_krw: float | None
+    liquidation_wealth_krw: int
+    liquidation_wealth_real_krw: float | None
+    annuity_low_wealth_krw: int
+    annuity_high_wealth_krw: int
+    years_to_draw_at_threshold: int
+    foreign_tax_withheld_krw: int
     after_tax_payout_krw: int | None
     contributed_krw: int
     gross_credit_krw: int
@@ -142,6 +180,8 @@ class PensionArmSummary:
     underperforming_cohorts: int
     median_wealth_ratio: float | None
     worst_wealth_ratio: float | None
+    median_annuity_low_ratio: float | None
+    median_annuity_high_ratio: float | None
     median_cashflow_normalized_rate: float | None
     median_max_drawdown: float | None
     evidence_status: str
@@ -160,6 +200,9 @@ class PensionCampaignReport:
     real_data_status: str
     evidence_status: str
     fx_provenance: Mapping[str, object] = field(default_factory=dict)
+    foreign_tax_credit_rate: float = 0.0
+    foreign_dividend_withholding_rate: float = 0.15
+    household: PensionHouseholdReport | None = None
 
 
 def _parse_date(value: object, name: str) -> date:
@@ -393,6 +436,10 @@ def load_pension_campaign_spec(path: str | Path) -> PensionCampaignSpec:
             if isinstance(value, bool) or not isinstance(value, float | int) or not 0.0 <= float(value) < 1.0:
                 raise ValueError(f"drag for {ticker!r} must lie in [0, 1)")
             drag[str(ticker)] = float(value)
+        raw_household = document.get("household_view")
+        household = parse_household_spec(raw_household) if raw_household is not None else None
+        if household is not None and market_mode is PensionMarketMode.KR_LIVE:
+            raise ValueError("household_view requires us_proxy market mode")
     except KeyError as exc:
         raise ValueError(f"pension campaign JSON missing field {exc}") from exc
     if baseline_arm_id not in {arm.arm_id for arm in arms}:
@@ -433,6 +480,7 @@ def load_pension_campaign_spec(path: str | Path) -> PensionCampaignSpec:
         execution_spread_bps=float(spread),
         commission_bps=float(commission),
         extra_annual_drag_by_ticker=drag,
+        household=household,
     )
 
 
@@ -454,20 +502,29 @@ def run_pension_campaign(
     """
     _ = seed
     regime = load_pension_tax_regime(spec.tax_regime_path)
+    general_regime = load_tax_regime(spec.household.general_tax_regime_path) if spec.household is not None else None
+    coverage_end = spec.end
+    if spec.household is not None:
+        assert general_regime is not None
+        day = spec.end
+        calendar = load_calendar(DEFAULT_CALENDAR_NAME)
+        for _ in range(2 + general_regime.settlement_sessions):
+            day = calendar.next_session(day)
+        coverage_end = day
     fx_provenance: dict[str, object] = {}
     try:
         if spec.market_mode is PensionMarketMode.KR_LIVE:
-            prices = load_visible(settings, Dataset.KR_ETF_PRICES, _cutoff(spec.end))
+            prices = load_visible(settings, Dataset.KR_ETF_PRICES, _cutoff(coverage_end))
             fx: pl.DataFrame | None = None
         else:
-            prices = load_visible(settings, Dataset.PRICES, _cutoff(spec.end))
-            fx = load_visible(settings, Dataset.FX_KRW_BASE, _cutoff(spec.end))
+            prices = load_visible(settings, Dataset.PRICES, _cutoff(coverage_end))
+            fx = load_visible(settings, Dataset.FX_KRW_BASE, _cutoff(coverage_end))
     except UntrustedDatasetError as exc:
         raise PensionDataError(f"pension campaign source is absent or stale: {exc}") from exc
     if spec.market_mode is not PensionMarketMode.KR_LIVE:
         assert fx is not None
         try:
-            fallback = load_visible(settings, Dataset.FX, _cutoff(spec.end))
+            fallback = load_visible(settings, Dataset.FX, _cutoff(coverage_end))
         except UntrustedDatasetError:
             fallback = None
         try:
@@ -500,7 +557,7 @@ def run_pension_campaign(
             share,
         )
     try:
-        cpi = load_visible(settings, Dataset.CPI, _cutoff(spec.end))
+        cpi = load_visible(settings, Dataset.CPI, _cutoff(coverage_end))
     except UntrustedDatasetError:
         cpi = None
     cpi_cache: dict[date, float | None] = {}
@@ -522,10 +579,31 @@ def run_pension_campaign(
                     )
         return cpi_cache[day]
 
+    household_rows: list[HouseholdRow] = []
+    household_excluded: dict[tuple[str, int, str], int] = {}
+    household_cache: dict[tuple[int, str, date, date], float] = {}
+    household_runs = 0
+    household_cached = 0
+    household_regime: KrOverseasTaxRegime | None = None
+    if spec.household is not None:
+        if cpi is None:
+            raise PensionDataError("household view requires trusted CPI for the general-account engine")
+        assert general_regime is not None
+        household_regime = general_regime
+
+    def _run_household_general(config: AfterTaxConfig) -> float:
+        fx_frame = fx
+        cpi_frame = cpi
+        if fx_frame is None or cpi_frame is None:  # pragma: no cover - excluded by upfront us_proxy/CPI checks
+            raise PensionDataError("household view requires us_proxy FX and trusted CPI")
+        nonlocal household_runs
+        household_runs += 1
+        return run_after_tax(config, prices, fx_frame, cpi_frame, None).terminal_after_tax_krw
+
     baseline_arm = next(arm for arm in spec.arms if arm.arm_id == spec.baseline_arm_id)
     rows: list[PensionCohortRow] = []
     summaries: list[PensionArmSummary] = []
-    baseline_cache: dict[tuple[int, str, str, str], int] = {}
+    baseline_cache: dict[tuple[int, str, str, str], tuple[int, int, int]] = {}
 
     def _arm_config(
         arm: PensionArmSpec, c_start: date, c_end: date
@@ -555,15 +633,62 @@ def run_pension_campaign(
             extra_annual_drag_by_ticker=dict(spec.extra_annual_drag_by_ticker),
         )
 
-    def _baseline_wealth(horizon: int, c_start: date, c_end: date, profile: PensionTaxProfile) -> int:
+    def _exit_wealths(
+        c_end: date,
+        terminal_nav_krw: int,
+        external_krw: int,
+        uncredited_krw: int,
+        withheld_krw: int,
+        profile: PensionTaxProfile,
+    ) -> tuple[int, int, int, int]:
+        """Return (liquidation, annuity-low, annuity-high, years-to-draw) exit wealth."""
+        lump = quote_pension_exit(
+            PensionExitKind.LUMP_SUM,
+            valuation_date=c_end,
+            balance_krw=terminal_nav_krw,
+            uncredited_principal_krw=uncredited_krw,
+            foreign_tax_withheld_krw=withheld_krw,
+            profile=profile,
+            regime=regime,
+        )
+        low = quote_pension_exit(
+            PensionExitKind.ANNUITY_LOW,
+            valuation_date=c_end,
+            balance_krw=terminal_nav_krw,
+            uncredited_principal_krw=uncredited_krw,
+            foreign_tax_withheld_krw=withheld_krw,
+            profile=profile,
+            regime=regime,
+        )
+        high = quote_pension_exit(
+            PensionExitKind.ANNUITY_HIGH,
+            valuation_date=c_end,
+            balance_krw=terminal_nav_krw,
+            uncredited_principal_krw=uncredited_krw,
+            foreign_tax_withheld_krw=withheld_krw,
+            profile=profile,
+            regime=regime,
+        )
+        years = years_to_draw_at_threshold(lump.taxable_krw, regime)
+        return (lump.net_krw + external_krw, low.net_krw + external_krw, high.net_krw + external_krw, years)
+
+    def _baseline_exit(horizon: int, c_start: date, c_end: date, profile: PensionTaxProfile) -> tuple[int, int, int]:
         key = (horizon, c_start.isoformat(), c_end.isoformat(), profile.profile_id)
         cached = baseline_cache.get(key)
         if cached is not None:
             return cached
         result = run_pension_backtest(_arm_config(baseline_arm, c_start, c_end), prices, fx, profile, regime)
-        wealth = result.terminal_nav_krw + sum(amount for _, amount in result.after_tax_external_cashflows_krw)
-        baseline_cache[key] = wealth
-        return wealth
+        external = sum(amount for _, amount in result.after_tax_external_cashflows_krw)
+        liquidation, low, high, _ = _exit_wealths(
+            c_end,
+            result.terminal_nav_krw,
+            external,
+            result.terminal_uncredited_principal_krw,
+            result.foreign_tax_withheld_krw,
+            profile,
+        )
+        baseline_cache[key] = (liquidation, low, high)
+        return (liquidation, low, high)
 
     for horizon in spec.horizons_months:
         cohorts = rolling_cohorts(spec.start, spec.end, horizon_months=horizon, step_months=spec.step_months)
@@ -575,6 +700,8 @@ def run_pension_campaign(
         )
         for arm in spec.arms:
             ratios: list[float] = []
+            low_ratios: list[float] = []
+            high_ratios: list[float] = []
             normalized_rates: list[float] = []
             drawdowns: list[float] = []
             undefined_count = 0
@@ -585,6 +712,42 @@ def run_pension_campaign(
                     wealth = result.terminal_nav_krw + sum(
                         amount for _, amount in result.after_tax_external_cashflows_krw
                     )
+                    external_total = sum(amount for _, amount in result.after_tax_external_cashflows_krw)
+                    liquidation, low_wealth, high_wealth, years_to_draw = _exit_wealths(
+                        c_end,
+                        result.terminal_nav_krw,
+                        external_total,
+                        result.terminal_uncredited_principal_krw,
+                        result.foreign_tax_withheld_krw,
+                        profile,
+                    )
+                    lump_net = liquidation - external_total
+                    if spec.household is not None:
+                        assert household_regime is not None
+                        low_net = low_wealth - external_total
+                        high_net = high_wealth - external_total
+                        cache_size_before = len(household_cache)
+                        household_row = evaluate_household_arm_cohort(
+                            arm_id=arm.arm_id,
+                            profile_id=profile.profile_id,
+                            horizon_months=horizon,
+                            cohort_start=c_start,
+                            cohort_end=c_end,
+                            result=result,
+                            available_cash_events_krw=spec.available_cash_events_krw,
+                            tax_credit_settlement_dates=spec.tax_credit_settlement_dates,
+                            pension_nets_krw=(lump_net, low_net, high_net),
+                            arm_targets=arm.targets,
+                            household_spec=spec.household,
+                            general_regime=household_regime,
+                            runner=_run_household_general,
+                            counterfactual_cache=household_cache,
+                            excluded=household_excluded,
+                        )
+                        if household_row is not None:
+                            household_rows.append(household_row)
+                            if len(household_cache) == cache_size_before:
+                                household_cached += 1
                     start_cpi = _cpi_at(c_start)
                     end_cpi = _cpi_at(c_end)
                     real_nav = (
@@ -595,16 +758,32 @@ def run_pension_campaign(
                         real_krw(wealth, cpi_index=end_cpi, cpi_base=start_cpi)
                         if start_cpi is not None and end_cpi is not None else None
                     )
-                    base_wealth = _baseline_wealth(horizon, c_start, c_end, profile)
-                    if base_wealth == 0:
+                    real_liquidation = (
+                        real_krw(liquidation, cpi_index=end_cpi, cpi_base=start_cpi)
+                        if start_cpi is not None and end_cpi is not None else None
+                    )
+                    base_liquidation, base_low, base_high = _baseline_exit(horizon, c_start, c_end, profile)
+                    if base_liquidation == 0:
                         ratio: float | None = None
+                        low_ratio: float | None = None
+                        high_ratio: float | None = None
+                    elif arm.arm_id == spec.baseline_arm_id:
+                        ratio = 1.0
+                        low_ratio = 1.0
+                        high_ratio = 1.0
                     else:
-                        ratio = 1.0 if arm.arm_id == spec.baseline_arm_id else wealth / base_wealth
-                    if ratio is not None:
-                        ratios.append(ratio)
-                        defined_by_profile[profile.profile_id] += 1
-                    else:
+                        ratio = liquidation / base_liquidation
+                        low_ratio = low_wealth / base_low if base_low != 0 else None
+                        high_ratio = high_wealth / base_high if base_high != 0 else None
+                        if low_ratio is None or high_ratio is None:
+                            ratio = None  # pragma: no cover - unreachable under the shipped rate ordering
+                    if ratio is None or low_ratio is None or high_ratio is None:
                         undefined_count += 1
+                    else:
+                        ratios.append(ratio)
+                        low_ratios.append(low_ratio)
+                        high_ratios.append(high_ratio)
+                        defined_by_profile[profile.profile_id] += 1
                     unitized_nav: list[float] = []
                     unit_value = 1.0
                     previous_nav = 0.0
@@ -650,7 +829,7 @@ def run_pension_campaign(
                             for day, amount in result.after_tax_external_cashflows_krw
                         )
                         investor_flows.append(
-                            (datetime.combine(c_end, datetime.min.time(), tzinfo=UTC), float(result.terminal_nav_krw))
+                            (datetime.combine(c_end, datetime.min.time(), tzinfo=UTC), float(lump_net))
                         )
                         normalized_rate = xirr(investor_flows)
                         if ratio is not None and normalized_rate is not None:
@@ -667,6 +846,12 @@ def run_pension_campaign(
                             after_tax_wealth_krw=wealth,
                             terminal_nav_real_krw=real_nav,
                             after_tax_wealth_real_krw=real_wealth,
+                            liquidation_wealth_krw=liquidation,
+                            liquidation_wealth_real_krw=real_liquidation,
+                            annuity_low_wealth_krw=low_wealth,
+                            annuity_high_wealth_krw=high_wealth,
+                            years_to_draw_at_threshold=years_to_draw,
+                            foreign_tax_withheld_krw=result.foreign_tax_withheld_krw,
                             after_tax_payout_krw=payout_net,
                             contributed_krw=sum(amount for _, amount in result.contribution_cashflows_krw),
                             gross_credit_krw=sum(
@@ -692,17 +877,21 @@ def run_pension_campaign(
                     1
                     for w_start, w_end in independent_cohorts
                     if any(
-                        _baseline_wealth(horizon, w_start, w_end, profile) != 0 for profile in spec.profiles
+                        _baseline_exit(horizon, w_start, w_end, profile)[0] != 0 for profile in spec.profiles
                     )
                 )
                 median_ratio: float | None = wealth_quantile(ratios, 0.5)
                 worst_ratio: float | None = min(ratios)
                 median_drawdown: float | None = wealth_quantile(drawdowns, 0.5)
+                median_low: float | None = wealth_quantile(low_ratios, 0.5)
+                median_high: float | None = wealth_quantile(high_ratios, 0.5)
             else:
                 informative_windows = 0
                 median_ratio = None
                 worst_ratio = None
                 median_drawdown = None
+                median_low = None
+                median_high = None
             summaries.append(
                 PensionArmSummary(
                     arm_id=arm.arm_id,
@@ -714,6 +903,8 @@ def run_pension_campaign(
                     underperforming_cohorts=sum(ratio < 1.0 for ratio in ratios),
                     median_wealth_ratio=median_ratio,
                     worst_wealth_ratio=worst_ratio,
+                    median_annuity_low_ratio=median_low,
+                    median_annuity_high_ratio=median_high,
                     median_cashflow_normalized_rate=(
                         wealth_quantile(normalized_rates, 0.5) if normalized_rates else None
                     ),
@@ -728,6 +919,22 @@ def run_pension_campaign(
                 len(ratios),
                 undefined_count,
             )
+    household_report: PensionHouseholdReport | None = None
+    if spec.household is not None:
+        household_report = PensionHouseholdReport(
+            spec=spec.household,
+            rows=tuple(household_rows),
+            summaries=summarize_household(
+                household_rows, baseline_arm_id=spec.baseline_arm_id, excluded=household_excluded
+            ),
+        )
+        logger.info(
+            "[ALGO] event=pension_household_done rows=%d general_runs=%d cached=%d excluded=%d",
+            len(household_rows),
+            household_runs,
+            household_cached,
+            sum(household_excluded.values()),
+        )
     return PensionCampaignReport(
         name=spec.name,
         market_mode=spec.market_mode,
@@ -741,6 +948,9 @@ def run_pension_campaign(
         ),
         evidence_status=_INSUFFICIENT_EVIDENCE,
         fx_provenance=fx_provenance,
+        foreign_tax_credit_rate=regime.foreign_tax_credit_rate,
+        foreign_dividend_withholding_rate=regime.foreign_dividend_withholding_rate,
+        household=household_report,
     )
 
 
@@ -756,6 +966,62 @@ def _manifest_hashes(settings: DataSettings, mode: PensionMarketMode) -> dict[st
         except UntrustedDatasetError:
             hashes[str(dataset)] = None
     return hashes
+
+
+def _household_view_payload(report: PensionHouseholdReport | None) -> dict[str, object] | None:
+    """JSON-safe household view with ISO dates and plan totals (not per-date schedules)."""
+    if report is None:
+        return None
+    return {
+        "config": {
+            "general_tax_regime_path": report.spec.general_tax_regime_path,
+            "commission_bps": report.spec.commission_bps,
+            "fx_spread_bps": report.spec.fx_spread_bps,
+            "harvest_gains": report.spec.harvest_gains,
+            "fractional_shares": report.spec.fractional_shares,
+        },
+        "rows": [
+            {
+                "arm_id": row.arm_id,
+                "profile_id": row.profile_id,
+                "horizon_months": row.horizon_months,
+                "cohort_start": row.cohort_start.isoformat(),
+                "cohort_end": row.cohort_end.isoformat(),
+                "pension_contributions_krw": row.plan.pension_contributions_krw,
+                "leftover_krw": row.plan.leftover_krw,
+                "settled_refunds_krw": row.plan.settled_refunds_krw,
+                "pending_refund_krw": row.plan.pending_refund_krw,
+                "general_only_krw": row.general_only_krw,
+                "side_account_krw": row.side_account_krw,
+                "pension_lump_sum_net_krw": row.pension_lump_sum_net_krw,
+                "pension_annuity_low_net_krw": row.pension_annuity_low_net_krw,
+                "pension_annuity_high_net_krw": row.pension_annuity_high_net_krw,
+                "household_liquidation_krw": row.household_liquidation_krw,
+                "household_annuity_low_krw": row.household_annuity_low_krw,
+                "household_annuity_high_krw": row.household_annuity_high_krw,
+                "account_advantage_liquidation": row.account_advantage_liquidation,
+                "account_advantage_annuity_low": row.account_advantage_annuity_low,
+                "account_advantage_annuity_high": row.account_advantage_annuity_high,
+            }
+            for row in report.rows
+        ],
+        "summaries": [
+            {
+                "arm_id": summary.arm_id,
+                "horizon_months": summary.horizon_months,
+                "profile_id": summary.profile_id,
+                "cohort_count": summary.cohort_count,
+                "excluded_payout_cohorts": summary.excluded_payout_cohorts,
+                "median_account_advantage_liquidation": summary.median_account_advantage_liquidation,
+                "worst_account_advantage_liquidation": summary.worst_account_advantage_liquidation,
+                "median_account_advantage_annuity_low": summary.median_account_advantage_annuity_low,
+                "median_account_advantage_annuity_high": summary.median_account_advantage_annuity_high,
+                "median_asset_effect_household": summary.median_asset_effect_household,
+                "median_asset_effect_general_only": summary.median_asset_effect_general_only,
+            }
+            for summary in report.summaries
+        ],
+    }
 
 
 def write_pension_campaign_report(
@@ -775,12 +1041,14 @@ def write_pension_campaign_report(
     from src.data.result_store import ResultKind, write_result
 
     fx_provenance: dict[str, object] = dict(report.fx_provenance)
-    evidence_notes: list[str] = [_SOXX_BREAK_NOTE, _SHORT_LIVE_NOTE]
+    evidence_notes: list[str] = [_SOXX_BREAK_NOTE, _SHORT_LIVE_NOTE, _EXIT_CONVENTION_NOTE]
     fallback_session_count = int(cast("int", fx_provenance.get("fallback_session_count", 0) or 0))
     if fallback_session_count > 0:
         evidence_notes.append(_FX_FALLBACK_NOTE)
     if any(summary.undefined_ratio_cohorts > 0 for summary in report.summaries):
         evidence_notes.append(_UNDEFINED_RATIO_NOTE)
+    if report.household is not None:
+        evidence_notes.append(_HOUSEHOLD_NOTE)
     payload = {
         "name": report.name,
         "experiment_id": experiment_id,
@@ -792,8 +1060,14 @@ def write_pension_campaign_report(
         "fx_provenance": fx_provenance,
         "evidence_status": report.evidence_status,
         "evidence_notes": evidence_notes,
+        "exit_convention": {
+            "primary": "lump_sum",
+            "brackets": ["annuity_low", "annuity_high"],
+            "foreign_tax_credit_rate": report.foreign_tax_credit_rate,
+            "foreign_dividend_withholding_rate": report.foreign_dividend_withholding_rate,
+        },
         "manifest_hashes": _manifest_hashes(settings, report.market_mode),
-        "household_view": None,
+        "household_view": _household_view_payload(report.household),
         "summaries": [
             {
                 "arm_id": summary.arm_id,
@@ -805,6 +1079,8 @@ def write_pension_campaign_report(
                 "underperforming_cohorts": summary.underperforming_cohorts,
                 "median_wealth_ratio": summary.median_wealth_ratio,
                 "worst_wealth_ratio": summary.worst_wealth_ratio,
+                "median_annuity_low_ratio": summary.median_annuity_low_ratio,
+                "median_annuity_high_ratio": summary.median_annuity_high_ratio,
                 "median_cashflow_normalized_rate": summary.median_cashflow_normalized_rate,
                 "median_max_drawdown": summary.median_max_drawdown,
                 "evidence_status": summary.evidence_status,
@@ -823,6 +1099,12 @@ def write_pension_campaign_report(
                 "after_tax_wealth_krw": row.after_tax_wealth_krw,
                 "terminal_nav_real_krw": row.terminal_nav_real_krw,
                 "after_tax_wealth_real_krw": row.after_tax_wealth_real_krw,
+                "liquidation_wealth_krw": row.liquidation_wealth_krw,
+                "liquidation_wealth_real_krw": row.liquidation_wealth_real_krw,
+                "annuity_low_wealth_krw": row.annuity_low_wealth_krw,
+                "annuity_high_wealth_krw": row.annuity_high_wealth_krw,
+                "years_to_draw_at_threshold": row.years_to_draw_at_threshold,
+                "foreign_tax_withheld_krw": row.foreign_tax_withheld_krw,
                 "after_tax_payout_krw": row.after_tax_payout_krw,
                 "contributed_krw": row.contributed_krw,
                 "gross_credit_krw": row.gross_credit_krw,
@@ -849,6 +1131,7 @@ def write_pension_campaign_report(
         f"evidence_status: {report.evidence_status}",
         f"note: {_SHORT_LIVE_NOTE}",
         f"note: {_SOXX_BREAK_NOTE}",
+        f"note: {_EXIT_CONVENTION_NOTE}",
     ]
     if fx_provenance:
         share_value = float(cast("float", fx_provenance.get("fallback_session_share") or 0.0))
@@ -859,7 +1142,33 @@ def write_pension_campaign_report(
         )
         if fallback_session_count > 0:
             lines.append(f"note: {_FX_FALLBACK_NOTE}")
-    lines.append("household_view: not provided")
+
+    def _fmt(value: float | None) -> str:
+        return f"{value:.4f}" if value is not None else "N/A"
+
+    if report.household is None:
+        lines.append("household_view: not provided")
+    else:
+        lines.append(f"note: {_HOUSEHOLD_NOTE}")
+        lines.extend(
+            [
+                "",
+                "## Household same-cash view",
+                "",
+                "| arm | horizon | profile | cohorts | excluded | acct adv (lump) | worst | "
+                "acct adv (annuity low) | acct adv (annuity high) | asset effect household | asset effect general |",
+                "|---|---|---|---|---|---|---|---|---|---|---|",
+            ]
+        )
+        lines.extend(
+            f"| {summary.arm_id} | {summary.horizon_months} | {summary.profile_id} | {summary.cohort_count} "
+            f"| {summary.excluded_payout_cohorts} | {_fmt(summary.median_account_advantage_liquidation)} "
+            f"| {_fmt(summary.worst_account_advantage_liquidation)} "
+            f"| {_fmt(summary.median_account_advantage_annuity_low)} "
+            f"| {_fmt(summary.median_account_advantage_annuity_high)} "
+            f"| {_fmt(summary.median_asset_effect_household)} | {_fmt(summary.median_asset_effect_general_only)} |"
+            for summary in report.household.summaries
+        )
     if any(summary.undefined_ratio_cohorts > 0 for summary in report.summaries):
         lines.append(f"note: {_UNDEFINED_RATIO_NOTE}")
     fully_undefined_ids = sorted(
@@ -870,18 +1179,16 @@ def write_pension_campaign_report(
     lines.extend(
         [
             "",
-            "| arm | horizon | cohorts | undefined | independent | median | worst | median XIRR | drawdown |",
-            "|---|---|---|---|---|---|---|---|---|",
+            "| arm | horizon | cohorts | undefined | independent | median | worst | annuity low | annuity high | median XIRR | drawdown |",
+            "|---|---|---|---|---|---|---|---|---|---|---|",
         ]
     )
-
-    def _fmt(value: float | None) -> str:
-        return f"{value:.4f}" if value is not None else "N/A"
 
     lines.extend(
         f"| {summary.arm_id} | {summary.horizon_months} | {summary.cohort_count} "
         f"| {summary.undefined_ratio_cohorts} | {summary.independent_window_count} | {_fmt(summary.median_wealth_ratio)} "
-        f"| {_fmt(summary.worst_wealth_ratio)} | "
+        f"| {_fmt(summary.worst_wealth_ratio)} | {_fmt(summary.median_annuity_low_ratio)} "
+        f"| {_fmt(summary.median_annuity_high_ratio)} | "
         f"{summary.median_cashflow_normalized_rate if summary.median_cashflow_normalized_rate is not None else 'N/A'} "
         f"| {_fmt(summary.median_max_drawdown)} |"
         for summary in report.summaries

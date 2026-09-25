@@ -362,6 +362,11 @@ def run_pension_campaign_command(*, config_path: str, settings: DataSettings, se
         spec = load_pension_campaign_spec(config_path)
         regime_bytes = Path(spec.tax_regime_path).read_bytes()
         config_bytes = Path(config_path).read_bytes()
+        general_regime_bytes = b""
+        general_regime_sha: str | None = None
+        if spec.household is not None:
+            general_regime_bytes = Path(spec.household.general_tax_regime_path).read_bytes()
+            general_regime_sha = hashlib.sha256(general_regime_bytes).hexdigest()
         if spec.market_mode is PensionMarketMode.KR_LIVE:
             manifest_hashes = [latest_artifact(settings, Dataset.KR_ETF_PRICES).manifest.normalized_sha256]
         else:
@@ -380,18 +385,21 @@ def run_pension_campaign_command(*, config_path: str, settings: DataSettings, se
         git_commit = _resolve_git_commit()
         digest = hashlib.sha256(
             config_bytes + git_commit.encode() + "".join(manifest_hashes).encode()
-            + regime_bytes + str(seed).encode()
+            + regime_bytes + general_regime_bytes + str(seed).encode()
         ).hexdigest()[:16]
 
         report = run_pension_campaign(spec, settings, seed=seed)
+        provenance: dict[str, str] = {
+            "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
+            "tax_regime_sha256": hashlib.sha256(regime_bytes).hexdigest(),
+            "git_commit": git_commit,
+            "seed": str(seed),
+        }
+        if general_regime_sha is not None:
+            provenance["general_tax_regime_sha256"] = general_regime_sha
         report_path = write_pension_campaign_report(
             report, settings, experiment_id=digest,
-            provenance={
-                "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
-                "tax_regime_sha256": hashlib.sha256(regime_bytes).hexdigest(),
-                "git_commit": git_commit,
-                "seed": str(seed),
-            },
+            provenance=provenance,
         )
     except (*_ERRORS, PensionDataError, UntrustedDatasetError) as exc:
         logger.error("[DATA] event=pension_campaign_cli_failed reason_type=%s reason=%s", type(exc).__name__, exc)

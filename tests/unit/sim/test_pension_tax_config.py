@@ -41,9 +41,11 @@ def test_shipped_regime_is_explicit_and_finite() -> None:
     assert regime.age_withholding_bands == ((0, 0.05), (70, 0.04), (80, 0.03))
     assert regime.above_threshold_separate_rate == pytest.approx(0.15)
     assert regime.non_pension_rate == pytest.approx(0.15)
+    assert regime.foreign_dividend_withholding_rate == pytest.approx(0.15)
+    assert regime.foreign_tax_credit_rate == pytest.approx(0.0)
     assert regime.pension_limit_multiplier == pytest.approx(1.2)
     assert regime.pension_limit_final_year == 10
-    assert len(regime.source_urls) == 4
+    assert len(regime.source_urls) == 6
     assert all(url.startswith("http") for url in regime.source_urls)
 
 
@@ -57,6 +59,15 @@ def test_missing_and_extra_keys_rejected(tmp_path: Path) -> None:
     document["irp_rule"] = True
     with pytest.raises(ValueError, match="extra"):
         load_pension_tax_regime(_write_regime(tmp_path, document))
+
+
+def test_missing_withholding_and_credit_keys_rejected(tmp_path: Path) -> None:
+    """A regime without either foreign-tax key fails closed."""
+    for key in ("foreign_dividend_withholding_rate", "foreign_tax_credit_rate"):
+        document = _shipped_document()
+        del document[key]
+        with pytest.raises(ValueError, match="missing"):
+            load_pension_tax_regime(_write_regime(tmp_path, document))
 
 
 def test_non_object_regime_rejected(tmp_path: Path) -> None:
@@ -95,6 +106,10 @@ def test_regime_field_boundaries(tmp_path: Path) -> None:
         ({"pension_limit_multiplier": float("nan")}, "finite number"),
         ({"above_threshold_separate_rate": 2.0}, "lie in"),
         ({"non_pension_rate": -0.1}, "lie in"),
+        ({"foreign_dividend_withholding_rate": 1.0}, "lie in"),
+        ({"foreign_dividend_withholding_rate": -0.1}, "lie in"),
+        ({"foreign_tax_credit_rate": 1.0}, "lie in"),
+        ({"foreign_tax_credit_rate": -0.1}, "lie in"),
         ({"annual_credit_limit_krw": 19_000_000}, "must not exceed contribution cap"),
         ({"low_income_credit_rate": 0.10}, "must cover high-income rate"),
         ({"age_withholding_bands": []}, "non-empty array"),
