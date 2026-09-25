@@ -28,6 +28,19 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
+class CatalogSnapshot:
+    """Immutable manifest identities selected once for one run's required datasets.
+
+    Attributes:
+        artifacts: Verified artifact for each explicitly required dataset.
+        data_root: Resolved root to prevent cross-root reuse.
+    """
+
+    artifacts: dict[Dataset, DatasetArtifact]
+    data_root: Path
+
+
+@dataclass(frozen=True, slots=True)
 class _FileIdentity:
     """Device, inode, size, and nanosecond mtime of one verified file."""
 
@@ -39,12 +52,11 @@ class _FileIdentity:
 
 @dataclass(frozen=True, slots=True)
 class _CachedFrame:
-    """Verified frame plus the filesystem identity of its three source files."""
+    """Verified frame plus the filesystem identity of its manifest and Parquet."""
 
     frame: pl.DataFrame
     manifest: _FileIdentity
     parquet: _FileIdentity
-    raw: _FileIdentity
 
 
 _CATALOG_FRAME_CACHE: dict[tuple[str, Dataset, str], _CachedFrame] = {}
@@ -65,20 +77,19 @@ def _file_identity(path: Path) -> _FileIdentity:
 
 
 def _verified_frame(settings: DataSettings, dataset: Dataset, artifact: DatasetArtifact) -> pl.DataFrame:
-    """Reuse the cached frame only when manifest, Parquet, and raw identities match."""
+    """Reuse the cached frame only when manifest and Parquet identities match."""
     root = settings.resolved_data_root().resolve()
     manifest_path = Path(artifact.manifest_path).resolve()
     parquet_path = Path(artifact.normalized_path).resolve()
-    raw_path = root.joinpath(*artifact.manifest.raw_artifact.relative_path.parts)
     key = (root.as_posix(), dataset, manifest_path.as_posix())
     entry = _CATALOG_FRAME_CACHE.get(key)
     if entry is not None:
         try:
-            current = (_file_identity(manifest_path), _file_identity(parquet_path), _file_identity(raw_path))
+            current = (_file_identity(manifest_path), _file_identity(parquet_path))
         except UntrustedDatasetError:
             del _CATALOG_FRAME_CACHE[key]
             raise
-        if current == (entry.manifest, entry.parquet, entry.raw):
+        if current == (entry.manifest, entry.parquet):
             return entry.frame
         del _CATALOG_FRAME_CACHE[key]
     frame = DataStore(settings).read_normalized(artifact, spec_for(dataset))
@@ -86,7 +97,6 @@ def _verified_frame(settings: DataSettings, dataset: Dataset, artifact: DatasetA
         frame=frame,
         manifest=_file_identity(manifest_path),
         parquet=_file_identity(parquet_path),
-        raw=_file_identity(raw_path),
     )
     return frame
 
@@ -148,7 +158,7 @@ def load_visible(settings: DataSettings, dataset: Dataset, decision_ts: datetime
         Visible rows after the dataset's revision policy is applied.
 
     Raises:
-        UntrustedDatasetError: If a selected source, manifest, or Parquet file is
+        UntrustedDatasetError: If a selected manifest or Parquet file is
             missing or changed since verification.
         ValueError: If `decision_ts` is naive or the PIT contract is invalid.
     """
@@ -156,6 +166,76 @@ def load_visible(settings: DataSettings, dataset: Dataset, decision_ts: datetime
     frame = _verified_frame(settings, dataset, artifact)
     visible = load_as_of(frame, dataset, decision_ts)
     logger.info("[DATA] event=catalog_visible dataset=%s rows=%d", str(dataset), visible.height)
+    return visible
+
+
+def resolve_snapshot(settings: DataSettings, datasets: tuple[Dataset, ...]) -> CatalogSnapshot:
+    """Resolve and verify every required Silver manifest before a run starts.
+
+    Args:
+        settings: Catalog root.
+        datasets: Exact datasets required by the caller's policy and report.
+
+    Returns:
+        One immutable set of verified partition identities.
+
+    Raises:
+        UntrustedDatasetError: If any required dataset is absent or invalid.
+    """
+    root = settings.resolved_data_root().resolve()
+    artifacts: dict[Dataset, DatasetArtifact] = {}
+    for dataset in dict.fromkeys(datasets):
+        artifact = latest_artifact(settings, dataset)
+        artifacts[dataset] = artifact
+        logger.info(
+            "[DATA] event=catalog_snapshot dataset=%s manifest=%s retrieved_at=%s",
+            str(dataset),
+            Path(artifact.manifest_path).stem,
+            artifact.manifest.retrieved_at.isoformat(),
+        )
+    return CatalogSnapshot(artifacts=artifacts, data_root=root)
+
+
+def load_snapshot_visible(snapshot: CatalogSnapshot, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
+    """Read PIT-visible rows from the partition pinned when the run began.
+
+    Args:
+        snapshot: Resolved run inputs.
+        dataset: Required dataset in the snapshot.
+        decision_ts: Timezone-aware decision instant.
+
+    Returns:
+        The latest visible vintage for each observation key at that instant.
+
+    Raises:
+        UntrustedDatasetError: If the pinned partition changes or is missing.
+        ValueError: If the dataset was not pinned or the instant is naive.
+    """
+    if decision_ts.tzinfo is None or decision_ts.utcoffset() is None:
+        raise ValueError(f"decision_ts must be timezone-aware, got naive datetime {decision_ts!r}")
+    try:
+        artifact = snapshot.artifacts[dataset]
+    except KeyError as exc:
+        raise ValueError(f"dataset {str(dataset)!r} was not pinned in this snapshot") from exc
+    if artifact.manifest.dataset != dataset:
+        raise UntrustedDatasetError(f"pinned artifact dataset mismatch for {str(dataset)!r}")
+    root = snapshot.data_root.resolve()
+    for path in (Path(artifact.normalized_path).resolve(), Path(artifact.manifest_path).resolve()):
+        if path != root and root not in path.parents:
+            raise UntrustedDatasetError(f"{path.as_posix()} is outside snapshot root {root.as_posix()}")
+    try:
+        snapshot_settings = DataSettings(data_root=root)
+        snapshot_settings.resolved_data_root().resolve()
+    except ValueError as exc:
+        raise UntrustedDatasetError(f"snapshot root unusable: {exc}") from exc
+    frame = _verified_frame(snapshot_settings, dataset, artifact)
+    visible = load_as_of(frame, dataset, decision_ts)
+    logger.info(
+        "[DATA] event=catalog_snapshot_visible dataset=%s manifest=%s rows=%d",
+        str(dataset),
+        Path(artifact.manifest_path).stem,
+        visible.height,
+    )
     return visible
 
 

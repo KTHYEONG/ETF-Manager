@@ -225,3 +225,6 @@ tmp/
 # Repository-local dataset artifacts (raw payloads, normalized Parquet, manifests)
 /data/*
 !/data/.gitkeep
+
+# Serena AI Assistant
+.serena/

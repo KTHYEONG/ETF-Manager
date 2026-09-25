@@ -775,3 +775,56 @@ def test_engine_inputs_fail_closed() -> None:
             _fx(_xnys_sessions(date(2023, 12, 1), date(2023, 12, 31))),
             _profile(birth=date(1960, 1, 1), opened=date(2010, 1, 1), years=(2023,)), regime,
         )
+
+
+def test_proxy_krw_marks_matches_engine_reference() -> None:
+    """Extracted mark builders are the engine's single mark source."""
+    import src.sim.pension_engine as engine_module
+    import src.sim.pension_marks as marks_module
+
+    assert engine_module.proxy_krw_marks is marks_module.proxy_krw_marks
+    assert engine_module.PensionDataError is marks_module.PensionDataError
+
+    sessions = _xnys_sessions(date(2023, 1, 2), date(2023, 3, 31))
+    prices = _us_prices(sessions)
+    fx = _fx(sessions)
+    marks = proxy_krw_marks(prices, fx, max_fx_age_days=7, withholding_rate=0.15)
+    assert marks[("SPY", sessions[0])] == pytest.approx(400.0 * 1300.0)
+    assert marks_module.proxy_krw_marks(prices, fx, max_fx_age_days=7, withholding_rate=0.15) == marks
+
+
+def test_mark_modes_carry_distinct_source_labels() -> None:
+    """Proxy and live runs keep their evidence labels on identical economics."""
+    xnys = _xnys_sessions(date(2023, 1, 1), date(2023, 12, 31))
+    xkrx = _xkrx_sessions(date(2023, 1, 1), date(2023, 12, 31))
+    profile = _profile(years=(2023,))
+    regime = _regime()
+
+    proxy_result = run_pension_backtest(
+        _config(start=date(2023, 1, 1), end=date(2023, 12, 31),
+               cash={2023: 6_000_000}, dates={2023: (date(2023, 1, 15),)}),
+        _us_prices(xnys),
+        _fx(xnys),
+        profile,
+        regime,
+    )
+    live_result = run_pension_backtest(
+        _config(start=date(2023, 1, 1), end=date(2023, 12, 31), mode=PensionMarketMode.KR_LIVE,
+               targets={"379800": 1.0}, cash={2023: 6_000_000}, dates={2023: (date(2023, 1, 10),)}),
+        _kr_prices(xkrx),
+        None,
+        profile,
+        regime,
+    )
+    assert proxy_result.market_mode is PensionMarketMode.US_PROXY
+    assert live_result.market_mode is PensionMarketMode.KR_LIVE
+    assert proxy_result.terminal_nav_krw > 0
+    assert live_result.terminal_nav_krw > 0
+    assert live_result.foreign_tax_withheld_krw == 0
+
+
+def test_proxy_marks_rejects_missing_fx_frame() -> None:
+    """Proxy marks without an FX frame fail closed before any fill."""
+    sessions = _xnys_sessions(date(2023, 1, 2), date(2023, 3, 31))
+    with pytest.raises(PensionDataError):
+        proxy_krw_marks(_us_prices(sessions), None, max_fx_age_days=7, withholding_rate=0.15)  # type: ignore[arg-type]

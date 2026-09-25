@@ -285,7 +285,7 @@ def test_inc_clip_cohort_start_to_vehicle_listing(scenario_id: str, monkeypatch:
     as_of = datetime(2026, 8, 28, tzinfo=UTC)
     settings = DataSettings()
 
-    def fake_load_visible(_settings: DataSettings, _dataset: object, _as_of: datetime) -> pl.DataFrame:
+    def fake_snapshot_visible(_snapshot: object, _dataset: object, _as_of: datetime) -> pl.DataFrame:
         return pl.DataFrame(
             {
                 "ticker": ["PAVE", "SOXX"],
@@ -294,7 +294,12 @@ def test_inc_clip_cohort_start_to_vehicle_listing(scenario_id: str, monkeypatch:
             }
         )
 
-    monkeypatch.setattr("src.data.catalog.load_visible", fake_load_visible)
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "src.data.catalog.resolve_snapshot", lambda _settings, _datasets: SimpleNamespace(artifacts={})
+    )
+    monkeypatch.setattr("src.data.catalog.load_snapshot_visible", fake_snapshot_visible)
     catalog_start = date(2007, 8, 31)
     assert clip_incremental_cohort_start(
         catalog_start=catalog_start,
@@ -314,6 +319,139 @@ def test_inc_clip_cohort_start_to_vehicle_listing(scenario_id: str, monkeypatch:
             settings=settings,
             as_of=as_of,
             vehicle_ticker="MISSING",
+        )
+
+
+def test_inc_pinned_factories_read_snapshot_partitions(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pinned price/FX factories and the catalog-min scan read one verified snapshot."""
+    from datetime import UTC, datetime
+    from pathlib import Path as _Path
+
+    import polars as _pl
+
+    from src.analytics.thesis.incremental import (
+        _catalog_min_price_session,
+        _make_fx_at,
+        _make_price_at,
+    )
+    from src.data.calendar import load_calendar as _load_calendar
+    from src.data.pipeline import persist_ingest as _persist
+    from src.data.schema import Dataset as _Dataset
+    from src.data.schema import spec_for as _spec_for
+    from src.data.settings import DataSettings as _Settings
+    from src.data.storage import RawPayload as _Payload
+
+    root = _Path(str(tmp_path))  # type: ignore[arg-type]
+    monkeypatch.chdir(root)
+    settings = _Settings(data_root="data")
+    retrieved_at = datetime(2024, 1, 5, 5, 0, tzinfo=UTC)
+    sessions = list(_load_calendar("XNYS").sessions(date(2024, 1, 2), date(2024, 1, 31)))
+
+    def _payload() -> _Payload:
+        return _Payload(
+            provider="synthetic", endpoint="probe", request_params={},
+            retrieved_at=retrieved_at, extension="json", content=b"{}",
+        )
+
+    _persist(
+        _pl.DataFrame(
+            {
+                "ticker": ["SOXX"] * len(sessions),
+                "date": sessions,
+                "open": [100.0] * len(sessions),
+                "high": [101.0] * len(sessions),
+                "low": [99.0] * len(sessions),
+                "close": [100.0] * len(sessions),
+                "volume": [10_000] * len(sessions),
+                "adjusted_close": [100.0] * len(sessions),
+                "dividend": [0.0] * len(sessions),
+                "split_factor": [1.0] * len(sessions),
+                "source": ["synthetic"] * len(sessions),
+                "retrieved_at": [retrieved_at] * len(sessions),
+            },
+            schema=dict(_spec_for(_Dataset.PRICES).columns),
+        ),
+        _Dataset.PRICES, _payload(), settings,
+    )
+    _persist(
+        _pl.DataFrame(
+            {
+                "date": sessions,
+                "usdkrw": [1300.0] * len(sessions),
+                "source": ["synthetic"] * len(sessions),
+                "retrieved_at": [retrieved_at] * len(sessions),
+            },
+            schema=dict(_spec_for(_Dataset.FX).columns),
+        ),
+        _Dataset.FX, _payload(), settings,
+    )
+    assert _catalog_min_price_session(settings) == sessions[0]
+    assert _make_price_at(settings)(sessions[-1], "SOXX") == 100.0
+    assert _make_fx_at(settings)(sessions[-1]) == 1300.0
+
+
+def test_inc_pinned_catalog_min_short_span_fails_closed(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A sub-horizon lake fails closed after the pinned catalog-min scan."""
+    from datetime import UTC, datetime
+    from pathlib import Path as _Path
+
+    import polars as _pl
+
+    from src.analytics.thesis.incremental import run_incremental_portfolio
+    from src.data.calendar import load_calendar as _load_calendar
+    from src.data.panel_freshness import CatalogPanelReport as _PanelReport
+    from src.data.panel_freshness import PanelFreshnessStatus as _Freshness
+    from src.data.pipeline import persist_ingest as _persist
+    from src.data.schema import Dataset as _Dataset
+    from src.data.settings import DataSettings as _Settings
+    from src.data.storage import RawPayload as _Payload
+
+    root = _Path(str(tmp_path))  # type: ignore[arg-type]
+    monkeypatch.chdir(root)
+    settings = _Settings(data_root="data")
+    retrieved_at = datetime(2024, 1, 5, 5, 0, tzinfo=UTC)
+    sessions = list(_load_calendar("XNYS").sessions(date(2024, 1, 2), date(2024, 1, 31)))
+    rows = [
+        {
+            "ticker": ticker, "date": day, "open": 100.0, "high": 101.0,
+            "low": 99.0, "close": 100.0, "volume": 10_000,
+            "adjusted_close": 100.0, "dividend": 0.0, "split_factor": 1.0,
+            "source": "synthetic", "retrieved_at": retrieved_at,
+        }
+        for ticker in ("QQQ", "SOXX")
+        for day in sessions
+    ]
+    _persist(
+        _pl.DataFrame(rows, schema={
+            "ticker": _pl.String, "date": _pl.Date, "open": _pl.Float64, "high": _pl.Float64,
+            "low": _pl.Float64, "close": _pl.Float64, "volume": _pl.Int64,
+            "adjusted_close": _pl.Float64, "dividend": _pl.Float64, "split_factor": _pl.Float64,
+            "source": _pl.String, "retrieved_at": _pl.Datetime("us", "UTC"),
+        }),
+        _Dataset.PRICES,
+        _Payload(provider="synthetic", endpoint="probe", request_params={},
+                 retrieved_at=retrieved_at, extension="json", content=b"{}"),
+        settings,
+    )
+    panel_as_of = _load_calendar("XNYS").close_ts(sessions[-1])
+    panel = _PanelReport(
+        panel_as_of=panel_as_of, lag_days=1, status=_Freshness.FRESH,
+        ticker_last_session={}, cpi_last_observation=None,
+        fx_last_observation=None, holdings_last_filing=None,
+    )
+
+    def _unused_runner(config: object) -> object:
+        raise AssertionError("runner must not run on a sub-horizon span")
+
+    with pytest.raises(ValueError, match="span too short"):
+        run_incremental_portfolio(
+            settings=settings, as_of=panel_as_of, runner=_unused_runner,  # type: ignore[arg-type]
+            contribution_krw=1_000_000.0, bootstrap_paths=1, seed=1,
+            panel_report=panel, vehicle_ticker="SOXX",
         )
 
 

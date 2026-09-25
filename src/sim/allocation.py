@@ -12,8 +12,7 @@ import polars as pl
 
 from src.analytics.metrics import max_drawdown, real_krw, xirr
 from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
-from src.data.catalog import latest_artifact, load_visible
-from src.data.query import load_as_of
+from src.data.catalog import load_snapshot_visible, resolve_snapshot
 from src.data.schedule import build_decision_schedule, contribution_krw_for_point
 from src.data.schema import Dataset
 from src.etf.mapping import MappingConfig, apply_etf_mapping
@@ -40,12 +39,17 @@ from src.policy.targets import (
     resolve_targets,
 )
 from src.policy.tilt import resolve_tilted_targets
+from src.sim.allocation_market import (
+    AllocationDataError,
+    visible_close,
+    visible_cpi,
+    visible_fx,
+)
 from src.sim.contribution import allocate_contribution
 from src.sim.lots import fill_integer_buys
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-    from datetime import datetime
 
     from src.data.settings import DataSettings
     from src.policy.currency import CurrencyConfig
@@ -71,11 +75,15 @@ __all__ = [
     "apply_operational_contribution_lock",
     "run_allocation",
     "run_allocation_from_store",
+    "visible_close",
+    "visible_cpi",
+    "visible_fx",
 ]
 
 
-class AllocationDataError(RuntimeError):
-    """Missing PIT price, FX, or CPI at an execution close; never skipped silently."""
+_visible_close = visible_close
+_visible_fx = visible_fx
+_visible_cpi = visible_cpi
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,8 +341,8 @@ def run_allocation(
     cpi_levels: list[float] = []
     for month_index, point in enumerate(schedule):
         close_ts = calendar.close_ts(point.execution_session)
-        usdkrw = _visible_fx(fx, point.execution_session, close_ts)
-        cpi_level = _visible_cpi(cpi, point.execution_session, close_ts)
+        usdkrw = visible_fx(fx, point.execution_session, close_ts)
+        cpi_level = visible_cpi(cpi, point.execution_session, close_ts)
         if config.mix_risk_budget is not None:
             targets = resolve_mix_risk_budget_targets(prices, point.signal_at, config.mix_risk_budget)
         elif config.targets_override is not None:
@@ -412,7 +420,7 @@ def run_allocation(
         # Marks cover held leftovers plus spend keys so remapped lots stay in NAV.
         mark_keys = sorted(set(shares_by_ticker) | set(targets))
         mark_prices = {
-            ticker: _visible_close(prices, ticker, point.execution_session, close_ts)
+            ticker: visible_close(prices, ticker, point.execution_session, close_ts)
             for ticker in mark_keys
         }
         marks_krw = {
@@ -514,16 +522,18 @@ def run_allocation(
 
 
 def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) -> AllocationResult:
-    """Load latest PRICES, FX, and CPI partitions (plus FACTORS/MACRO/ETF_METADATA when required), then simulate.
+    """Simulate allocation using PIT-visible inputs from one verified snapshot.
 
-    FACTORS is required only when ``config.tilt`` is set; a plain policy must not
-    depend on the factors dataset at all. MACRO is loaded for an overlay with a
-    VIX threshold or a v3 reserve schedule, and ETF_METADATA only for ETF mapping.
+    Args:
+        config: Existing allocation policy and schedule.
+        settings: Catalog root.
+
+    Returns:
+        Existing allocation result from a reproducible input set.
 
     Raises:
-        UntrustedDatasetError: When any required dataset lacks a manifest-verified partition.
-        AllocationDataError: When the schedule is empty or fills lack data.
-        ValueError: When the policy is a research_proxy identity.
+        UntrustedDatasetError: If required pinned Silver is absent or changes.
+        AllocationDataError: If decision or execution coverage is insufficient.
     """
     if config.policy is PolicyId.FF_PROXY:
         raise ValueError(_RESEARCH_PROXY_REJECT)
@@ -544,21 +554,19 @@ def run_allocation_from_store(config: AllocationConfig, settings: DataSettings) 
         datasets = (*datasets, Dataset.MACRO)
     if need_metadata:
         datasets = (*datasets, Dataset.ETF_METADATA)
-    # Pre-flight trust gate: fail closed before simulating on untrusted partitions.
-    for dataset in datasets:
-        latest_artifact(settings, dataset)
+    snapshot = resolve_snapshot(settings, datasets)
     schedule = build_decision_schedule(
         config.start, config.end, frequency=config.cadence, fill_delay_sessions=config.fill_delay_sessions
     )
     if not schedule:
         raise AllocationDataError(f"empty decision schedule over [{config.start.isoformat()}, {config.end.isoformat()}]")
     cutoff = load_calendar(DEFAULT_CALENDAR_NAME).close_ts(schedule[-1].execution_session)
-    prices = load_visible(settings, Dataset.PRICES, cutoff)
-    fx = load_visible(settings, Dataset.FX, cutoff)
-    cpi = load_visible(settings, Dataset.CPI, cutoff)
-    factors = load_visible(settings, Dataset.FACTORS, cutoff) if config.tilt is not None else None
-    macro = load_visible(settings, Dataset.MACRO, cutoff) if need_macro else None
-    metadata = load_visible(settings, Dataset.ETF_METADATA, cutoff) if need_metadata else None
+    prices = load_snapshot_visible(snapshot, Dataset.PRICES, cutoff)
+    fx = load_snapshot_visible(snapshot, Dataset.FX, cutoff)
+    cpi = load_snapshot_visible(snapshot, Dataset.CPI, cutoff)
+    factors = load_snapshot_visible(snapshot, Dataset.FACTORS, cutoff) if config.tilt is not None else None
+    macro = load_snapshot_visible(snapshot, Dataset.MACRO, cutoff) if need_macro else None
+    metadata = load_snapshot_visible(snapshot, Dataset.ETF_METADATA, cutoff) if need_metadata else None
     return run_allocation(config, prices, fx, cpi, factors=factors, macro=macro, metadata=metadata)
 
 
@@ -572,36 +580,3 @@ def _check_simplex_weights(weights: Mapping[str, float]) -> None:
         total += value
     if not math.isfinite(total) or abs(total - 1.0) > 1e-6:
         raise ValueError(f"targets_override weights must sum to 1.0 within 1e-6, got {total!r}")
-
-
-def _visible_close(prices: pl.DataFrame, ticker: str, session: date, close_ts: datetime) -> float:
-    """Adjusted close of ``ticker`` visible at the execution close; fail-closed."""
-    visible = load_as_of(prices, Dataset.PRICES, close_ts)
-    rows = visible.filter((pl.col("ticker") == ticker) & (pl.col("date") == session))
-    if rows.is_empty():
-        raise AllocationDataError(f"missing {ticker!r} price row on {session.isoformat()} at its execution close")
-    value = rows.item(0, "adjusted_close")
-    if value is None or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0.0:
-        raise AllocationDataError(f"non-positive adjusted_close for {ticker!r} on {session.isoformat()}")
-    return float(value)
-
-
-def _visible_fx(fx: pl.DataFrame, session: date, close_ts: datetime) -> float:
-    """USD/KRW mid rate visible at the execution close; fail-closed."""
-    visible = load_as_of(fx, Dataset.FX, close_ts)
-    rows = visible.filter(pl.col("date") == session)
-    if rows.is_empty():
-        raise AllocationDataError(f"missing usdkrw row on {session.isoformat()} at its execution close")
-    value = rows.item(0, "usdkrw")
-    if value is None or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0.0:
-        raise AllocationDataError(f"null or non-positive usdkrw on {session.isoformat()}")
-    return float(value)
-
-
-def _visible_cpi(cpi: pl.DataFrame, session: date, close_ts: datetime) -> float:
-    """Latest positive CPI level by period_end visible at the execution close; fail-closed."""
-    visible = load_as_of(cpi, Dataset.CPI, close_ts)
-    rows = visible.filter(pl.col("value").is_finite() & (pl.col("value") > 0.0)).sort("period_end")
-    if rows.is_empty():
-        raise AllocationDataError(f"missing positive CPI row on {session.isoformat()} at its execution close")
-    return float(rows.item(rows.height - 1, "value"))

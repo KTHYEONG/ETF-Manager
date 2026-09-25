@@ -757,11 +757,11 @@ def test_missing_market_data_fails_closed() -> None:
     with pytest.raises(AfterTaxDataError, match="usdkrw"):
         run_after_tax(_config(end=date(2024, 6, 28)), prices, null_fx, cpi)
     spec = spec_for(Dataset.CPI)
-    flat_cpi = ingest(
+    future_cpi = ingest(
         pl.DataFrame(
             {
-                "period_end": [date(2023, 12, 1)],
-                "value": [0.0],
+                "period_end": [date(2025, 1, 1)],
+                "value": [100.0],
                 "source": ["synthetic"],
                 "retrieved_at": [_RETRIEVED_AT],
             },
@@ -770,7 +770,7 @@ def test_missing_market_data_fails_closed() -> None:
         Dataset.CPI,
     )
     with pytest.raises(AfterTaxDataError, match="CPI"):
-        run_after_tax(_config(end=date(2024, 6, 28)), prices, fx, flat_cpi)
+        run_after_tax(_config(end=date(2024, 6, 28)), prices, fx, future_cpi)
     ragged = prices.drop("close")
     with pytest.raises(AfterTaxDataError, match="columns"):
         run_after_tax(_config(end=date(2024, 6, 28)), ragged, fx, cpi)
@@ -1234,3 +1234,192 @@ def test_cash_after_final_execution_fails_closed() -> None:
         _cpi_frame(),
     )
     assert sum(snapshot.contribution_krw for snapshot in result.snapshots) == 1_000_000.0
+
+
+def test_run_after_tax_from_store_settlement_fx_remains_pinned(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A concurrent FX ingest after resolve leaves settlement-cutoff reads pinned."""
+    import src.sim.after_tax_engine as _engine
+    from src.data.catalog import resolve_snapshot as _real_resolve
+    from src.data.pipeline import persist_ingest
+    from src.data.schema import Dataset as _Dataset
+    from src.data.storage import RawPayload as _RawPayload
+
+    monkeypatch.chdir(tmp_path)
+    settings = DataSettings(data_root="data")
+
+    def _payload() -> _RawPayload:
+        return _RawPayload(
+            provider="synthetic",
+            endpoint="probe",
+            request_params={},
+            retrieved_at=_RETRIEVED_AT,
+            extension="json",
+            content=b"{}",
+        )
+
+    window = _sessions(date(2024, 1, 2), date(2024, 7, 31))
+    closes = [100.0] * len(window)
+    spec_prices = spec_for(Dataset.PRICES)
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "ticker": ["QQQ"] * len(window),
+                "date": list(window),
+                "open": closes,
+                "high": closes,
+                "low": closes,
+                "close": closes,
+                "volume": [10_000] * len(window),
+                "adjusted_close": closes,
+                "dividend": [0.0] * len(window),
+                "split_factor": [1.0] * len(window),
+                "source": ["synthetic"] * len(window),
+                "retrieved_at": [_RETRIEVED_AT] * len(window),
+            },
+            schema=dict(spec_prices.columns),
+        ),
+        Dataset.PRICES,
+        _payload(),
+        settings,
+    )
+    spec_fx = spec_for(Dataset.FX_KRW_BASE)
+    raw_fx = pl.DataFrame(
+        {
+            "date": list(window),
+            "usdkrw": [1300.0] * len(window),
+            "source": ["synthetic"] * len(window),
+            "retrieved_at": [_RETRIEVED_AT] * len(window),
+        },
+        schema=dict(spec_fx.columns),
+    )
+    persist_ingest(raw_fx, Dataset.FX_KRW_BASE, _payload(), settings)
+    spec_cpi = spec_for(Dataset.CPI)
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "period_end": [date(2023, 12, 1)],
+                "value": [100.0],
+                "source": ["synthetic"],
+                "retrieved_at": [_RETRIEVED_AT],
+            },
+            schema=dict(spec_cpi.columns),
+        ),
+        Dataset.CPI,
+        _payload(),
+        settings,
+    )
+    config = _config(end=date(2024, 6, 28))
+    expected = _engine.run_after_tax_from_store(config, settings)
+
+    def _resolving_then_publishing(inner_settings: object, datasets: tuple[_Dataset, ...]) -> object:
+        snapshot = _real_resolve(inner_settings, datasets)  # type: ignore[arg-type]
+        raced = raw_fx.with_columns(pl.lit(9999.0).alias("usdkrw"))
+        persist_ingest(
+            raced,
+            Dataset.FX_KRW_BASE,
+            _RawPayload(
+                provider="synthetic",
+                endpoint="probe",
+                request_params={},
+                retrieved_at=datetime(2024, 8, 1, 5, 0, tzinfo=UTC),
+                extension="json",
+                content=b"{}",
+            ),
+            inner_settings,  # type: ignore[arg-type]
+        )
+        return snapshot
+
+    monkeypatch.setattr(_engine, "resolve_snapshot", _resolving_then_publishing)
+    actual = _engine.run_after_tax_from_store(config, settings)
+    assert actual.terminal_after_tax_krw == pytest.approx(expected.terminal_after_tax_krw, rel=1e-9)
+
+
+def test_market_indexes_match_engine_references() -> None:
+    """Extracted indexes are the engine's single market-read path."""
+    import src.sim.after_tax_engine as engine_module
+    from src.sim.after_tax_market import _CpiIndex, _FxIndex, _PriceIndex, _RateIndex
+
+    assert engine_module._PriceIndex is _PriceIndex
+    assert engine_module._FxIndex is _FxIndex
+    assert engine_module._CpiIndex is _CpiIndex
+    assert engine_module._RateIndex is _RateIndex
+    assert engine_module.AfterTaxDataError is not None
+
+
+def test_market_indexes_resolve_pinned_execution_marks() -> None:
+    """Index lookups at an execution instant return the pinned marks."""
+    from src.sim.after_tax_market import _CpiIndex, _FxIndex, _PriceIndex, _RateIndex
+
+    days = _sessions(date(2024, 1, 2), date(2024, 3, 29))
+    prices = _prices_frame(days, {"QQQ": [100.0] * len(days)})
+    fx = _fx_frame(days)
+    cpi = _cpi_frame()
+    rates = _rates_frame([(days[0], 0.04)])
+    instant = _CALENDAR.close_ts(days[-1])
+
+    price_index = _PriceIndex(prices)
+    assert price_index.price("QQQ", days[-1], instant, adjusted=False) == pytest.approx(100.0)
+    assert price_index.price("QQQ", days[-1], instant, adjusted=True) == pytest.approx(100.0)
+    assert _FxIndex(fx).resolve(days[-1], instant, 7) == pytest.approx(1300.0)
+    assert _CpiIndex(cpi).resolve(instant) == pytest.approx(100.0)
+    junk_row = pl.DataFrame(
+        {
+            "period_end": [date(2024, 1, 15)],
+            "value": [-5.0],
+            "source": ["synthetic"],
+            "retrieved_at": [_RETRIEVED_AT],
+            "available_at": [datetime(2024, 2, 29, tzinfo=UTC)],
+        },
+        schema=cpi.schema,
+    )
+    junk_cpi = pl.concat([cpi, junk_row])
+    assert _CpiIndex(junk_cpi).resolve(instant) == pytest.approx(100.0)
+    assert _RateIndex(rates).resolve("DTB3", instant) == pytest.approx(0.04)
+
+
+def test_market_indexes_reject_late_and_missing_marks() -> None:
+    """Marks unavailable at the settlement instant fail closed."""
+    from src.sim.after_tax_market import _CpiIndex, _FxIndex, _PriceIndex, _RateIndex
+
+    days = _sessions(date(2024, 1, 2), date(2024, 3, 29))
+    prices = _prices_frame(days, {"QQQ": [100.0] * len(days)})
+    fx = _fx_frame(days)
+    instant = _CALENDAR.close_ts(days[-1])
+
+    early_instant = _CALENDAR.close_ts(days[0])
+    with pytest.raises(AfterTaxDataError):
+        _PriceIndex(prices).price("QQQ", days[-1], early_instant, adjusted=False)
+    with pytest.raises(AfterTaxDataError):
+        _PriceIndex(prices).price("MISSING", days[-1], instant, adjusted=False)
+
+    late_fx = fx.with_columns(pl.col("available_at") + pl.duration(days=60))
+    with pytest.raises(AfterTaxDataError):
+        _FxIndex(late_fx).resolve(days[-1], instant, 7)
+    with pytest.raises(AfterTaxDataError):
+        _FxIndex(fx).resolve(date(2024, 6, 28), instant, 7)
+
+    emptied_cpi = _cpi_frame().filter(pl.col("value") > 1e18)
+    with pytest.raises(AfterTaxDataError):
+        _CpiIndex(emptied_cpi).resolve(instant)
+
+    with pytest.raises(AfterTaxDataError):
+        _RateIndex(None).resolve("DTB3", instant)
+    with pytest.raises(AfterTaxDataError):
+        _RateIndex(_rates_frame([(days[0], 0.04)])).resolve("MISSING", instant)
+
+
+def test_market_index_constructors_reject_ragged_frames() -> None:
+    """Frames lacking required columns cannot back an index."""
+    from src.sim.after_tax_market import _CpiIndex, _FxIndex, _PriceIndex, _RateIndex
+
+    days = _sessions(date(2024, 1, 2), date(2024, 1, 31))
+    with pytest.raises(AfterTaxDataError):
+        _PriceIndex(_prices_frame(days, {"QQQ": [100.0] * len(days)}).drop("close"))
+    with pytest.raises(AfterTaxDataError):
+        _FxIndex(_fx_frame(days).drop("usdkrw"))
+    with pytest.raises(AfterTaxDataError):
+        _CpiIndex(_cpi_frame().drop("value"))
+    with pytest.raises(AfterTaxDataError):
+        _RateIndex(_rates_frame([(days[0], 0.04)]).drop("value"))

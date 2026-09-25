@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -14,12 +13,25 @@ from typing import TYPE_CHECKING, Final, Literal
 
 from src.data.paths import EXPERIMENT_INDEX_PATH, EXPERIMENTS_DIR
 from src.policy.targets import PolicyId
-from src.sim.research_proxy import (
-    run_research_proxy_from_store_with_returns,
-    synthesize_proxy_mix_returns,
-)
 from src.validation.cost_grid import COST_SCENARIOS, CostScenario
 from src.validation.experiment import ExperimentSpec
+from src.validation.historical_campaign_audit import (
+    REGIME_COVERAGE_CATALOG,
+    PreHistoryMixProxyStressReport,
+    PreHistoryProxyStressReport,
+    RegimeCoverageReport,
+    RegimeCoverageRow,
+    RegimeWindow,
+    TrialLineageCensusReport,
+    TrialLineageFamilyRow,
+    _catalog_research_returns_min_date,
+    audit_pre_history_mix_proxy_stress,
+    audit_pre_history_proxy_stress,
+    audit_regime_coverage,
+    build_trial_lineage_census,
+    classify_regime_coverage_tier,
+)
+from src.validation.historical_campaign_report import write_final_historical_campaign_report
 
 if TYPE_CHECKING:
     from src.data.settings import DataSettings
@@ -43,6 +55,7 @@ __all__ = [
     "TaxSensitivityMilestone",
     "TrialLineageCensusReport",
     "TrialLineageFamilyRow",
+    "_catalog_research_returns_min_date",
     "assert_final_campaign_spec",
     "audit_pre_history_mix_proxy_stress",
     "audit_pre_history_proxy_stress",
@@ -80,28 +93,6 @@ FINAL_HISTORICAL_ARMS: Final[tuple[FinalHistoricalArmSpec, ...]] = (
 
 
 @dataclass(frozen=True, slots=True)
-class RegimeWindow:
-    regime_name: str
-    start: date
-    end: date
-
-
-@dataclass(frozen=True, slots=True)
-class RegimeCoverageRow:
-    regime_name: str
-    covered: bool
-    overlap_months: int
-    coverage_tier: str = "none"
-    coverage_fraction: float = 0.0
-
-
-@dataclass(frozen=True, slots=True)
-class RegimeCoverageReport:
-    rows: tuple[RegimeCoverageRow, ...]
-    independent_sample_warning: bool
-
-
-@dataclass(frozen=True, slots=True)
 class TaxSensitivityMilestone:
     status: Literal["not_modelled"]
     rationale: str
@@ -111,43 +102,6 @@ class TaxSensitivityMilestone:
 class PairedCostStressRow:
     scenario_id: str
     candidate_over_baseline_ratio: float
-
-
-@dataclass(frozen=True, slots=True)
-class PreHistoryProxyStressReport:
-    status: Literal["available", "unavailable"]
-    reason: str
-    proxy_window_start: date | None = None
-    proxy_window_end: date | None = None
-    terminal_wealth_real_krw: float | None = None
-    xirr_real: float | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PreHistoryMixProxyStressReport:
-    evidence_tier: str
-    status: str
-    regime_name: str = ""
-    baseline_terminal_real_krw: float | None = None
-    candidate_terminal_real_krw: float | None = None
-    candidate_over_baseline_ratio: float | None = None
-    window_start: date | None = None
-    window_end: date | None = None
-    reason: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class TrialLineageFamilyRow:
-    family_id: str
-    experiment_count: int
-    active_count: int
-    archived_count: int
-
-
-@dataclass(frozen=True, slots=True)
-class TrialLineageCensusReport:
-    total_experiments: int
-    families: tuple[TrialLineageFamilyRow, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,48 +137,13 @@ class FinalHistoricalCampaignReport:
     operational_unlock: bool
     pre_history_mix_proxy: tuple[PreHistoryMixProxyStressReport, ...] = ()
     lineage_hash_census: TrialLineageHashCensus | None = None
+    manifest_hashes: Mapping[str, str | None] = field(default_factory=dict)
 
 
 FINAL_HISTORICAL_MIN_COHORTS: Final[int] = 4
 FINAL_HISTORICAL_TARGET_COHORTS: Final[int] = 10
 # CPI PIT visible at first month-end execution close (see data-flow.md).
 _STATIC_DCA_ALLOCATION_MIN_START: Final[date] = date(2012, 8, 31)
-
-REGIME_COVERAGE_CATALOG: Final[tuple[RegimeWindow, ...]] = (
-    RegimeWindow(regime_name="dot_com", start=date(1998, 3, 1), end=date(2002, 10, 31)),
-    RegimeWindow(regime_name="gfc", start=date(2007, 10, 1), end=date(2009, 3, 31)),
-    RegimeWindow(regime_name="low_rate_2010s", start=date(2010, 1, 4), end=date(2019, 12, 31)),
-    RegimeWindow(regime_name="covid", start=date(2020, 2, 1), end=date(2020, 4, 30)),
-    RegimeWindow(regime_name="inflation_2022", start=date(2022, 1, 3), end=date(2022, 12, 30)),
-    RegimeWindow(regime_name="ai_boom_2023", start=date(2023, 1, 3), end=date(2026, 6, 30)),
-)
-
-
-def _months_between_inclusive(start: date, end: date) -> int:
-    if start > end:
-        return 0
-    return (end.year - start.year) * 12 + (end.month - start.month) + 1
-
-
-def _overlap_months(a_start: date, a_end: date, b_start: date, b_end: date) -> int:
-    inter_start = max(a_start, b_start)
-    inter_end = min(a_end, b_end)
-    if inter_start > inter_end:
-        return 0
-    return _months_between_inclusive(inter_start, inter_end)
-
-
-def classify_regime_coverage_tier(*, overlap_months: int, regime_duration_months: int) -> str:
-    if regime_duration_months <= 0:
-        return "none"
-    fraction = float(overlap_months) / float(regime_duration_months)
-    if fraction >= 0.90:
-        return "full"
-    if fraction >= 0.50:
-        return "substantial"
-    if fraction > 0:
-        return "partial"
-    return "none"
 
 
 def compute_paired_cost_stress_ratios(
@@ -269,101 +188,6 @@ def compute_paired_cost_stress_ratios(
     return tuple(rows)
 
 
-def audit_pre_history_mix_proxy_stress(
-    settings: DataSettings,
-    *,
-    window_start: date,
-    window_end: date,
-    contribution_krw: float,
-    baseline_series: str,
-    candidate_weights: Mapping[str, float],
-    regime_name: str = "",
-) -> PreHistoryMixProxyStressReport:
-    import polars as pl
-
-    from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
-    from src.data.catalog import latest_artifact, load_visible
-    from src.data.schedule import build_decision_schedule
-    from src.data.schema import Dataset
-    from src.sim.allocation import AllocationConfig
-    from src.validation.prospective_registry import _allocation_end_within_as_of
-
-    if not baseline_series or not candidate_weights:
-        return PreHistoryMixProxyStressReport(
-            evidence_tier="proxy_stress_only",
-            status="unavailable",
-            regime_name=str(regime_name),
-            window_start=window_start,
-            window_end=window_end,
-            reason="baseline_series and candidate_weights required",
-        )
-    try:
-        effective_end = _allocation_end_within_as_of(
-            start=window_start,
-            as_of=window_end,
-            fill_delay_sessions=1,
-        )
-    except Exception:
-        effective_end = window_end
-    try:
-        for dataset in (Dataset.RESEARCH_RETURNS, Dataset.FX, Dataset.CPI):
-            latest_artifact(settings, dataset)
-        schedule = build_decision_schedule(window_start, effective_end, fill_delay_sessions=1)
-        if not schedule:
-            raise ValueError(f"empty proxy schedule over [{window_start.isoformat()}, {effective_end.isoformat()}]")
-        cutoff = load_calendar(DEFAULT_CALENDAR_NAME).close_ts(schedule[-1].execution_session)
-        all_returns = load_visible(settings, Dataset.RESEARCH_RETURNS, cutoff)
-        required_series = {str(baseline_series), *(str(k) for k in candidate_weights)}
-        available_series = {str(v) for v in all_returns.get_column("series_id").unique().to_list()}
-        missing = required_series - available_series
-        if missing:
-            raise ValueError(f"missing research_returns series: {sorted(missing)!r}")
-
-        base_returns = all_returns.filter(pl.col("series_id") == str(baseline_series))
-        mix_source = all_returns.filter(pl.col("series_id").is_in(list(candidate_weights.keys())))
-        cand_returns = synthesize_proxy_mix_returns(mix_source, candidate_weights)
-
-        proxy_cfg = AllocationConfig(
-            policy=PolicyId.FF_PROXY,
-            start=window_start,
-            end=effective_end,
-            monthly_contribution_krw=float(contribution_krw),
-            fill_delay_sessions=1,
-            commission_bps=0.0,
-            fx_spread_bps=0.0,
-        )
-        base_res = run_research_proxy_from_store_with_returns(proxy_cfg, settings, base_returns)
-        cand_res = run_research_proxy_from_store_with_returns(proxy_cfg, settings, cand_returns)
-        base_tw = float(base_res.terminal_wealth_real_krw)
-        cand_tw = float(cand_res.terminal_wealth_real_krw)
-        if not math.isfinite(base_tw) or base_tw <= 0.0:
-            raise ValueError(f"non-positive baseline proxy wealth {base_tw!r}")
-        ratio = float(cand_tw / base_tw)
-        return PreHistoryMixProxyStressReport(
-            evidence_tier="proxy_stress_only",
-            status="available",
-            regime_name=str(regime_name),
-            baseline_terminal_real_krw=base_tw,
-            candidate_terminal_real_krw=cand_tw,
-            candidate_over_baseline_ratio=ratio,
-            window_start=window_start,
-            window_end=effective_end,
-            reason="ndx_sox_proxy_mix",
-        )
-    except Exception as exc:
-        return PreHistoryMixProxyStressReport(
-            evidence_tier="proxy_stress_only",
-            status="unavailable",
-            regime_name=str(regime_name),
-            baseline_terminal_real_krw=None,
-            candidate_terminal_real_krw=None,
-            candidate_over_baseline_ratio=None,
-            window_start=window_start,
-            window_end=effective_end if "effective_end" in locals() else window_end,
-            reason=str(exc),
-        )
-
-
 def resolve_final_campaign_window(
     spec: ExperimentSpec,
     settings: DataSettings | None = None,
@@ -379,7 +203,7 @@ def resolve_final_campaign_window(
         try:
             from datetime import UTC
 
-            from src.data.catalog import latest_artifact
+            from src.data.catalog import resolve_snapshot
             from src.data.schema import Dataset, spec_for
             from src.data.storage import DataStore
             from src.policy.targets import policy_sleeves
@@ -402,8 +226,10 @@ def resolve_final_campaign_window(
                     tickers=tickers, settings=settings, as_of=use_as_of
                 )
                 effective_start = max(earliest, _STATIC_DCA_ALLOCATION_MIN_START)
-                latest = latest_artifact(settings, Dataset.PRICES)
-                raw_frame = DataStore(settings).read_normalized(latest, spec_for(Dataset.PRICES))
+                snapshot = resolve_snapshot(settings, (Dataset.PRICES,))
+                raw_frame = DataStore(settings).read_normalized(
+                    snapshot.artifacts[Dataset.PRICES], spec_for(Dataset.PRICES)
+                )
                 max_date_raw = raw_frame.get_column("date").max()
                 if isinstance(max_date_raw, date):
                     catalog_end = min(max_date_raw, SEEN_HISTORY_CUTOFF)
@@ -483,201 +309,10 @@ def assert_final_campaign_spec(spec: ExperimentSpec) -> None:
             classify_strategy_role(targets=arm.targets, adaptive=False)
 
 
-def audit_regime_coverage(
-    *,
-    cohorts: Sequence[tuple[date, date]],
-    catalog: Sequence[RegimeWindow] | None = None,
-) -> RegimeCoverageReport:
-    catalog_seq = tuple(catalog) if catalog is not None else REGIME_COVERAGE_CATALOG
-    rows: list[RegimeCoverageRow] = []
-    for regime in catalog_seq:
-        max_overlap = 0
-        covered = False
-        for c_start, c_end in cohorts:
-            ov = _overlap_months(c_start, c_end, regime.start, regime.end)
-            if ov > 0:
-                covered = True
-            if ov > max_overlap:
-                max_overlap = ov
-        regime_duration = _months_between_inclusive(regime.start, regime.end)
-        coverage_fraction = float(max_overlap) / float(regime_duration) if regime_duration > 0 else 0.0
-        coverage_tier = classify_regime_coverage_tier(overlap_months=max_overlap, regime_duration_months=regime_duration)
-        rows.append(
-            RegimeCoverageRow(
-                regime_name=regime.regime_name,
-                covered=covered,
-                overlap_months=max_overlap,
-                coverage_tier=coverage_tier,
-                coverage_fraction=float(coverage_fraction),
-            )
-        )
-    # independent_sample_warning: step < horizon
-    warning = False
-    if len(cohorts) >= 2:
-        # estimate horizon and step from first two cohorts
-        h = _months_between_inclusive(cohorts[0][0], cohorts[0][1])
-        s0 = cohorts[0][0]
-        s1 = cohorts[1][0]
-        step_months = (s1.year - s0.year) * 12 + (s1.month - s0.month)
-        # horizon months approximate as inclusive months
-        warning = step_months < h
-    elif len(cohorts) == 1:
-        warning = True
-    else:
-        warning = False
-    return RegimeCoverageReport(rows=tuple(rows), independent_sample_warning=warning)
-
-
-def _classify_family(filename: str) -> str:
-    lower = filename.lower()
-    if "adaptive" in lower:
-        return "adaptive"
-    if "reserve" in lower:
-        return "reserve"
-    if "pave" in lower or "ai_power" in lower:
-        return "pave"
-    if "physical_automation" in lower or "robo" in lower or "botz" in lower:
-        return "robo"
-    if "grid" in lower:
-        return "grid"
-    if "soxx" in lower or "ai_compute" in lower:
-        return "soxx"
-    if "cadence" in lower:
-        return "cadence"
-    if "overlay" in lower:
-        return "overlay"
-    if "mapping" in lower:
-        return "mapping"
-    if "currency" in lower:
-        return "currency"
-    if "ff_proxy" in lower:
-        return "proxy"
-    return "qqq_vti"
-
-
-def build_trial_lineage_census(
-    *,
-    index_path: Path,
-    experiments_dir: Path,
-) -> TrialLineageCensusReport:
-    # experiments_dir is noted but not strictly required; keep for wiring spec
-    _ = experiments_dir
-    text = index_path.read_text(encoding="utf-8")
-    payload = json.loads(text)
-    files = payload.get("files", {})
-    families: dict[str, dict[str, int]] = {}
-    for filename, meta in files.items():
-        status = str(meta.get("status", "")).lower()
-        if status not in ("active", "archived"):
-            # skip fixture and others; they are not counted in active+archived census
-            continue
-        fam = _classify_family(str(filename))
-        entry = families.setdefault(fam, {"experiment_count": 0, "active_count": 0, "archived_count": 0})
-        entry["experiment_count"] += 1
-        if status == "active":
-            entry["active_count"] += 1
-        elif status == "archived":
-            entry["archived_count"] += 1
-    # ensure families for empty? If no files, empty.
-    rows = tuple(
-        TrialLineageFamilyRow(
-            family_id=fam,
-            experiment_count=v["experiment_count"],
-            active_count=v["active_count"],
-            archived_count=v["archived_count"],
-        )
-        for fam, v in sorted(families.items())
-    )
-    total = sum(r.experiment_count for r in rows)
-    return TrialLineageCensusReport(total_experiments=total, families=rows)
-
-
 _TAX_SENSITIVITY_MILESTONE: Final[TaxSensitivityMilestone] = TaxSensitivityMilestone(
     status="not_modelled",
     rationale="buy_only_accumulation_defers_realization_tax_until_sale; no PIT tax ledger model",
 )
-
-
-def _catalog_research_returns_min_date(settings: DataSettings) -> date | None:
-    from src.data.catalog import latest_artifact
-    from src.data.schema import Dataset, spec_for
-    from src.data.storage import DataStore
-
-    latest = latest_artifact(settings, Dataset.RESEARCH_RETURNS)
-    df = DataStore(settings).read_normalized(latest, spec_for(Dataset.RESEARCH_RETURNS))
-    if df.is_empty():
-        return None
-    min_val = df.get_column("date").min()
-    if min_val is None:
-        return None
-    return min_val if isinstance(min_val, date) else date.fromisoformat(str(min_val))
-
-
-def audit_pre_history_proxy_stress(
-    settings: DataSettings,
-    *,
-    proxy_start: date,
-    proxy_end: date,
-    contribution_krw: float,
-    fallback_starts: Sequence[date] = (),
-) -> PreHistoryProxyStressReport:
-    from src.sim.allocation import AllocationConfig
-    from src.sim.research_proxy import run_research_proxy_from_store
-    from src.validation.prospective_registry import _allocation_end_within_as_of
-
-    catalog_min = _catalog_research_returns_min_date(settings)
-    start_candidates: list[date] = [proxy_start]
-    if catalog_min is not None:
-        start_candidates.append(catalog_min)
-    for fb in fallback_starts:
-        if fb not in start_candidates:
-            start_candidates.append(fb)
-    last_error = "no_proxy_window_attempted"
-    for effective_start in start_candidates:
-        if effective_start > proxy_end:
-            last_error = "proxy_start_after_end"
-            continue
-        reason_tag = (
-            f"ff_proxy_catalog_min_{effective_start.isoformat()}"
-            if catalog_min is not None and effective_start == catalog_min and proxy_start < catalog_min
-            else f"ff_proxy_from_{effective_start.isoformat()}"
-        )
-        try:
-            effective_end = _allocation_end_within_as_of(
-                start=effective_start,
-                as_of=proxy_end,
-                fill_delay_sessions=1,
-            )
-            cfg = AllocationConfig(
-                policy=PolicyId.FF_PROXY,
-                start=effective_start,
-                end=effective_end,
-                monthly_contribution_krw=float(contribution_krw),
-                fill_delay_sessions=1,
-                commission_bps=0.0,
-                fx_spread_bps=0.0,
-            )
-            result = run_research_proxy_from_store(cfg, settings)
-            tw = float(result.terminal_wealth_real_krw)
-            if not math.isfinite(tw) or tw <= 0.0:
-                raise ValueError(f"non-positive proxy terminal wealth {tw!r}")
-            xirr = float(result.xirr_real) if math.isfinite(float(result.xirr_real)) else None
-            return PreHistoryProxyStressReport(
-                status="available",
-                reason=reason_tag,
-                proxy_window_start=effective_start,
-                proxy_window_end=effective_end,
-                terminal_wealth_real_krw=tw,
-                xirr_real=xirr,
-            )
-        except Exception as exc:
-            last_error = str(exc)
-    return PreHistoryProxyStressReport(
-        status="unavailable",
-        reason=last_error,
-        proxy_window_start=start_candidates[0],
-        proxy_window_end=proxy_end,
-    )
 
 
 def _stress_worst_ratio(
@@ -984,7 +619,19 @@ def run_final_historical_campaign(
     dot_com = next(r for r in REGIME_COVERAGE_CATALOG if r.regime_name == "dot_com")
     gfc = next(r for r in REGIME_COVERAGE_CATALOG if r.regime_name == "gfc")
     pre_history_mix_proxy: tuple[PreHistoryMixProxyStressReport, ...] = ()
+    manifest_hashes: dict[str, str | None] = {}
     if settings is not None:
+        from src.data.catalog import resolve_snapshot
+        from src.data.schema import Dataset as _PinnedDataset
+
+        for _pinned in (_PinnedDataset.PRICES, _PinnedDataset.RESEARCH_RETURNS):
+            _manifests_dir = settings.resolved_data_root() / "manifests" / str(_pinned)
+            if not _manifests_dir.is_dir() or not any(_manifests_dir.glob("*.json")):
+                manifest_hashes[str(_pinned)] = None
+                continue
+            manifest_hashes[str(_pinned)] = Path(
+                resolve_snapshot(settings, (_pinned,)).artifacts[_pinned].manifest_path
+            ).stem
         pre_history_proxy = audit_pre_history_proxy_stress(
             settings,
             proxy_start=dot_com.start,
@@ -1026,123 +673,5 @@ def run_final_historical_campaign(
         pre_history_mix_proxy=pre_history_mix_proxy,
         lineage_hash_census=lineage_hash_census,
         operational_unlock=False,
+        manifest_hashes=manifest_hashes,
     )
-
-
-def write_final_historical_campaign_report(
-    report: FinalHistoricalCampaignReport,
-    settings: DataSettings,
-    *,
-    experiment_id: str,
-) -> Path:
-    from src.data.result_store import ResultKind, write_result
-
-    payload = {
-        "campaign_id": report.campaign_id,
-        "window_start": report.window_start.isoformat(),
-        "window_end": report.window_end.isoformat(),
-        "window": {
-            "start": report.window_start.isoformat(),
-            "end": report.window_end.isoformat(),
-        },
-        "arm_rows": [
-            {
-                "arm_id": row.arm_id,
-                "targets": dict(row.targets),
-                "cohort_count": int(row.cohort_count),
-                "median_ratio": float(row.median_ratio),
-                "p10_ratio": float(row.p10_ratio),
-                "worst_ratio": float(row.worst_ratio),
-                "win_rate": float(row.win_rate),
-                "ce_gamma_10": float(row.ce_gamma_10),
-                "bootstrap_win_rate": float(row.bootstrap_win_rate),
-                "bootstrap_p05": float(row.bootstrap_p05),
-                "xirr_real": float(row.xirr_real),
-                "cost_stress_worst_ratio": float(row.cost_stress_worst_ratio),
-                "fx_stress_worst_ratio": float(row.fx_stress_worst_ratio),
-                "cohort_starts": [d.isoformat() for d in row.cohort_starts],
-                "cohort_ends": [d.isoformat() for d in row.cohort_ends],
-                "paired_cost_stress": [
-                    {"scenario_id": p.scenario_id, "candidate_over_baseline_ratio": float(p.candidate_over_baseline_ratio)}
-                    for p in getattr(row, "paired_cost_stress", ())
-                ],
-            }
-            for row in report.arm_rows
-        ],
-        "regime_coverage": {
-            "rows": [
-                {
-                    "regime_name": r.regime_name,
-                    "covered": bool(r.covered),
-                    "overlap_months": int(r.overlap_months),
-                    "coverage_tier": str(r.coverage_tier),
-                    "coverage_fraction": float(r.coverage_fraction),
-                }
-                for r in report.regime_coverage.rows
-            ],
-            "independent_sample_warning": bool(report.regime_coverage.independent_sample_warning),
-        },
-        "lineage_census": {
-            "total_experiments": int(report.lineage_census.total_experiments),
-            "families": [
-                {
-                    "family_id": f.family_id,
-                    "experiment_count": int(f.experiment_count),
-                    "active_count": int(f.active_count),
-                    "archived_count": int(f.archived_count),
-                }
-                for f in report.lineage_census.families
-            ],
-        },
-        "lineage_hash_census": (
-            {
-                "unique_config_hashes": int(report.lineage_hash_census.unique_config_hashes),
-                "total_run_records": int(report.lineage_hash_census.total_run_records),
-            }
-            if report.lineage_hash_census is not None
-            else None
-        ),
-        "pre_history_mix_proxy": [
-            {
-                "evidence_tier": row.evidence_tier,
-                "status": row.status,
-                "regime_name": row.regime_name,
-                "baseline_terminal_real_krw": row.baseline_terminal_real_krw,
-                "candidate_terminal_real_krw": row.candidate_terminal_real_krw,
-                "candidate_over_baseline_ratio": row.candidate_over_baseline_ratio,
-                "window_start": row.window_start.isoformat() if row.window_start is not None else None,
-                "window_end": row.window_end.isoformat() if row.window_end is not None else None,
-                "reason": row.reason,
-            }
-            for row in report.pre_history_mix_proxy
-        ],
-        "operational_unlock": bool(report.operational_unlock),
-        "tax_sensitivity": {
-            "status": report.tax_sensitivity.status,
-            "rationale": report.tax_sensitivity.rationale,
-        },
-        "pre_history_proxy": {
-            "status": report.pre_history_proxy.status,
-            "reason": report.pre_history_proxy.reason,
-            "proxy_window_start": (
-                report.pre_history_proxy.proxy_window_start.isoformat()
-                if report.pre_history_proxy.proxy_window_start is not None
-                else None
-            ),
-            "proxy_window_end": (
-                report.pre_history_proxy.proxy_window_end.isoformat()
-                if report.pre_history_proxy.proxy_window_end is not None
-                else None
-            ),
-            "terminal_wealth_real_krw": report.pre_history_proxy.terminal_wealth_real_krw,
-            "xirr_real": report.pre_history_proxy.xirr_real,
-        },
-    }
-    ref = write_result(
-        settings,
-        experiment=report.campaign_id,
-        kind=ResultKind.FINAL_HISTORICAL,
-        run_id=experiment_id,
-        payload=payload,
-    )
-    return ref.json_path

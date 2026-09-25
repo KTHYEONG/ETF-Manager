@@ -10,7 +10,7 @@ from pathlib import Path
 from src.analytics.metrics import XirrError
 from src.cli_commands.parser import _UsageError, _resolve_git_commit
 from src.data.catalog import latest_artifact
-from src.data.paths import THESES_DIR
+from src.data.paths import THESES_DIR, resolve_repository_paths
 from src.data.schema import Dataset
 from src.data.settings import DataSettings
 from src.data.storage import UntrustedDatasetError
@@ -74,8 +74,9 @@ def run_validate_command(*, policy_id: str, start: date, end: date, contribution
 def run_ablation_command(*, config_path: str, settings: DataSettings) -> int:
     """Run an identical-cashflow ablation from an experiment JSON and log each gate."""
     try:
-        spec = load_experiment_config(config_path)
-        assert_experiment_preregistration(spec, load_thesis_registry(THESES_DIR))
+        paths = resolve_repository_paths(settings)
+        spec = load_experiment_config(config_path, settings=settings)
+        assert_experiment_preregistration(spec, load_thesis_registry(paths.root / THESES_DIR.as_posix()))
         assert_experiment_feasible(spec, settings)
         report = run_ablation(spec, lambda cfg: run_allocation_from_store(cfg, settings))
         metrics: dict[str, float] = {"candidates": float(len(report.rows)), "adopted": float(sum(row.adopted for row in report.rows))}
@@ -103,7 +104,9 @@ def run_prospective_monitor_command(*, bundle_path: str, as_of: str | date, sett
 
     _ = run_prospective_monitor
     try:
-        bundle = load_prospective_bundle(Path(bundle_path))
+        paths = resolve_repository_paths(settings)
+        bundle_file = Path(bundle_path) if Path(bundle_path).is_absolute() else paths.root / bundle_path
+        bundle = load_prospective_bundle(bundle_file)
         a_date = date.fromisoformat(str(as_of)) if isinstance(as_of, str) else as_of
         report = run_prospective_monitor(bundle=bundle, as_of=a_date, runner=lambda cfg: run_allocation_from_store(cfg, settings), settings=settings, registry_dir=Path(registry_dir) if registry_dir is not None else None, runtime_git_commit=_resolve_git_commit())
         logger.info("[DATA] event=prospective_monitor_cli_done bundle=%s as_of=%s observations=%d registry=%s", bundle.bundle_id, a_date.isoformat(), len(report.observations), report.registry_path.as_posix())
@@ -116,7 +119,7 @@ def run_prospective_monitor_command(*, bundle_path: str, as_of: str | date, sett
 def run_walk_forward_command(*, config_path: str, settings: DataSettings) -> int:
     """Run a walk-forward adoption campaign and persist the report JSON."""
     try:
-        spec = load_experiment_config(config_path)
+        spec = load_experiment_config(config_path, settings=settings)
         if spec.train_months is None or spec.test_months is None:
             raise ValueError("experiment JSON lacks train_months and test_months")
         assert_experiment_feasible(spec, settings)
@@ -142,12 +145,13 @@ def run_strategy_selection_command(*, config_path: str, settings: DataSettings) 
         from src.validation.strategy_selection import make_selection_runner, run_strategy_selection, write_strategy_selection_report
 
         _ = run_strategy_selection
-        spec = load_experiment_config(config_path)
+        paths = resolve_repository_paths(settings)
+        spec = load_experiment_config(config_path, settings=settings)
         if spec.train_months is None or spec.test_months is None:
             raise ValueError("experiment JSON lacks train_months and test_months")
         assert_experiment_feasible(spec, settings)
         if spec.thesis_id is not None:
-            assert_experiment_preregistration(spec, load_thesis_registry(THESES_DIR))
+            assert_experiment_preregistration(spec, load_thesis_registry(paths.root / THESES_DIR.as_posix()))
         report = run_strategy_selection(spec, make_selection_runner(settings, spec))
         record = make_experiment(
             config=AllocationConfig(policy=spec.candidates[0].policy, start=spec.start, end=spec.end, monthly_contribution_krw=spec.contribution_krw, fill_delay_sessions=1, commission_bps=0.0, targets_override=resolve_arm_targets(spec.candidates[0])),
@@ -165,7 +169,7 @@ def run_strategy_selection_command(*, config_path: str, settings: DataSettings) 
 def run_walk_forward_costs_command(*, config_path: str, settings: DataSettings) -> int:
     """Run the walk-forward adoption cost grid and persist one grid report JSON."""
     try:
-        spec = load_experiment_config(config_path)
+        spec = load_experiment_config(config_path, settings=settings)
         if spec.train_months is None or spec.test_months is None:
             raise ValueError("experiment JSON lacks train_months and test_months")
         assert_experiment_feasible(spec, settings)
@@ -186,7 +190,7 @@ def run_walk_forward_costs_command(*, config_path: str, settings: DataSettings) 
 def run_walk_forward_proxy_command(*, config_path: str, settings: DataSettings) -> int:
     """Run the research-proxy walk-forward campaign and persist the report JSON."""
     try:
-        spec = load_experiment_config(config_path)
+        spec = load_experiment_config(config_path, settings=settings)
         if spec.train_months is None or spec.test_months is None:
             raise ValueError("experiment JSON lacks train_months and test_months")
         assert_experiment_feasible(spec, settings)
@@ -209,7 +213,7 @@ def run_cadence_robustness_command(*, config_path: str, settings: DataSettings, 
     if bootstrap_paths < 1:
         raise _UsageError(f"--bootstrap-paths must be >= 1, got {bootstrap_paths}")
     try:
-        spec = load_experiment_config(config_path)
+        spec = load_experiment_config(config_path, settings=settings)
         assert_experiment_feasible(spec, settings)
         report = run_cadence_robustness(spec, lambda cfg: run_allocation_from_store(cfg, settings), n_paths=bootstrap_paths, seed=seed)
         record = make_experiment(
@@ -236,7 +240,7 @@ def run_accumulation_cohort_command(*, config_path: str, settings: DataSettings,
     if seed is None:
         raise _UsageError("--seed is required for accumulation-cohort")
     try:
-        spec = load_experiment_config(config_path)
+        spec = load_experiment_config(config_path, settings=settings)
         assert_experiment_feasible(spec, settings)
         report = run_accumulation_cohort_report(spec, lambda cfg: run_allocation_from_store(cfg, settings), horizon_months=horizon_months, step_months=cohort_step_months, bootstrap_paths=bootstrap_paths, seed=seed)
         record = make_experiment(
@@ -261,7 +265,7 @@ def run_final_historical_campaign_command(*, config_path: str, settings: DataSet
         from src.validation.historical_campaign import assert_final_campaign_spec, run_final_historical_campaign, write_final_historical_campaign_report
 
         _ = run_final_historical_campaign
-        spec = load_experiment_config(config_path)
+        spec = load_experiment_config(config_path, settings=settings)
         assert_final_campaign_spec(spec)
         assert_experiment_feasible(spec, settings)
         report = run_final_historical_campaign(spec, lambda cfg: run_allocation_from_store(cfg, settings), seed=seed, bootstrap_paths=bootstrap_paths, settings=settings)
@@ -329,7 +333,7 @@ def run_audit_feasibility_command(*, config_path: str, settings: DataSettings, w
     from src.validation.feasibility_audit import WAVE2_MIN_120M_COHORTS, audit_static_dca_window, write_feasibility_audit_report
 
     try:
-        spec = load_experiment_config(config_path)
+        spec = load_experiment_config(config_path, settings=settings)
         report = audit_static_dca_window(spec, settings)
         if write_report:
             import uuid
@@ -367,28 +371,26 @@ def run_pension_campaign_command(*, config_path: str, settings: DataSettings, se
         if spec.household is not None:
             general_regime_bytes = Path(spec.household.general_tax_regime_path).read_bytes()
             general_regime_sha = hashlib.sha256(general_regime_bytes).hexdigest()
+        report = run_pension_campaign(spec, settings, seed=seed)
+        consumed = report.manifest_hashes
         if spec.market_mode is PensionMarketMode.KR_LIVE:
-            manifest_hashes = [latest_artifact(settings, Dataset.KR_ETF_PRICES).manifest.normalized_sha256]
+            manifest_hashes = [
+                str(consumed[str(Dataset.KR_ETF_PRICES)]),
+                str(consumed.get(str(Dataset.CPI)) or "NO_TRUSTED_CPI"),
+            ]
         else:
             manifest_hashes = [
-                latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
-                latest_artifact(settings, Dataset.FX_KRW_BASE).manifest.normalized_sha256,
+                str(consumed[str(Dataset.PRICES)]),
+                str(consumed[str(Dataset.FX_KRW_BASE)]),
+                str(consumed.get(str(Dataset.FX)) or "NO_FX_FALLBACK"),
+                str(consumed.get(str(Dataset.CPI)) or "NO_TRUSTED_CPI"),
             ]
-            try:
-                manifest_hashes.append(latest_artifact(settings, Dataset.FX).manifest.normalized_sha256)
-            except UntrustedDatasetError:
-                manifest_hashes.append("NO_FX_FALLBACK")
-        try:
-            manifest_hashes.append(latest_artifact(settings, Dataset.CPI).manifest.normalized_sha256)
-        except UntrustedDatasetError:
-            manifest_hashes.append("NO_TRUSTED_CPI")
         git_commit = _resolve_git_commit()
         digest = hashlib.sha256(
             config_bytes + git_commit.encode() + "".join(manifest_hashes).encode()
             + regime_bytes + general_regime_bytes + str(seed).encode()
         ).hexdigest()[:16]
 
-        report = run_pension_campaign(spec, settings, seed=seed)
         provenance: dict[str, str] = {
             "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
             "tax_regime_sha256": hashlib.sha256(regime_bytes).hexdigest(),
@@ -424,18 +426,15 @@ def run_pension_selection_command(*, config_path: str, settings: DataSettings, s
         tax_bytes = Path(spec.tax_regime_path).read_bytes()
         identity_bytes = Path(spec.etf_identity_path).read_bytes()
         campaign_bytes = [Path(path).read_bytes() for path in spec.historical.campaign_config_paths]
+        report = run_pension_selection(spec, settings, seed=seed)
+        # 식별자는 실행이 고정한 스냅샷에서만 가져온다; 라벨은 게시된 적 없는(부재) 선택 입력에만 쓰인다.
+        consumed = report.manifest_hashes
         manifest_hashes = [
-            latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
-            latest_artifact(settings, Dataset.FX_KRW_BASE).manifest.normalized_sha256,
+            str(consumed[str(Dataset.PRICES)]),
+            str(consumed[str(Dataset.FX_KRW_BASE)]),
+            consumed.get(str(Dataset.FX)) or "NO_FX_FALLBACK",
+            consumed.get(str(Dataset.CPI)) or "NO_TRUSTED_CPI",
         ]
-        try:
-            manifest_hashes.append(latest_artifact(settings, Dataset.FX).manifest.normalized_sha256)
-        except UntrustedDatasetError:
-            manifest_hashes.append("NO_FX_FALLBACK")
-        try:
-            manifest_hashes.append(latest_artifact(settings, Dataset.CPI).manifest.normalized_sha256)
-        except UntrustedDatasetError:
-            manifest_hashes.append("NO_TRUSTED_CPI")
         campaign_hashes = [hashlib.sha256(value).hexdigest() for value in campaign_bytes]
         git_commit = _resolve_git_commit()
         digest = hashlib.sha256(
@@ -455,7 +454,6 @@ def run_pension_selection_command(*, config_path: str, settings: DataSettings, s
             "git_commit": git_commit,
             "seed": str(seed),
         }
-        report = run_pension_selection(spec, settings, seed=seed)
         report_path = write_pension_selection_report(
             report,
             settings,

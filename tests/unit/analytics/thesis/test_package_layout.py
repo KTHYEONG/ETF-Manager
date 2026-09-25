@@ -127,6 +127,48 @@ def test_thesis_package_no_import_of_shims() -> None:
                 pytest.fail(f"{p} imports legacy shim via {needle!r}: found {needle}")
 
 
+def test_thesis_report_shim_resolves_canonical_identities() -> None:
+    """Legacy thesis-report imports resolve to the canonical report objects."""
+    import inspect
+
+    import src.analytics.thesis.report as canonical
+    import src.analytics.thesis_report as shim
+
+    assert shim.ThesisReport is canonical.ThesisReport
+    assert shim.build_thesis_report is canonical.build_thesis_report
+    assert shim.write_thesis_report is canonical.write_thesis_report
+    assert set(shim.__all__) == {"ThesisReport", "build_thesis_report", "write_thesis_report"}
+    assert inspect.signature(shim.build_thesis_report) == inspect.signature(canonical.build_thesis_report)
+    assert inspect.signature(shim.write_thesis_report) == inspect.signature(canonical.write_thesis_report)
+
+
+def test_thesis_shim_imports_have_no_cycle() -> None:
+    """Fresh processes import the thesis package and all shims in either order."""
+    import subprocess
+    import sys
+
+    shims = [
+        "src.analytics.thesis_evidence",
+        "src.analytics.thesis_meaning",
+        "src.analytics.thesis_decision",
+        "src.analytics.thesis_report",
+        "src.analytics.thesis_wave",
+    ]
+    orders = [
+        ["src.analytics.thesis", *shims],
+        [*shims, "src.analytics.thesis"],
+    ]
+    for modules in orders:
+        imports = "; ".join(f"import {name}" for name in modules)
+        completed = subprocess.run(  # noqa: S603
+            [sys.executable, "-c", imports],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert completed.returncode == 0, f"import order {modules} failed: {completed.stderr[-500:]}"
+
+
 def test_ev_no_adoption_import() -> None:
     # behavior freeze check also required in this package test
     for path in [Path("src/analytics/thesis/evidence.py"), Path("src/analytics/thesis_evidence.py")]:

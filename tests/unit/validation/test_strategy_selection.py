@@ -118,3 +118,70 @@ def test_run_strategy_selection_integration_mock() -> None:
     assert report.in_sample_champion_arm_id is None
     assert 'soxx100_adaptive_v5' not in report.oos_eligible_arm_ids
     assert report.recommended_arm_id == 'qqq85_soxx15_adaptive_v5'
+
+
+def test_preload_selection_context_reads_pinned_snapshot(tmp_path, monkeypatch) -> None:
+    """One verified snapshot feeds every PIT input of the selection context."""
+    from datetime import UTC, date, datetime
+
+    import polars as pl
+
+    from src.data.calendar import load_calendar
+    from src.data.pipeline import persist_ingest
+    from src.data.schema import Dataset, spec_for
+    from src.data.settings import DataSettings
+    from src.data.storage import RawPayload
+    from src.validation.strategy_selection import preload_selection_context
+
+    monkeypatch.chdir(tmp_path)
+    settings = DataSettings(data_root="data")
+    retrieved_at = datetime(2024, 1, 5, 5, 0, tzinfo=UTC)
+    sessions = list(load_calendar("XNYS").sessions(date(2024, 1, 2), date(2024, 2, 29)))
+
+    def _payload() -> RawPayload:
+        return RawPayload(provider="synthetic", endpoint="probe", request_params={},
+                          retrieved_at=retrieved_at, extension="json", content=b"{}")
+
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "ticker": ["VT"] * len(sessions), "date": sessions,
+                "open": [100.0] * len(sessions), "high": [101.0] * len(sessions),
+                "low": [99.0] * len(sessions), "close": [100.0] * len(sessions),
+                "volume": [10_000] * len(sessions), "adjusted_close": [100.0] * len(sessions),
+                "dividend": [0.0] * len(sessions), "split_factor": [1.0] * len(sessions),
+                "source": ["synthetic"] * len(sessions), "retrieved_at": [retrieved_at] * len(sessions),
+            },
+            schema=dict(spec_for(Dataset.PRICES).columns),
+        ),
+        Dataset.PRICES, _payload(), settings,
+    )
+    persist_ingest(
+        pl.DataFrame(
+            {"date": sessions, "usdkrw": [1300.0] * len(sessions),
+             "source": ["synthetic"] * len(sessions), "retrieved_at": [retrieved_at] * len(sessions)},
+            schema=dict(spec_for(Dataset.FX).columns),
+        ),
+        Dataset.FX, _payload(), settings,
+    )
+    persist_ingest(
+        pl.DataFrame(
+            {"period_end": [date(2023, 11, 1)], "value": [100.0],
+             "source": ["synthetic"], "retrieved_at": [retrieved_at]},
+            schema=dict(spec_for(Dataset.CPI).columns),
+        ),
+        Dataset.CPI, _payload(), settings,
+    )
+    persist_ingest(
+        pl.DataFrame(
+            {"series_id": ["VIXCLS"], "observation_date": [date(2023, 12, 1)],
+             "release_date": [datetime(2023, 12, 2, tzinfo=UTC)], "value": [15.0]},
+            schema=dict(spec_for(Dataset.MACRO).columns),
+        ),
+        Dataset.MACRO, _payload(), settings,
+    )
+    context = preload_selection_context(settings, start=date(2024, 1, 15), end=date(2024, 2, 26))
+    assert not context.prices.is_empty()
+    assert not context.fx.is_empty()
+    assert not context.cpi.is_empty()
+    assert not context.macro.is_empty()

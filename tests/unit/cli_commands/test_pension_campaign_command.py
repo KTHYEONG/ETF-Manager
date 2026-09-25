@@ -251,6 +251,111 @@ def test_missing_fallback_tolerated_when_unneeded(
     assert payload["fx_provenance"]["fallback_status"] == "UNAVAILABLE"
 
 
+def test_reported_identity_equals_consumed_identity(
+    workspace: tuple[DataSettings, Path, Path],
+) -> None:
+    """The written payload pins the manifests consumed by the run, not a later publication."""
+    from datetime import timedelta
+
+    from src.data.catalog import resolve_snapshot
+
+    settings, proxy_path, _ = workspace
+    _persist_proxy_lake(settings)
+    consumed = resolve_snapshot(settings, (Dataset.PRICES, Dataset.FX_KRW_BASE))
+    consumed_stems = {str(dataset): Path(artifact.manifest_path).stem for dataset, artifact in consumed.artifacts.items()}
+
+    assert campaign_mod.run_pension_campaign_command(config_path=str(proxy_path), settings=settings, seed=7) == 0
+    reports = sorted((results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
+    assert len(reports) == 1
+    payload = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert payload["manifest_hashes"]["prices"] == consumed_stems["prices"]
+    assert payload["manifest_hashes"]["fx_krw_base"] == consumed_stems["fx_krw_base"]
+    assert payload["manifest_hashes"]["fx"] is None
+
+    sessions = list(load_calendar("XNYS").sessions(date(2023, 1, 1), date(2025, 12, 31)))
+    later = _RETRIEVED_AT + timedelta(days=30)
+    rows = []
+    for ticker, base in (("SPY", 405.0), ("QQQ", 305.0)):
+        for index, day in enumerate(sessions):
+            price = base + 0.1 * index
+            rows.append(
+                {
+                    "ticker": ticker, "date": day, "open": price, "high": price, "low": price,
+                    "close": price, "volume": 10_000, "adjusted_close": price, "dividend": 0.0,
+                    "split_factor": 1.0, "source": "synthetic", "retrieved_at": later,
+                }
+            )
+    republished = pl.DataFrame(
+        rows,
+        schema={
+            "ticker": pl.String, "date": pl.Date, "open": pl.Float64, "high": pl.Float64,
+            "low": pl.Float64, "close": pl.Float64, "volume": pl.Int64, "adjusted_close": pl.Float64,
+            "dividend": pl.Float64, "split_factor": pl.Float64, "source": pl.String,
+            "retrieved_at": pl.Datetime("us", "UTC"),
+        },
+    ).select(list(spec_for(Dataset.PRICES).columns))
+    persist_ingest(
+        republished, Dataset.PRICES,
+        RawPayload(provider="synthetic", endpoint="probe", request_params={}, retrieved_at=later,
+                   extension="json", content=b"{}"),
+        settings,
+    )
+    assert campaign_mod.run_pension_campaign_command(config_path=str(proxy_path), settings=settings, seed=7) == 0
+    second = sorted((results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
+    assert len(second) == 2
+    republished_path = next(path for path in second if path not in reports)
+    latest = json.loads(republished_path.read_text(encoding="utf-8"))
+    assert latest["manifest_hashes"]["prices"] != payload["manifest_hashes"]["prices"]
+    assert latest["manifest_hashes"]["fx_krw_base"] == payload["manifest_hashes"]["fx_krw_base"]
+
+
+def test_corrupt_cpi_fails_with_dataset_context(
+    workspace: tuple[DataSettings, Path, Path], caplog: pytest.LogCaptureFixture
+) -> None:
+    """A damaged CPI partition fails the command instead of degrading to an absent fallback."""
+    settings, proxy_path, _ = workspace
+    _persist_proxy_lake(settings)
+    _persist_cpi_lake(settings)
+    Path(latest_artifact(settings, Dataset.CPI).normalized_path).unlink()
+
+    with caplog.at_level("ERROR"):
+        code = campaign_mod.run_pension_campaign_command(config_path=str(proxy_path), settings=settings, seed=7)
+
+    assert code == 1
+    assert "pension_campaign_cli_failed" in caplog.text
+    assert "cpi" in caplog.text.lower()
+    assert not list((results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
+
+
+def test_live_command_records_consumed_identity(
+    workspace: tuple[DataSettings, Path, Path],
+) -> None:
+    """The KR_LIVE report pins the consumed Korean ETF manifest from the run snapshot."""
+    from src.data.catalog import resolve_snapshot
+
+    settings, _, live_path = workspace
+    live_config = dict(json.loads(Path(live_path).read_text(encoding="utf-8")))
+    live_config.update({
+        "start": "2024-01-01",
+        "end": "2024-12-31",
+        "available_cash_events_krw": {"2024-01-03": 6_000_000},
+        "contribution_dates": {"2024": ["2024-01-15"]},
+        "tax_credit_settlement_dates": {"2024": "2025-05-31"},
+        "profiles": [_profile_entry("accum", [2024])],
+    })
+    live_path.write_text(json.dumps(live_config), encoding="utf-8")
+    _persist_live_lake(settings)
+    consumed = resolve_snapshot(settings, (Dataset.KR_ETF_PRICES,))
+    consumed_stem = Path(consumed.artifacts[Dataset.KR_ETF_PRICES].manifest_path).stem
+
+    assert campaign_mod.run_pension_campaign_command(config_path=str(live_path), settings=settings, seed=7) == 0
+    reports = sorted((results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
+    assert len(reports) == 1
+    payload = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert payload["market_mode"] == "kr_live"
+    assert payload["manifest_hashes"]["kr_etf_prices"] == consumed_stem
+
+
 def _persist_cpi_lake(settings: DataSettings) -> None:
     frame = pl.DataFrame(
         {
@@ -262,6 +367,31 @@ def _persist_cpi_lake(settings: DataSettings) -> None:
         schema=dict(spec_for(Dataset.CPI).columns),
     )
     persist_ingest(frame, Dataset.CPI, _payload(), settings)
+
+
+def _persist_live_lake(settings: DataSettings) -> None:
+    sessions = list(load_calendar("XKRX").sessions(date(2024, 1, 1), date(2024, 12, 31)))
+    rows = []
+    for index, day in enumerate(sessions):
+        price = 10000.0 + 2.0 * index
+        rows.append(
+            {
+                "ticker": "379800", "date": day, "close_krw": price, "nav_krw": price,
+                "distribution_krw": 0.0, "distribution_pay_date": None,
+                "split_factor": 1.0, "volume": 1000,
+                "source": "synthetic", "retrieved_at": _RETRIEVED_AT,
+            }
+        )
+    live = pl.DataFrame(
+        rows,
+        schema={
+            "ticker": pl.String, "date": pl.Date, "close_krw": pl.Float64, "nav_krw": pl.Float64,
+            "distribution_krw": pl.Float64, "distribution_pay_date": pl.Date,
+            "split_factor": pl.Float64, "volume": pl.Int64, "source": pl.String,
+            "retrieved_at": pl.Datetime("us", "UTC"),
+        },
+    ).select(list(spec_for(Dataset.KR_ETF_PRICES).columns))
+    persist_ingest(live, Dataset.KR_ETF_PRICES, _payload(), settings, calendar_name="XKRX")
 
 
 def test_digest_includes_general_regime(

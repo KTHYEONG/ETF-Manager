@@ -89,12 +89,12 @@ ETF-Manager/
 │   ├── etf/             # L6: 상장 ETF 종목 매핑, 보수/AUM 평가, 잦은 교체 방지 완충 장치
 │   ├── analytics/       # 5개 관점의 투자 가설 분석(밸류에이션, 수급 쏠림, 구조적 타당성 등)
 │   ├── execution/       # 주문서 생성 및 페이퍼 브로커(PaperBroker) 모의 체결
-│   └── cli_commands/    # CLI 명령어 핸들러 (ingest, sim_run, campaign, thesis)
+│   └── cli_commands/    # CLI 명령어 핸들러 (ingest, sim_run, campaign, thesis, diagnose, maintenance, results)
 ├── configs/
 │   ├── experiments/     # 워크포워드, 코호트 등 실험 설정 JSON 파일
 │   ├── theses/          # 사전 등록된 투자 가설 및 반증 조건 명세
 │   └── prospective/     # OOS 전향적 관측 레지스트리
-├── tests/               # 633개 단위·통합·속성(PBT) 테스트 스위트
+├── tests/               # 단위·통합·속성(PBT) 테스트 스위트 (pytest 수집 기준 1,409 케이스)
 └── docs/                # 아키텍처 및 연구 리포트 상세 문서
     └── architecture/    # 시스템 전체 개요, 데이터 흐름, 컴포넌트, ADR 설계 결정서
 ```
@@ -138,8 +138,8 @@ ETF-Manager/
 
 ## 8. 신뢰성 및 검증 체계 (Validation / Reliability)
 
-* **테스트 스위트:** 총 **633개 단위·통합 테스트** 100% 통과 (`pytest`).
-* **엄격한 정적 분석:** 전체 127개 소스 파일 `mypy --strict` 무오류 통과, `ruff` 린터 전수 준수.
+* **테스트 스위트:** 총 **1,409개 테스트 케이스** 100% 통과 (`pytest`).
+* **엄격한 정적 분석:** 전체 161개 소스 파일 `mypy --strict` 무오류 통과, `ruff` 린터 전수 준수.
 * **속성 기반 테스트 (Hypothesis PBT):** 임의의 가상 시장 경로를 수만 번 생성해 테스트해도 매 거래 후 현금 보존 법칙(Cash Conservation)과 목표 비중 합계($1.0 \pm 10^{-6}$)가 절대 깨지지 않음을 수학적으로 보증.
 * **오류 시 즉시 중단 (Fail-Closed):** 미래 데이터 참조가 감지되거나 결측치가 발견되면 임의로 채우지 않고 즉시 예외(`LookAheadError`, `DataQualityError`)를 발생시켜 오염된 백테스트 결과 생성을 원천 차단.
 * **비용 스트레스 테스트:** 이상적 환경(0 bps)부터 가혹한 환경(환전 30 bps, 수수료 15 bps)까지 4단계 비용 시나리오를 모두 검증.
@@ -196,7 +196,7 @@ uv run python -m src.cli run final-historical-campaign \
   --config experiments/final_historical_campaign_v1.json \
   --seed 42
 
-# 전체 633개 테스트 및 정적 타입 검사
+# 전체 테스트(1,409 케이스) 및 정적 타입 검사
 uv run pytest
 uv run ruff check .
 uv run mypy src

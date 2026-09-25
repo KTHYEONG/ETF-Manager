@@ -50,6 +50,11 @@ def _resolve_git_commit() -> str:
 
 
 def _build_parser() -> _Parser:
+    """Build the existing command parser with explicit data maintenance controls.
+
+    Returns:
+        Parser accepting `maintain data` with dry-run default and `--apply` for mutation.
+    """
     parser = _Parser(prog="etf-manager", description="ETF research ingest CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
     ingest = subparsers.add_parser("ingest", help="Fetch and persist one vendor dataset")
@@ -209,21 +214,16 @@ def _build_parser() -> _Parser:
         required=True,
         help="Path to the experiment JSON (single candidate with train/test months)",
     )
-    # wiring: walk_forward = run_targets.add_parser anchor for strategy-select
+    # strategy-select tournament from an experiment JSON
     strategy_select = run_targets.add_parser(
         "strategy-select",
         help="Walk-forward tournament strategy selection from an experiment JSON",
     )
-    # add_argument("strategy-select") wiring for lean_check
     strategy_select.add_argument(
         "--config",
         required=True,
         help="Path to the experiment JSON (baseline plus preregistered candidates with train/test months)",
     )
-    # wiring: run_prospective_monitor invocation for lean_check
-    from src.validation.prospective_registry import run_prospective_monitor as _pm  # noqa: F401
-
-    _ = "run_prospective_monitor("
     prospective_monitor = run_targets.add_parser(
         "prospective-monitor",
         help="Prospective monitoring run on frozen bundle (post 2026-08-28, append-only)",
@@ -343,8 +343,6 @@ def _build_parser() -> _Parser:
         help="Moving-block bootstrap paths on cohort wealth ratios (must be >= 1)",
     )
     accumulation_cohort.add_argument("--seed", type=int, default=None, help="Bootstrap RNG seed")
-    # wiring: run_final_historical_campaign anchor for lean_check
-    _ = "run_final_historical_campaign("
     final_historical_campaign = run_targets.add_parser(
         "final-historical-campaign",
         help="Final historical campaign 2016-07-01..2026-06-30 QQQ/SOXX 5/10/15 reporting-only",
@@ -427,10 +425,6 @@ def _build_parser() -> _Parser:
     thesis_pipeline.add_argument("--allow-stale", action="store_true", help="Allow stale panel without hard-stop")
     thesis_pipeline.add_argument("--seed", type=int, default=7, help="Bootstrap RNG seed")
     thesis_pipeline.add_argument("--bootstrap-paths", type=int, default=400, help="Bootstrap paths")
-    # wiring: run_thesis_pipeline_command invocation
-    from src.analytics.wave_d_exit import run_thesis_pipeline_command as _run_thesis_pipeline_command
-
-    _ = _run_thesis_pipeline_command
     maintain = subparsers.add_parser("maintain", help="Maintenance utilities")
     maintain_targets = maintain.add_subparsers(dest="target", required=True)
     prune = maintain_targets.add_parser("prune", help="Prune stale partitions and mirrors (dry-run by default)")
@@ -444,6 +438,8 @@ def _build_parser() -> _Parser:
     recover = maintain_targets.add_parser("recover", help="Recover keys lost by a truncated latest partition (dry-run by default)")
     recover.add_argument("dataset", help="Dataset name, e.g. etf_holdings")
     recover.add_argument("--apply", action="store_true", help="Publish the recovered partition; omit for dry-run")
+    data = maintain_targets.add_parser("data", help="Inspect Silver/Bronze health and plan repairs (dry-run by default)")
+    data.add_argument("--apply", action="store_true", help="Apply verified repairs and safe pruning; omit for dry-run")
     results = maintain_targets.add_parser("results", help="Inspect, promote, prune, and migrate run artifacts")
     results_actions = results.add_subparsers(dest="results_action", required=True)
     results_actions.add_parser("list", help="List latest run artifact per experiment, kind, and run id")

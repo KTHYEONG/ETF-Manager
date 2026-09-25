@@ -11,7 +11,8 @@ from typing import Any
 
 import pytest
 
-from src.validation.after_tax_campaign import load_after_tax_campaign_spec, run_after_tax_campaign
+from src.validation.after_tax_campaign import run_after_tax_campaign
+from src.validation.after_tax_campaign_config import load_after_tax_campaign_spec
 
 _STATIC_QQQ = {"rule_id": "static", "core_targets": {"QQQ": 1.0}}
 

@@ -221,15 +221,15 @@ def test_sim_h04_tilt_none_identity(scenario_id: str) -> None:
 
 def test_sim_h04_store_loads_factors_only_for_tilt(monkeypatch: pytest.MonkeyPatch) -> None:
     """SIM-H04-tilt-none-identity"""
-    requested: list[Dataset] = []
+    requested: list[tuple[Dataset, ...]] = []
     loaded: list[Dataset] = []
     captured: dict[str, object] = {}
 
-    def fake_latest(settings: object, dataset: Dataset) -> object:
-        requested.append(dataset)
+    def fake_resolve(settings: object, datasets: tuple[Dataset, ...]) -> object:
+        requested.append(tuple(datasets))
         return object()
 
-    def fake_visible(settings: object, dataset: Dataset, decision_ts: object) -> pl.DataFrame:
+    def fake_snapshot_visible(snapshot: object, dataset: Dataset, decision_ts: object) -> pl.DataFrame:
         loaded.append(dataset)
         return pl.DataFrame()
 
@@ -256,13 +256,13 @@ def test_sim_h04_store_loads_factors_only_for_tilt(monkeypatch: pytest.MonkeyPat
             xirr_real=-0.1,
         )
 
-    monkeypatch.setattr(allocation_module, "latest_artifact", fake_latest)
-    monkeypatch.setattr(allocation_module, "load_visible", fake_visible)
+    monkeypatch.setattr(allocation_module, "resolve_snapshot", fake_resolve)
+    monkeypatch.setattr(allocation_module, "load_snapshot_visible", fake_snapshot_visible)
     monkeypatch.setattr(allocation_module, "run_allocation", fake_run)
 
     plain = allocation_module.run_allocation_from_store(_allocation_config(PolicyId.VT), settings=object())  # type: ignore[arg-type]
     assert plain.terminal_wealth_krw == 1.0
-    assert Dataset.FACTORS not in requested
+    assert all(Dataset.FACTORS not in datasets for datasets in requested)
     assert Dataset.FACTORS not in loaded
     assert captured["factors"] is None
 
@@ -271,7 +271,7 @@ def test_sim_h04_store_loads_factors_only_for_tilt(monkeypatch: pytest.MonkeyPat
     captured.clear()
     tilted = replace(_allocation_config(PolicyId.WORLD_SPLIT), tilt=FactorTilt(factor="hml", intensity=0.1))
     allocation_module.run_allocation_from_store(tilted, settings=object())  # type: ignore[arg-type]
-    assert Dataset.FACTORS in requested
+    assert any(Dataset.FACTORS in datasets for datasets in requested)
     assert Dataset.FACTORS in loaded
     assert isinstance(captured["factors"], pl.DataFrame)
 
@@ -781,20 +781,20 @@ def test_sim_l_forwards_cadence(scenario_id: str, monkeypatch: pytest.MonkeyPatc
     assert captured_kwargs[0]["fill_delay_sessions"] == 1
 
     captured_kwargs.clear()
-    requested: list[Dataset] = []
+    requested: list[tuple[Dataset, ...]] = []
 
-    def fake_latest(settings: object, dataset: Dataset) -> object:
-        requested.append(dataset)
+    def fake_resolve(settings: object, datasets: tuple[Dataset, ...]) -> object:
+        requested.append(tuple(datasets))
         return object()
 
-    monkeypatch.setattr(allocation_module, "latest_artifact", fake_latest)
+    monkeypatch.setattr(allocation_module, "resolve_snapshot", fake_resolve)
 
     with pytest.raises(AllocationDataError, match="empty decision schedule"):
         allocation_module.run_allocation_from_store(  # type: ignore[arg-type]
             replace(plain, cadence="month_open"), settings=object()
         )
     assert captured_kwargs[-1]["frequency"] == "month_open"
-    assert Dataset.PRICES in requested
+    assert any(Dataset.PRICES in datasets for datasets in requested)
 
 
 @pytest.mark.parametrize("scenario_id", ["SIM-T-twice-monthly"])
@@ -854,23 +854,23 @@ def test_sim_t_twice_monthly(scenario_id: str, monkeypatch: pytest.MonkeyPatch) 
     assert sum(contributions) == pytest.approx(2_000_000.0)
 
     captured_kwargs.clear()
-    requested: list[Dataset] = []
+    requested_twice: list[tuple[Dataset, ...]] = []
 
-    def fake_latest(settings: object, dataset: Dataset) -> object:
-        requested.append(dataset)
+    def fake_resolve_twice(settings: object, datasets: tuple[Dataset, ...]) -> object:
+        requested_twice.append(tuple(datasets))
         return object()
 
     def empty_schedule(start: date, end: date, **kwargs: object) -> tuple[DecisionPoint, ...]:
         captured_kwargs.append(kwargs)
         return ()
 
-    monkeypatch.setattr(allocation_module, "latest_artifact", fake_latest)
+    monkeypatch.setattr(allocation_module, "resolve_snapshot", fake_resolve_twice)
     monkeypatch.setattr(allocation_module, "build_decision_schedule", empty_schedule)
 
     with pytest.raises(AllocationDataError, match="empty decision schedule"):
         allocation_module.run_allocation_from_store(config, settings=object())  # type: ignore[arg-type]
     assert captured_kwargs[-1]["frequency"] == "twice_monthly"
-    assert Dataset.PRICES in requested
+    assert any(Dataset.PRICES in datasets for datasets in requested_twice)
 
 
 @pytest.mark.parametrize("scenario_id", ["SIM-O-targets-override"])
@@ -1031,3 +1031,221 @@ def test_sim_mrb_exclusive_and_lock_skip() -> None:
     assert skipped.targets_override is None
     assert skipped.mix_risk_budget is OPERATIONAL_MIX_RISK_BUDGET
     assert OPERATIONAL_TARGETS_OVERRIDE == {'QQQ': 0.9, 'SOXX': 0.1}
+
+
+def _store_payload(retrieved_at: datetime) -> object:
+    from src.data.storage import RawPayload
+
+    return RawPayload(
+        provider="synthetic",
+        endpoint="probe",
+        request_params={},
+        retrieved_at=retrieved_at,
+        extension="json",
+        content=b"{}",
+    )
+
+
+def _persist_store_frames(
+    settings: object,
+    window: tuple[date, ...],
+    *,
+    close: float = 100.0,
+    fx_rate: float = 1300.0,
+    retrieved_at: datetime = _RETRIEVED_AT,
+) -> None:
+    from src.data.pipeline import persist_ingest
+
+    spec_prices = spec_for(Dataset.PRICES)
+    n_prices = len(window)
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "ticker": ["VT"] * n_prices,
+                "date": list(window),
+                "open": [close * 0.98] * n_prices,
+                "high": [close * 1.02] * n_prices,
+                "low": [close * 0.97] * n_prices,
+                "close": [close] * n_prices,
+                "volume": [10_000] * n_prices,
+                "adjusted_close": [close] * n_prices,
+                "dividend": [0.0] * n_prices,
+                "split_factor": [1.0] * n_prices,
+                "source": ["synthetic"] * n_prices,
+                "retrieved_at": [retrieved_at] * n_prices,
+            },
+            schema=dict(spec_prices.columns),
+        ),
+        Dataset.PRICES,
+        _store_payload(retrieved_at),  # type: ignore[arg-type]
+        settings,  # type: ignore[arg-type]
+    )
+    spec_fx = spec_for(Dataset.FX)
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "date": list(window),
+                "usdkrw": [fx_rate] * len(window),
+                "source": ["synthetic"] * len(window),
+                "retrieved_at": [retrieved_at] * len(window),
+            },
+            schema=dict(spec_fx.columns),
+        ),
+        Dataset.FX,
+        _store_payload(retrieved_at),  # type: ignore[arg-type]
+        settings,  # type: ignore[arg-type]
+    )
+    spec_cpi = spec_for(Dataset.CPI)
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "period_end": [date(2023, 12, 1)],
+                "value": [100.0],
+                "source": ["synthetic"],
+                "retrieved_at": [retrieved_at],
+            },
+            schema=dict(spec_cpi.columns),
+        ),
+        Dataset.CPI,
+        _store_payload(retrieved_at),  # type: ignore[arg-type]
+        settings,  # type: ignore[arg-type]
+    )
+
+
+def test_run_allocation_from_store_remains_pinned_after_ingest(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A catalog publication between resolve and read leaves consumed inputs pinned."""
+    from pathlib import Path as _Path
+
+    from src.data.catalog import resolve_snapshot as _real_resolve
+    from src.data.settings import DataSettings
+
+    root = _Path(str(tmp_path)) / "pinned"  # type: ignore[arg-type]
+    root.mkdir()
+    monkeypatch.chdir(root)
+    settings = DataSettings(data_root="data")
+    window = _panel_window()
+    _persist_store_frames(settings, window)
+    config = _allocation_config(PolicyId.VT)
+    expected = allocation_module.run_allocation_from_store(config, settings)
+
+    def _resolving_then_publishing(inner_settings: object, datasets: tuple[Dataset, ...]) -> object:
+        snapshot = _real_resolve(inner_settings, datasets)  # type: ignore[arg-type]
+        _persist_store_frames(
+            inner_settings,
+            window,
+            close=999.0,
+            fx_rate=9999.0,
+            retrieved_at=datetime(2024, 5, 1, 5, 0, tzinfo=UTC),
+        )
+        return snapshot
+
+    monkeypatch.setattr(allocation_module, "resolve_snapshot", _resolving_then_publishing)
+    actual = allocation_module.run_allocation_from_store(config, settings)
+    assert actual.terminal_wealth_krw == pytest.approx(expected.terminal_wealth_krw, rel=1e-9)
+
+
+def test_run_allocation_from_store_plain_policy_without_factors(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plain policy without FACTORS runs while FACTORS stays absent."""
+    from pathlib import Path as _Path
+
+    from src.data.settings import DataSettings
+
+    root = _Path(str(tmp_path)) / "plain"  # type: ignore[arg-type]
+    root.mkdir()
+    monkeypatch.chdir(root)
+    settings = DataSettings(data_root="data")
+    _persist_store_frames(settings, _panel_window())
+    result = allocation_module.run_allocation_from_store(_allocation_config(PolicyId.VT), settings)
+    assert len(result.snapshots) > 0
+    assert result.terminal_wealth_krw > 0.0
+
+
+def test_visible_close_matches_engine_execution_fills() -> None:
+    """Extracted market readers agree with the engine at every execution instant."""
+    from src.sim.allocation_market import visible_close, visible_cpi, visible_fx
+
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, ("VT",)), Dataset.PRICES)
+    fx = ingest(_fx_panel(window), Dataset.FX)
+    cpi = _constant_cpi()
+
+    session = window[len(window) // 2]
+    close_ts = _CALENDAR.close_ts(session)
+    assert visible_close(prices, "VT", session, close_ts) == pytest.approx(100.0)
+    assert allocation_module._visible_close(prices, "VT", session, close_ts) == pytest.approx(100.0)
+    assert visible_fx(fx, session, close_ts) == pytest.approx(1300.0)
+    assert allocation_module._visible_fx(fx, session, close_ts) == pytest.approx(1300.0)
+    assert visible_cpi(cpi, session, close_ts) == pytest.approx(100.0)
+    assert allocation_module._visible_cpi(cpi, session, close_ts) == pytest.approx(100.0)
+
+    result = run_allocation(_allocation_config(PolicyId.VT), prices, fx, cpi)
+    assert result.snapshots
+    for snapshot in result.snapshots:
+        instant = _CALENDAR.close_ts(snapshot.session)
+        assert visible_close(prices, "VT", snapshot.session, instant) == pytest.approx(100.0)
+        assert visible_fx(fx, snapshot.session, instant) == pytest.approx(1300.0)
+
+
+def test_visible_close_rejects_future_unavailable_row() -> None:
+    """A close requested before its session close is not yet visible."""
+    from src.sim.allocation_market import visible_close
+
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, ("VT",)), Dataset.PRICES)
+    session = window[5]
+    early_ts = _CALENDAR.close_ts(window[4])
+    with pytest.raises(AllocationDataError):
+        visible_close(prices, "VT", session, early_ts)
+
+
+def test_visible_close_rejects_research_proxy_rows() -> None:
+    """Research-return rows cannot satisfy an executable close request."""
+    from src.sim.allocation_market import visible_close
+
+    window = _panel_window()
+    proxy = pl.DataFrame(
+        {
+            "date": [window[5]],
+            "series_id": ["NDX100"],
+            "simple_return": [0.001],
+        }
+    )
+    with pytest.raises(AllocationDataError):
+        visible_close(proxy, "VT", window[5], _CALENDAR.close_ts(window[5]))
+
+
+def test_visible_readers_reject_missing_and_invalid_rows() -> None:
+    """Absent sessions and non-positive marks fail closed at the execution close."""
+    from src.sim.allocation_market import visible_close, visible_cpi, visible_fx
+
+    window = _panel_window()
+    prices = ingest(_prices_panel(window, ("VT",)), Dataset.PRICES)
+    fx = ingest(_fx_panel(window), Dataset.FX)
+    cpi = _constant_cpi()
+    session = window[len(window) // 2]
+    close_ts = _CALENDAR.close_ts(session)
+
+    with pytest.raises(AllocationDataError):
+        visible_close(prices, "MISSING", session, close_ts)
+    zeroed = prices.with_columns(
+        pl.when(pl.col("ticker") == "VT")
+        .then(0.0)
+        .otherwise(pl.col("adjusted_close"))
+        .alias("adjusted_close")
+    )
+    with pytest.raises(AllocationDataError):
+        visible_close(zeroed, "VT", session, close_ts)
+
+    with pytest.raises(AllocationDataError):
+        visible_fx(fx, date(2020, 1, 1), close_ts)
+    broken_fx = fx.with_columns(pl.lit(-1.0).alias("usdkrw"))
+    with pytest.raises(AllocationDataError):
+        visible_fx(broken_fx, session, close_ts)
+
+    emptied_cpi = cpi.filter(pl.col("value") > 1e18)
+    with pytest.raises(AllocationDataError):
+        visible_cpi(emptied_cpi, session, close_ts)

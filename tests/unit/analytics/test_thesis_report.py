@@ -161,9 +161,9 @@ def test_rpt_d_surface_and_primary_fields(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr("src.validation.prospective.resolve_horizon_surface", fake_horizon_surface)
     monkeypatch.setattr("src.validation.prospective.resolve_evaluation_horizon", fake_eval_horizon)
     monkeypatch.setattr("src.validation.prospective.resolve_proxy_history_span", fake_proxy)
-    monkeypatch.setattr("src.analytics.thesis_report.resolve_horizon_surface", fake_horizon_surface)
-    monkeypatch.setattr("src.analytics.thesis_report.resolve_evaluation_horizon", fake_eval_horizon)
-    monkeypatch.setattr("src.analytics.thesis_report.resolve_proxy_history_span", fake_proxy)
+    monkeypatch.setattr("src.analytics.thesis.report.resolve_horizon_surface", fake_horizon_surface)
+    monkeypatch.setattr("src.analytics.thesis.report.resolve_evaluation_horizon", fake_eval_horizon)
+    monkeypatch.setattr("src.analytics.thesis.report.resolve_proxy_history_span", fake_proxy)
     monkeypatch.setattr("src.validation.accumulation_cohort.run_accumulation_cohort_report", fake_cohort)
 
     def fake_load_visible(settings, dataset, decision_ts):

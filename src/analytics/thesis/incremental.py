@@ -16,6 +16,7 @@ import polars as pl
 
 from src.analytics.thesis.meaning import PortfolioEvidenceStatus, ThesisMeaningSnapshot
 from src.data.panel_freshness import CatalogPanelReport, effective_thesis_end, resolve_catalog_panel_as_of
+from src.data.schema import Dataset
 from src.data.settings import DataSettings
 from src.policy.targets import PolicyId
 from src.sim.allocation import AllocationConfig, AllocationResult
@@ -153,10 +154,10 @@ def clip_incremental_cohort_start(
     """Clip cohort start to the vehicle's first PIT price session."""
     import polars as pl
 
-    from src.data.catalog import load_visible
-    from src.data.schema import Dataset
+    from src.data.catalog import load_snapshot_visible, resolve_snapshot
 
-    prices = load_visible(settings, Dataset.PRICES, as_of)
+    snapshot = resolve_snapshot(settings, (Dataset.PRICES,))
+    prices = load_snapshot_visible(snapshot, Dataset.PRICES, as_of)
     vehicle_rows = prices.filter(pl.col("ticker") == vehicle_ticker)
     if vehicle_rows.is_empty():
         raise ValueError(f"no price history for vehicle {vehicle_ticker!r}")
@@ -337,14 +338,25 @@ def _resolve_panel(settings: DataSettings, as_of: datetime, panel_report: Catalo
     return panel_report if panel_report is not None else resolve_catalog_panel_as_of(settings, reference_now=as_of)
 
 
-def _make_price_at(settings: DataSettings) -> Callable[[date, str], float]:
-    from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
-    from src.data.catalog import latest_artifact
-    from src.data.query import load_as_of
-    from src.data.schema import Dataset, spec_for
+def _read_pinned(settings: DataSettings, dataset: Dataset) -> pl.DataFrame:
+    """Read one dataset through a verified snapshot pin instead of the mutable latest view."""
+    from src.data.catalog import resolve_snapshot
+    from src.data.schema import spec_for
     from src.data.storage import DataStore
 
-    prices = DataStore(settings).read_normalized(latest_artifact(settings, Dataset.PRICES), spec_for(Dataset.PRICES))
+    return DataStore(settings).read_normalized(resolve_snapshot(settings, (dataset,)).artifacts[dataset], spec_for(dataset))
+
+
+def _catalog_min_price_session(settings: DataSettings) -> date:
+    min_raw = _read_pinned(settings, Dataset.PRICES).get_column("date").min()
+    return max(min_raw if isinstance(min_raw, date) else date(2012, 8, 31), date(2012, 8, 31))
+
+
+def _make_price_at(settings: DataSettings) -> Callable[[date, str], float]:
+    from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
+    from src.data.query import load_as_of
+
+    prices = _read_pinned(settings, Dataset.PRICES)
     cal = load_calendar(DEFAULT_CALENDAR_NAME)
 
     def _price_at(d: date, ticker: str) -> float:
@@ -361,12 +373,9 @@ def _make_price_at(settings: DataSettings) -> Callable[[date, str], float]:
 
 def _make_fx_at(settings: DataSettings) -> Callable[[date], float]:
     from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
-    from src.data.catalog import latest_artifact
     from src.data.query import load_as_of
-    from src.data.schema import Dataset, spec_for
-    from src.data.storage import DataStore
 
-    fx = DataStore(settings).read_normalized(latest_artifact(settings, Dataset.FX), spec_for(Dataset.FX))
+    fx = _read_pinned(settings, Dataset.FX)
     cal = load_calendar(DEFAULT_CALENDAR_NAME)
 
     def _fx_at(d: date) -> float:
@@ -410,13 +419,7 @@ def run_incremental_portfolio(
     # Determine start for cohorts: try catalog min, else fallback
     start: date
     try:
-        from src.data.catalog import latest_artifact
-        from src.data.schema import Dataset, spec_for
-        from src.data.storage import DataStore
-
-        frame = DataStore(settings).read_normalized(latest_artifact(settings, Dataset.PRICES), spec_for(Dataset.PRICES))
-        min_raw = frame.get_column("date").min()
-        start = max(min_raw if isinstance(min_raw, date) else date(2012, 8, 31), date(2012, 8, 31))
+        start = _catalog_min_price_session(settings)
     except Exception:
         start = date(2012, 8, 31)
     start, end = clamp_inclusive_session_range(cal, start, end)

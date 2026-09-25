@@ -1,6 +1,28 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_REFACTOR_07_13",
+      "date": "2026-09-25",
+      "adr_id": "ADR_20260925_REFACTOR_07_13",
+      "domain": "data",
+      "title": "Data trust, doctor, gold snapshots, paths, campaigns, engines, CLI compat (Units 7-13)",
+      "why": "Bronze-dependent Silver trust and fail-open merges let a truncated partition become the latest view without any error.",
+      "resolution": "Silver trusted on manifest+Parquet identity, doctor/maintain commands, pinned gold snapshots with consumed manifest hashes, split campaign/engine modules, and compat shims.",
+      "impact": "Data never silently shrinks, damaged sources stop runs, and results record exactly the manifests consumed.",
+      "caveat": "Campaign commands other than pension and sim/baseline.py still re-resolve latest_artifact after the run (Unit 9C follow-up)."
+    },
+    {
+      "task_id": "TASK_REFACTOR_13_ANALYTICS_DOCS",
+      "date": "2026-09-25",
+      "adr_id": "ADR_20260925_REFACTOR_13_ANALYTICS_DOCS",
+      "domain": "data",
+      "title": "Analytics import compatibility, agent map, and pension selection snapshot pinning",
+      "why": "Analytics shims used sys.modules hacks, code_map regeneration dropped curated families, and pension selection recorded manifest identities after the run while treating damaged optional Silver as absent.",
+      "resolution": "Explicit thesis_report re-exports, maintain handlers moved to cli_commands/maintenance.py, code_map generator preserves curated fields, and run_pension_selection pins Silver via snapshot and records consumed manifest hashes.",
+      "impact": "Results reflect exactly the manifests consumed; damaged FX/CPI or panel Silver stops the run while never-published optional data stays absent.",
+      "caveat": "Other campaign commands and sim/baseline.py still re-resolve latest_artifact after the run; Unit 9C follow-up."
+    },
+    {
       "task_id": "refactor_data_merge",
       "date": "2026-09-25",
       "adr_id": "ADR_20260925_refactor_data_merge",
@@ -989,26 +1011,6 @@
       "why": "Phase 2 only supported single-ticker B0/B1 DCA; Phase 3 requires regional/defensive alternatives under identical KRW cashflows with PIT target weights.",
       "resolution": "Implemented session_returns and trailing_simple_vol (L2), six PolicyId targets including inverse-vol (L3), buy-only multi-sleeve run_allocation with CPI real metrics, and run policy CLI; S0 matches B0 on identical panels.",
       "impact": "Closes Phase 3 simple allocation research path; unblocks Phase 4 factor tilts and Phase 5 contribution rebalancing."
-    },
-    {
-      "task_id": "TASK_P2C_PHASE2_COMPLETE",
-      "date": "2026-08-22",
-      "adr_id": "ADR_20260822_P2C_PHASE2_COMPLETE",
-      "domain": "simulation",
-      "title": "Phase 2-C: History Ingest + Real KRW (Phase 2 close-out)",
-      "why": "Phase 2 required long-window ingest and CPI-deflated KRW performance; P2-B only covered smoke window and nominal terminal wealth.",
-      "resolution": "Added ingest history CLI (VT/VTI + FRED FX + ECOS CPI), real_krw deflator, run_baseline CPI consumption with terminal_wealth_real_krw and xirr_real, and CLI real metrics logging.",
-      "impact": "Phase 2 complete: B0/B1 DCA, FX conversion, history ingest, and PIT real KRW reporting; unblocks Phase 3 strategic allocation and feature layer."
-    },
-    {
-      "task_id": "TASK_P2B_RUN_CLI_SMOKE",
-      "date": "2026-08-22",
-      "adr_id": "ADR_20260822_P2B_RUN_CLI_SMOKE",
-      "domain": "simulation",
-      "title": "Phase 2-B: Run CLI, SOPS dotenv, Live Ingest Smoke",
-      "why": "P2-A had ingest CLI but no run baseline command; SOPS decrypt lacked dotenv flags; operators could not verify live API pulls end-to-end.",
-      "resolution": "Fixed load_provider_secrets sops argv; added ingest smoke (FRED FX + Tiingo prices required, ECOS CPI optional) and run baseline CLI wiring run_baseline_from_store; ECOS date-format fix for CPI requests.",
-      "impact": "First operator workflow: ingest smoke then run baseline from catalog; unblocks extended historical ingest and P2-C multi-sleeve/tax extensions."
     }
   ]
 }

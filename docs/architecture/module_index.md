@@ -58,8 +58,10 @@ Task-oriented file lists for bounded AI context. See also `docs/code_map.json`.
 
 ## maintain
 
+- `src/cli_commands/maintenance.py`
+- `src/data/doctor.py`
 - `src/data/retention.py`
-- `src/cli_commands/resolvers.py`
+- `src/data/merge.py`
 
 ## experiment-config
 

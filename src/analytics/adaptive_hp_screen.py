@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Final
 import polars as pl
 
 from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
-from src.data.catalog import latest_artifact, load_visible
+from src.data.catalog import load_snapshot_visible, resolve_snapshot
 from src.data.schedule import build_decision_schedule
 from src.data.schema import Dataset
 from src.data.settings import DataSettings
@@ -168,17 +168,16 @@ def preload_hp_allocation_context(
     """Load catalog partitions once for the HP screen window."""
     eff_start = start if start is not None else _DEFAULT_START
     eff_end = end if end is not None else _DEFAULT_END
-    for dataset in (Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.MACRO):
-        latest_artifact(settings, dataset)
+    snapshot = resolve_snapshot(settings, (Dataset.PRICES, Dataset.FX, Dataset.CPI, Dataset.MACRO))
     schedule = build_decision_schedule(eff_start, eff_end, frequency="monthly", fill_delay_sessions=1)
     if not schedule:
         raise ValueError(f"empty decision schedule over [{eff_start.isoformat()}, {eff_end.isoformat()}]")
     cutoff = load_calendar(DEFAULT_CALENDAR_NAME).close_ts(schedule[-1].execution_session)
     return HpAllocationContext(
-        prices=load_visible(settings, Dataset.PRICES, cutoff),
-        fx=load_visible(settings, Dataset.FX, cutoff),
-        cpi=load_visible(settings, Dataset.CPI, cutoff),
-        macro=load_visible(settings, Dataset.MACRO, cutoff),
+        prices=load_snapshot_visible(snapshot, Dataset.PRICES, cutoff),
+        fx=load_snapshot_visible(snapshot, Dataset.FX, cutoff),
+        cpi=load_snapshot_visible(snapshot, Dataset.CPI, cutoff),
+        macro=load_snapshot_visible(snapshot, Dataset.MACRO, cutoff),
     )
 
 

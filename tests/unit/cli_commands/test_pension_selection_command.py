@@ -13,22 +13,13 @@ from src import cli
 from src.cli import main
 from src.cli_commands.parser import _build_parser
 from src.data.settings import DataSettings
-from src.data.storage import UntrustedDatasetError
 from src.sim.pension_engine import PensionDataError
 from src.validation import pension_selection as pension_selection_module
 
 _REPO = Path(__file__).resolve().parents[3]
 _CONFIG_PATH = _REPO / "experiments" / "pension_selection_v1.json"
 _GIT_COMMIT = "0" * 40
-
-
-def _fake_manifest(_settings: DataSettings, dataset: object) -> SimpleNamespace:
-    if dataset in {
-        pension_selection_module.Dataset.FX,
-        pension_selection_module.Dataset.CPI,
-    }:
-        raise UntrustedDatasetError("optional fixture is absent")
-    return SimpleNamespace(manifest=SimpleNamespace(normalized_sha256=f"hash-{dataset}"))
+_CONSUMED: dict[str, str | None] = {"prices": "hash-prices", "fx_krw_base": "hash-fx-base", "fx": None, "cpi": None}
 
 
 def _stub_report() -> SimpleNamespace:
@@ -37,6 +28,7 @@ def _stub_report() -> SimpleNamespace:
         status="SELECTED",
         selected_arm_id="sp500_100",
         verdicts=(SimpleNamespace(arm_id="sp500_100"),),
+        manifest_hashes=_CONSUMED,
     )
 
 
@@ -65,7 +57,6 @@ def test_pension_selection_command_writes_report_and_provenance(
     """The command returns zero and persists deterministic config and source provenance."""
     captured: list[tuple[str, dict[str, str]]] = []
     monkeypatch.setattr(campaign_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
-    monkeypatch.setattr(campaign_mod, "latest_artifact", _fake_manifest)
     monkeypatch.setattr(pension_selection_module, "run_pension_selection", lambda *_args, **_kwargs: _stub_report())
     monkeypatch.setattr(
         pension_selection_module,
@@ -97,7 +88,6 @@ def test_pension_selection_command_fails_closed_on_data_error(
 ) -> None:
     """Pension data errors return one and expose the typed CLI failure event."""
     monkeypatch.setattr(campaign_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
-    monkeypatch.setattr(campaign_mod, "latest_artifact", _fake_manifest)
 
     def fail(*_args: object, **_kwargs: object) -> object:
         raise PensionDataError("missing certified panel")
@@ -128,7 +118,6 @@ def test_selection_digest_changes_with_historical_campaign_bytes(
     config.write_text(json.dumps(document), encoding="utf-8")
     captured: list[tuple[str, dict[str, str]]] = []
     monkeypatch.setattr(campaign_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
-    monkeypatch.setattr(campaign_mod, "latest_artifact", _fake_manifest)
     monkeypatch.setattr(pension_selection_module, "run_pension_selection", lambda *_args, **_kwargs: _stub_report())
     monkeypatch.setattr(
         pension_selection_module,
@@ -170,3 +159,21 @@ def test_pension_selection_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured["seed"] == 7
     assert isinstance(captured["settings"], DataSettings)
     assert main(["run", "pension-selection", "--config", "c.json"]) == 2
+
+
+def test_selection_digest_pins_consumed_manifest_identity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The experiment id is derived from manifests the run consumed, not a later catalog lookup."""
+    captured: list[tuple[str, dict[str, str]]] = []
+    consumed: dict[str, str | None] = dict(_CONSUMED)
+    monkeypatch.setattr(campaign_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
+    monkeypatch.setattr(
+        pension_selection_module,
+        "run_pension_selection",
+        lambda *_args, **_kwargs: SimpleNamespace(**{**vars(_stub_report()), "manifest_hashes": dict(consumed)}),
+    )
+    monkeypatch.setattr(pension_selection_module, "write_pension_selection_report", _stub_writer(tmp_path, captured))
+    settings = DataSettings(data_root=str(tmp_path / "data"))
+    assert campaign_mod.run_pension_selection_command(config_path=str(_CONFIG_PATH), settings=settings, seed=17) == 0
+    consumed["fx"] = "hash-fx"
+    assert campaign_mod.run_pension_selection_command(config_path=str(_CONFIG_PATH), settings=settings, seed=17) == 0
+    assert captured[0][0] != captured[1][0]
