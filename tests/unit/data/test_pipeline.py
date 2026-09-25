@@ -102,3 +102,29 @@ def test_composed_persist_ingest(
     assert not (rejected_root / "data" / "manifests").exists()
     retained = sorted((rejected_root / "data" / "raw").rglob("payload.*"))
     assert len(retained) == 1
+
+
+def test_persist_ingest_rejects_nonfinite_without_silver_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """NaN normalized rows archive raw bytes but publish no Silver artifact."""
+    payload = RawPayload(
+        provider="synthetic",
+        endpoint="daily/prices",
+        request_params={"format": "json"},
+        retrieved_at=_RETRIEVED_AT,
+        extension="json",
+        content=b'{"rows": []}',
+    )
+    bad_raw = _prices_frame([date(2024, 1, 30), date(2024, 1, 31)], [100.0, 101.0]).with_columns(
+        pl.lit(float("nan")).alias("adjusted_close")
+    )
+    root = tmp_path / "rejected"
+    root.mkdir()
+    monkeypatch.chdir(root)
+    with pytest.raises(DataQualityError):
+        persist_ingest(bad_raw, Dataset.PRICES, payload, DataSettings(data_root="data"))
+
+    assert not (root / "data" / "normalized").exists()
+    assert not (root / "data" / "manifests").exists()
+    assert len(sorted((root / "data" / "raw").rglob("payload.*"))) == 1

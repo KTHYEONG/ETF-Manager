@@ -65,7 +65,13 @@ class AvailabilityRule:
 
 @dataclass(frozen=True, slots=True)
 class DatasetSpec:
-    """Immutable contract of one dataset: columns, key, PIT semantics."""
+    """Declare stored-row identity separately from the observation visible to a decision.
+
+    `key` uniquely identifies persisted rows, including publication versions when present.
+    `observation_key` identifies the economic observation whose latest visible version
+    must be selected at a decision instant. A missing `observation_key` uses `key`.
+    Invalid or ambiguous keys fail when the specification is constructed.
+    """
 
     dataset: Dataset
     columns: Mapping[str, pl.DataType]
@@ -78,6 +84,34 @@ class DatasetSpec:
     schema_version: str
     # Only value fields of EXPLICIT_GAP datasets may be declared nullable.
     nullable_columns: frozenset[str] = frozenset()
+    observation_key: tuple[str, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if len(self.key) == 0 or len(set(self.key)) != len(self.key):
+            raise ValueError(f"invalid stored key {self.key!r} for dataset {self.dataset!r}")
+        if any(column not in self.columns for column in self.key):
+            raise ValueError(f"stored key {self.key!r} contains undeclared columns for dataset {self.dataset!r}")
+        effective = self.observation_key if self.observation_key is not None else self.key
+        if self.observation_key is not None:
+            if len(self.observation_key) == 0 or len(set(self.observation_key)) != len(self.observation_key):
+                raise ValueError(f"invalid observation key {self.observation_key!r} for dataset {self.dataset!r}")
+            if any(column not in self.columns for column in self.observation_key):
+                raise ValueError(
+                    f"observation key {self.observation_key!r} contains undeclared columns for dataset {self.dataset!r}"
+                )
+            if not set(effective).issubset(set(self.key)):
+                raise ValueError(
+                    f"observation key {self.observation_key!r} must be a subset of stored key {self.key!r}"
+                )
+        if self.observation_column not in effective:
+            raise ValueError(
+                f"observation column {self.observation_column!r} must belong to the effective observation key {effective!r}"
+            )
+
+    @property
+    def effective_observation_key(self) -> tuple[str, ...]:
+        """Effective observation identity used for vintage resolution."""
+        return self.observation_key if self.observation_key is not None else self.key
 
 
 def _build_specs() -> dict[Dataset, DatasetSpec]:
@@ -139,6 +173,7 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         total_return_source=TotalReturnSource.NOT_APPLICABLE,
         schema_version="2",
         nullable_columns=frozenset({"value"}),
+        observation_key=("series_id", "observation_date"),
     )
     cpi = DatasetSpec(
         dataset=Dataset.CPI,
@@ -249,6 +284,7 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         total_return_source=TotalReturnSource.NOT_APPLICABLE,
         schema_version="1",
         nullable_columns=frozenset({"cusip", "isin", "lei", "issuer_name", "value_usd"}),
+        observation_key=("etf_ticker", "report_date", "holding_id"),
     )
     fx_krw_base = DatasetSpec(
         dataset=Dataset.FX_KRW_BASE,

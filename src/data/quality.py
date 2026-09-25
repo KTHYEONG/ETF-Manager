@@ -150,6 +150,72 @@ def _ohlc_findings(frame: pl.DataFrame) -> list[QualityFinding]:
     ]
 
 
+def _numeric_findings(frame: pl.DataFrame, spec: DatasetSpec) -> list[QualityFinding]:
+    """Report numeric values that cannot safely enter valuation or feature calculations.
+
+    Args:
+        frame: Schema-valid, availability-stamped candidate rows.
+        spec: Dataset contract defining numeric and nullable columns.
+
+    Returns:
+        Deterministic ERROR findings for non-finite values and dataset-specific
+        invalid price or cash-flow magnitudes; permitted null gaps are not repaired.
+    """
+    findings: list[QualityFinding] = []
+    float_columns = [name for name, dtype in spec.columns.items() if dtype == pl.Float64()]
+    if float_columns:
+        nonfinite_mask = pl.any_horizontal(
+            [
+                pl.col(name).is_not_null() & (pl.col(name).is_nan() | pl.col(name).is_infinite())
+                for name in float_columns
+            ]
+        )
+        nonfinite_rows = frame.filter(nonfinite_mask).height
+        if nonfinite_rows > 0:
+            findings.append(
+                QualityFinding(
+                    code="NUMERIC_NONFINITE",
+                    severity=FindingSeverity.ERROR,
+                    message=f"non-finite floating values in {nonfinite_rows} row(s)",
+                    row_count=nonfinite_rows,
+                )
+            )
+    if spec.dataset is Dataset.PRICES:
+        price_bad = (
+            (pl.col("adjusted_close").is_not_null() & (pl.col("adjusted_close") <= 0))
+            | (pl.col("split_factor").is_not_null() & (pl.col("split_factor") <= 0))
+            | (pl.col("volume").is_not_null() & (pl.col("volume") < 0))
+            | (pl.col("dividend").is_not_null() & (pl.col("dividend") < 0))
+        )
+        price_rows = frame.filter(price_bad).height
+        if price_rows > 0:
+            findings.append(
+                QualityFinding(
+                    code="PRICE_FIELD_INVALID",
+                    severity=FindingSeverity.ERROR,
+                    message=f"invalid price magnitudes in {price_rows} row(s)",
+                    row_count=price_rows,
+                )
+            )
+    level_bad = None
+    if spec.dataset in (Dataset.FX, Dataset.FX_KRW_BASE):
+        level_bad = pl.col("usdkrw").is_not_null() & (pl.col("usdkrw") <= 0)
+    elif spec.dataset is Dataset.CPI:
+        level_bad = pl.col("value").is_not_null() & (pl.col("value") <= 0)
+    if level_bad is not None:
+        level_rows = frame.filter(level_bad).height
+        if level_rows > 0:
+            findings.append(
+                QualityFinding(
+                    code="LEVEL_NONPOSITIVE",
+                    severity=FindingSeverity.ERROR,
+                    message=f"nonpositive levels in {level_rows} row(s)",
+                    row_count=level_rows,
+                )
+            )
+    return findings
+
+
 def _observation_date_series(frame: pl.DataFrame, spec: DatasetSpec) -> pl.Series:
     column = frame.get_column(spec.observation_column)
     if isinstance(column.dtype, pl.Datetime):
@@ -250,27 +316,25 @@ def _kr_etf_findings(frame: pl.DataFrame, spec: DatasetSpec) -> list[QualityFind
 
 
 def validate_frame(frame: pl.DataFrame, spec: DatasetSpec, calendar: TradingCalendar | None = None) -> QualityReport:
-    """Run every quality predicate and aggregate deterministic findings.
-
-    Purity contract: the input frame is never mutated, sorted in place, filled,
-    coerced, or dropped; invalid data yields findings, not exceptions.
+    """Run the Silver admission predicates without changing candidate data.
 
     Args:
-        frame: Candidate frame carrying ``available_at`` plus the spec columns.
-        spec: Immutable dataset contract resolved from the registry.
-        calendar: Required trading calendar when availability is SESSION_CLOSE.
+        frame: Candidate frame with the exact dataset columns and `available_at`.
+        spec: Dataset identity, schema, missing-value, and timing contract.
+        calendar: Required session calendar for session-close datasets.
 
     Returns:
-        QualityReport with findings in fixed rule order.
+        A deterministic report of ERROR and WARN findings in fixed rule order.
 
     Raises:
-        ValueError: Only for invalid arguments (e.g. SESSION_CLOSE without a calendar).
+        ValueError: If a required calendar is absent or arguments cannot be checked.
     """
     if spec.availability.kind is AvailabilityKind.SESSION_CLOSE and calendar is None:
         raise ValueError(f"SESSION_CLOSE validation for dataset {str(spec.dataset)!r} requires a calendar")
     findings: list[QualityFinding] = [*_schema_findings(frame, spec)]
     if not any(finding.code.startswith("SCHEMA_") for finding in findings):
         findings.extend(_key_and_null_findings(frame, spec))
+        findings.extend(_numeric_findings(frame, spec))
         availability_finding = _availability_order_finding(frame, spec)
         if availability_finding is not None:
             findings.append(availability_finding)

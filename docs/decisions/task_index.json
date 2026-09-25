@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "REFACTOR_DATA",
+      "date": "2026-09-25",
+      "adr_id": "ADR_20260925_REFACTOR_DATA",
+      "domain": "data",
+      "title": "데이터 계층 신뢰성 기반 리팩토링",
+      "why": "Bronze와 Silver 경계에서 PIT 중복, 비유한 수치, provenance 충돌, 캐시 오염, 안전하지 않은 보존 계획이 발생할 수 있었습니다.",
+      "resolution": "관측 식별자와 PIT 선택, 유한성 품질 게이트, provenance 기반 매니페스트 주소, 파일 정체성 캐시 검증, fail-closed retention 계획을 데이터 모듈과 테스트에 반영했습니다.",
+      "impact": "동일한 정규화 데이터의 서로 다른 lineage를 보존하고 검증된 Silver 데이터만 카탈로그와 retention 경로에 노출합니다.",
+      "caveat": "기존 legacy 매니페스트는 읽기 호환으로 유지하며 Bronze/Silver incremental lineage와 Gold run snapshot은 후속 독립 스펙으로 남깁니다."
+    },
+    {
       "task_id": "TASK_PENSION_SELECTION",
       "date": "2026-09-25",
       "adr_id": "ADR_20260925_PENSION_SELECTION",
@@ -997,16 +1008,6 @@
       "why": "P1-C could persist vendor data but there was no catalog read path, no cashflow-aware KRW DCA simulator, and no CLI to trigger ingest.",
       "resolution": "Implemented manifest catalog with PIT load_visible, single-sleeve fast baseline (B0/B1) with delayed fills, FX conversion, integer lots, XIRR/MDD metrics, and ingest CLI dispatching fetch_and_persist_*.",
       "impact": "Delivers the first runnable accumulation baseline on stored data; unblocks live data pull and P2-B multi-sleeve/tax extensions."
-    },
-    {
-      "task_id": "TASK_P1C_PROVIDER_CLIENTS",
-      "date": "2026-08-22",
-      "adr_id": "ADR_20260822_P1C_PROVIDER_CLIENTS",
-      "domain": "data",
-      "title": "Phase 1-C: Provider Clients (Tiingo, FRED, ECOS)",
-      "why": "P1-B could persist frames but had no vendor HTTP layer; encrypted API keys in .env.enc required SOPS-aware loading without leaking credentials into manifests or tests.",
-      "resolution": "Implemented ProviderSecrets with env/.env/sops loading, Tiingo/FRED/ECOS clients with MockTransport tests, Dataset.CPI and MACRO schema deltas, fetch_and_persist orchestration, and 9 contract scenarios.",
-      "impact": "Enables manifest-bound live ingest for prices, FX, VIX vintages, and CPI; unblocks P1-D catalog and baseline data pulls."
     }
   ]
 }

@@ -10,7 +10,9 @@ import pytest
 from src.data.schema import (
     DATASET_SPECS,
     AvailabilityKind,
+    AvailabilityRule,
     Dataset,
+    DatasetSpec,
     MissingPolicy,
     TotalReturnSource,
     spec_for,
@@ -169,3 +171,72 @@ def test_schema_korean_only_business_day_stamps_without_calendar() -> None:
     )
     stamped = stamp_availability(frame, spec, None)
     assert stamped.get_column("available_at").to_list()[0] == datetime(2024, 7, 4, 12, 0, tzinfo=UTC)
+
+
+def test_stored_and_observation_keys_differ() -> None:
+    """Registered macro/holdings keep publication dates in the stored key only."""
+    macro = spec_for(Dataset.MACRO)
+    assert macro.key == ("series_id", "observation_date", "release_date")
+    assert macro.effective_observation_key == ("series_id", "observation_date")
+    assert "release_date" in macro.key
+    assert "release_date" not in macro.effective_observation_key
+
+    holdings = spec_for(Dataset.ETF_HOLDINGS)
+    assert holdings.key == ("etf_ticker", "report_date", "filing_date", "holding_id")
+    assert holdings.effective_observation_key == ("etf_ticker", "report_date", "holding_id")
+    assert "filing_date" in holdings.key
+    assert "filing_date" not in holdings.effective_observation_key
+
+
+def _base_observation_spec(observation_key: tuple[str, ...] | None) -> DatasetSpec:
+    return DatasetSpec(
+        dataset=Dataset.MACRO,
+        columns={
+            "a": pl.String(),
+            "b": pl.String(),
+            "obs": pl.Date(),
+            "extra": pl.Float64(),
+            "side": pl.String(),
+        },
+        key=("a", "b", "obs", "extra"),
+        observation_column="obs",
+        availability=AvailabilityRule(kind=AvailabilityKind.FIXED_LAG, lag=timedelta(days=1)),
+        missing_policy=MissingPolicy.FAIL,
+        revisable=True,
+        total_return_source=TotalReturnSource.NOT_APPLICABLE,
+        schema_version="1",
+        observation_key=observation_key,
+    )
+
+
+@pytest.mark.parametrize(
+    "observation_key",
+    [
+        (),
+        ("a", "a"),
+        ("a", "unknown_col"),
+        ("a", "obs", "side"),
+        ("a",),
+    ],
+)
+def test_invalid_observation_key_fails(observation_key: tuple[str, ...]) -> None:
+    """Empty, repeated, unknown, non-subset, or obs-less keys fail construction."""
+    with pytest.raises(ValueError, match=r"observation|stored key"):
+        _base_observation_spec(observation_key)
+
+
+@pytest.mark.parametrize("key", [(), ("a", "a"), ("a", "unknown_col")])
+def test_invalid_stored_key_fails(key: tuple[str, ...]) -> None:
+    """Empty, repeated, or undeclared stored keys fail construction."""
+    with pytest.raises(ValueError, match=r"stored key"):
+        DatasetSpec(
+            dataset=Dataset.MACRO,
+            columns={"a": pl.String(), "obs": pl.Date()},
+            key=key,
+            observation_column="obs",
+            availability=AvailabilityRule(kind=AvailabilityKind.FIXED_LAG, lag=timedelta(days=1)),
+            missing_policy=MissingPolicy.FAIL,
+            revisable=False,
+            total_return_source=TotalReturnSource.NOT_APPLICABLE,
+            schema_version="1",
+        )

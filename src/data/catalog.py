@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
@@ -24,22 +25,84 @@ from src.data.storage import (
 
 logger = logging.getLogger(__name__)
 
-_CATALOG_FRAME_CACHE: dict[tuple[Dataset, str], pl.DataFrame] = {}
+
+@dataclass(frozen=True, slots=True)
+class _FileIdentity:
+    """Device, inode, size, and nanosecond mtime of one verified file."""
+
+    device: int
+    inode: int
+    size: int
+    mtime_ns: int
+
+
+@dataclass(frozen=True, slots=True)
+class _CachedFrame:
+    """Verified frame plus the filesystem identity of its three source files."""
+
+    frame: pl.DataFrame
+    manifest: _FileIdentity
+    parquet: _FileIdentity
+    raw: _FileIdentity
+
+
+_CATALOG_FRAME_CACHE: dict[tuple[str, Dataset, str], _CachedFrame] = {}
 
 
 def clear_catalog_frame_cache() -> None:
+    """Discard in-process verified frames after a data publication or explicit reset."""
     _CATALOG_FRAME_CACHE.clear()
 
 
-def latest_artifact(settings: DataSettings, dataset: Dataset) -> DatasetArtifact:
-    """Return the newest verified partition for ``dataset`` under the data root.
+def _file_identity(path: Path) -> _FileIdentity:
+    """Snapshot one file's identity; a missing file fails closed."""
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        raise UntrustedDatasetError(f"cached file missing: {path.as_posix()}") from exc
+    return _FileIdentity(device=stat.st_dev, inode=stat.st_ino, size=stat.st_size, mtime_ns=stat.st_mtime_ns)
 
-    Every manifest under ``manifests/<dataset>/`` is reconstructed into a
-    :class:`DatasetManifest`; the winner by ``(retrieved_at, normalized_sha256)``
-    is re-verified through ``DataStore.read_normalized`` before returning.
+
+def _verified_frame(settings: DataSettings, dataset: Dataset, artifact: DatasetArtifact) -> pl.DataFrame:
+    """Reuse the cached frame only when manifest, Parquet, and raw identities match."""
+    root = settings.resolved_data_root().resolve()
+    manifest_path = Path(artifact.manifest_path).resolve()
+    parquet_path = Path(artifact.normalized_path).resolve()
+    raw_path = root.joinpath(*artifact.manifest.raw_artifact.relative_path.parts)
+    key = (root.as_posix(), dataset, manifest_path.as_posix())
+    entry = _CATALOG_FRAME_CACHE.get(key)
+    if entry is not None:
+        try:
+            current = (_file_identity(manifest_path), _file_identity(parquet_path), _file_identity(raw_path))
+        except UntrustedDatasetError:
+            del _CATALOG_FRAME_CACHE[key]
+            raise
+        if current == (entry.manifest, entry.parquet, entry.raw):
+            return entry.frame
+        del _CATALOG_FRAME_CACHE[key]
+    frame = DataStore(settings).read_normalized(artifact, spec_for(dataset))
+    _CATALOG_FRAME_CACHE[key] = _CachedFrame(
+        frame=frame,
+        manifest=_file_identity(manifest_path),
+        parquet=_file_identity(parquet_path),
+        raw=_file_identity(raw_path),
+    )
+    return frame
+
+
+def latest_artifact(settings: DataSettings, dataset: Dataset) -> DatasetArtifact:
+    """Resolve the newest catalog manifest and require its referenced files to verify.
+
+    Args:
+        settings: Data root for this independent catalog.
+        dataset: Logical dataset identity.
+
+    Returns:
+        The most recently retrieved verified artifact for the dataset.
 
     Raises:
-        UntrustedDatasetError: If no readable manifest exists or files fail lineage checks.
+        UntrustedDatasetError: If no manifest exists or the selected artifact or
+            its cached file identity cannot be verified.
     """
     root = settings.resolved_data_root()
     manifests_dir = root / "manifests" / str(dataset)
@@ -47,7 +110,7 @@ def latest_artifact(settings: DataSettings, dataset: Dataset) -> DatasetArtifact
     if not candidates:
         raise UntrustedDatasetError(f"no trusted manifest partitions under {manifests_dir.as_posix()}")
 
-    best_key: tuple[datetime, str] | None = None
+    best_key: tuple[datetime, str, str] | None = None
     best_artifact: DatasetArtifact | None = None
     for path in candidates:
         document = _load_manifest_document(path)
@@ -57,16 +120,12 @@ def latest_artifact(settings: DataSettings, dataset: Dataset) -> DatasetArtifact
             manifest_path=path,
             manifest=manifest,
         )
-        key = (manifest.retrieved_at, manifest.normalized_sha256)
+        key = (manifest.retrieved_at, manifest.normalized_sha256, path.name)
         if best_key is None or key > best_key:
             best_key, best_artifact = key, artifact
 
     assert best_artifact is not None
-    cache_key = (dataset, best_artifact.manifest.normalized_sha256)
-    cached = _CATALOG_FRAME_CACHE.get(cache_key)
-    if cached is None:
-        frame = DataStore(settings).read_normalized(best_artifact, spec_for(dataset))
-        _CATALOG_FRAME_CACHE[cache_key] = frame
+    _verified_frame(settings, dataset, best_artifact)
     logger.info(
         "[DATA] event=catalog_latest dataset=%s sha=%s retrieved_at=%s",
         str(dataset),
@@ -77,18 +136,23 @@ def latest_artifact(settings: DataSettings, dataset: Dataset) -> DatasetArtifact
 
 
 def load_visible(settings: DataSettings, dataset: Dataset, decision_ts: datetime) -> pl.DataFrame:
-    """Read the latest partition and apply ``load_as_of`` at ``decision_ts``.
+    """Return the selected artifact's rows visible at one decision instant.
+
+    Args:
+        settings: Data root whose catalog is being queried.
+        dataset: Logical dataset identity.
+        decision_ts: Timezone-aware point-in-time cutoff.
+
+    Returns:
+        Visible rows after the dataset's revision policy is applied.
 
     Raises:
-        UntrustedDatasetError: When the latest partition fails any lineage check.
-        ValueError: On a naive ``decision_ts``.
+        UntrustedDatasetError: If a selected source, manifest, or Parquet file is
+            missing or changed since verification.
+        ValueError: If `decision_ts` is naive or the PIT contract is invalid.
     """
     artifact = latest_artifact(settings, dataset)
-    cache_key = (dataset, artifact.manifest.normalized_sha256)
-    frame = _CATALOG_FRAME_CACHE.get(cache_key)
-    if frame is None:
-        frame = DataStore(settings).read_normalized(artifact, spec_for(dataset))
-        _CATALOG_FRAME_CACHE[cache_key] = frame
+    frame = _verified_frame(settings, dataset, artifact)
     visible = load_as_of(frame, dataset, decision_ts)
     logger.info("[DATA] event=catalog_visible dataset=%s rows=%d", str(dataset), visible.height)
     return visible

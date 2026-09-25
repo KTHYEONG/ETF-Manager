@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
-from datetime import UTC, date, datetime
-from pathlib import Path
+from dataclasses import replace
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path, PurePosixPath
 
 import polars as pl
 import pytest
@@ -15,10 +18,13 @@ from src.data.quality import validate_frame
 from src.data.schema import Dataset, DatasetSpec, spec_for
 from src.data.settings import DataSettings
 from src.data.storage import (
+    DatasetArtifact,
     DataStore,
+    RawArtifact,
     RawPayload,
     UntrustedDatasetError,
     canonical_frame_sha256,
+    canonical_manifest_sha256,
 )
 
 _RETRIEVED_AT = datetime(2024, 2, 1, 5, 0, tzinfo=UTC)
@@ -139,3 +145,229 @@ def test_canonical_order_hash(scenario_id: str, tmp_path: Path, monkeypatch: pyt
     assert canonical_frame_sha256(shifted, spec) != canonical_hash
 
     assert frame.equals(snapshot)
+
+
+def _publish_prices(
+    store: DataStore,
+    spec: DatasetSpec,
+    calendar: TradingCalendar,
+    payload: RawPayload,
+) -> DatasetArtifact:
+    frame = _stamped_prices(spec, calendar)
+    raw_artifact = store.store_raw(Dataset.PRICES, payload)
+    report = validate_frame(frame, spec, calendar)
+    assert report.has_errors is False
+    return store.write_normalized(frame, spec, raw_artifact, payload, report)
+
+
+def _payload_at(content: bytes, retrieved_at: datetime) -> RawPayload:
+    return RawPayload(
+        provider="synthetic",
+        endpoint="daily/prices",
+        request_params={"format": "json"},
+        retrieved_at=retrieved_at,
+        extension="json",
+        content=content,
+    )
+
+
+def test_write_normalized_shares_parquet_across_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Identical rows with distinct lineage share Parquet but publish two manifests."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    first = _publish_prices(store, spec, calendar, _payload_at(b"prices-v1", _RETRIEVED_AT))
+    second = _publish_prices(
+        store, spec, calendar, _payload_at(b"prices-v2", _RETRIEVED_AT + timedelta(hours=1))
+    )
+    assert first.normalized_path == second.normalized_path
+    assert first.manifest_path != second.manifest_path
+    assert first.manifest_path.is_file()
+    assert second.manifest_path.is_file()
+    assert store.read_normalized(first, spec).equals(store.read_normalized(second, spec))
+
+
+def test_write_normalized_retry_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Repeating identical frame and lineage keeps paths and manifest bytes identical."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    payload = _payload(b"prices-payload")
+    first = _publish_prices(store, spec, calendar, payload)
+    second = _publish_prices(store, spec, calendar, payload)
+    assert first.normalized_path == second.normalized_path
+    assert first.manifest_path == second.manifest_path
+    assert first.manifest_path.read_bytes() == second.manifest_path.read_bytes()
+    assert first.manifest_path.name == f"{canonical_manifest_sha256(first.manifest)}.json"
+    assert store.read_normalized(second, spec).equals(store.read_normalized(first, spec))
+
+
+def test_write_normalized_rejects_corrupt_parquet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A conflicting Parquet at the content address fails publication without repair."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    payload = _payload(b"prices-payload")
+    artifact = _publish_prices(store, spec, calendar, payload)
+    tampered = pl.read_parquet(artifact.normalized_path).with_columns(pl.col("close") + 1.0)
+    tampered.write_parquet(artifact.normalized_path)
+
+    frame = _stamped_prices(spec, calendar)
+    raw_artifact = store.store_raw(Dataset.PRICES, payload)
+    report = validate_frame(frame, spec, calendar)
+    with pytest.raises(UntrustedDatasetError):
+        store.write_normalized(frame, spec, raw_artifact, payload, report)
+
+
+def test_write_normalized_rejects_conflicting_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A conflicting document at the manifest address fails publication."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    payload = _payload(b"prices-payload")
+    artifact = _publish_prices(store, spec, calendar, payload)
+    artifact.manifest_path.write_text('{"dataset": "tampered"}', encoding="utf-8")
+
+    frame = _stamped_prices(spec, calendar)
+    raw_artifact = store.store_raw(Dataset.PRICES, payload)
+    report = validate_frame(frame, spec, calendar)
+    with pytest.raises(UntrustedDatasetError):
+        store.write_normalized(frame, spec, raw_artifact, payload, report)
+
+
+def test_read_normalized_rejects_corrupt_raw_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Modified or missing archived raw bytes fail the read."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    raw_path = tmp_path / "data" / Path(*artifact.manifest.raw_artifact.relative_path.parts)
+    assert raw_path.is_file()
+
+    raw_path.write_bytes(b"tampered-bytes")
+    with pytest.raises(UntrustedDatasetError):
+        store.read_normalized(artifact, spec)
+
+    raw_path.unlink()
+    with pytest.raises(UntrustedDatasetError):
+        store.read_normalized(artifact, spec)
+
+
+def test_read_normalized_rejects_raw_path_escape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recorded raw path outside the data root fails the read."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    evil_manifest = replace(
+        artifact.manifest,
+        raw_artifact=RawArtifact(
+            relative_path=PurePosixPath("../evil"),
+            sha256=artifact.manifest.raw_artifact.sha256,
+            retrieved_at=artifact.manifest.raw_artifact.retrieved_at,
+        ),
+    )
+    document = json.loads(artifact.manifest_path.read_text(encoding="utf-8"))
+    document["raw_artifact"]["relative_path"] = "../evil"
+    evil_bytes = json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    evil_path = artifact.manifest_path.parent / f"{hashlib.sha256(evil_bytes).hexdigest()}.json"
+    evil_path.write_bytes(evil_bytes)
+    evil_artifact = DatasetArtifact(
+        normalized_path=artifact.normalized_path,
+        manifest_path=evil_path,
+        manifest=evil_manifest,
+    )
+    with pytest.raises(UntrustedDatasetError):
+        store.read_normalized(evil_artifact, spec)
+
+
+def test_read_normalized_rejects_renamed_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A new-style manifest whose content no longer matches its filename fails closed."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    doctored_manifest = replace(
+        artifact.manifest, retrieved_at=_RETRIEVED_AT + timedelta(days=1)
+    )
+    document = json.loads(artifact.manifest_path.read_text(encoding="utf-8"))
+    document["retrieved_at"] = (_RETRIEVED_AT + timedelta(days=1)).isoformat()
+    artifact.manifest_path.write_bytes(
+        json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+    doctored_artifact = DatasetArtifact(
+        normalized_path=artifact.normalized_path,
+        manifest_path=artifact.manifest_path,
+        manifest=doctored_manifest,
+    )
+    with pytest.raises(UntrustedDatasetError, match=r"filename hash"):
+        store.read_normalized(doctored_artifact, spec)
+
+
+def test_read_normalized_rejects_lineage_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An artifact whose lineage differs from the stored document fails closed."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    impostor = DatasetArtifact(
+        normalized_path=artifact.normalized_path,
+        manifest_path=artifact.manifest_path,
+        manifest=replace(artifact.manifest, provider="impostor"),
+    )
+    with pytest.raises(UntrustedDatasetError):
+        store.read_normalized(impostor, spec)
+
+
+def test_read_normalized_keeps_legacy_manifest_readable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A previously published frame-addressed manifest still verifies."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    legacy_path = artifact.manifest_path.parent / f"{artifact.manifest.normalized_sha256}.json"
+    legacy_path.write_bytes(artifact.manifest_path.read_bytes())
+    legacy_artifact = DatasetArtifact(
+        normalized_path=artifact.normalized_path,
+        manifest_path=legacy_path,
+        manifest=artifact.manifest,
+    )
+    assert store.read_normalized(legacy_artifact, spec).equals(
+        store.read_normalized(artifact, spec)
+    )

@@ -317,7 +317,8 @@
   },
   "src/data/storage.py": {
     "family": "data",
-    "testing": "tests/unit/data/test_storage.py"
+    "testing": "tests/unit/data/test_storage.py",
+    "architecture": "docs/specs/refactor_roadmap.md"
   },
   "src/data/thesis_fundamentals.py": {
     "family": "data",
