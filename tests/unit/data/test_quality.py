@@ -196,3 +196,149 @@ def test_enforcement_boundary(scenario_id: str) -> None:
 
     with pytest.raises(ValueError, match="requires a calendar"):
         validate_frame(_stamp(single, spec, calendar), spec, None)
+
+
+def _fx_frame(usdkrw_values: list[float | None], dates: list[date]) -> pl.DataFrame:
+    spec = spec_for(Dataset.FX)
+    return pl.DataFrame(
+        {
+            "date": list(dates),
+            "usdkrw": list(usdkrw_values),
+            "source": ["synthetic"] * len(dates),
+            "retrieved_at": [_RETRIEVED_AT] * len(dates),
+        },
+        schema=dict(spec.columns),
+    )
+
+
+def _cpi_frame(values: list[float | None], period_end: date = date(2024, 1, 31)) -> pl.DataFrame:
+    spec = spec_for(Dataset.CPI)
+    return pl.DataFrame(
+        {
+            "period_end": [period_end],
+            "value": list(values),
+            "source": ["synthetic"],
+            "retrieved_at": [_RETRIEVED_AT],
+        },
+        schema=dict(spec.columns),
+    )
+
+
+def _macro_frame(values: list[float | None]) -> pl.DataFrame:
+    spec = spec_for(Dataset.MACRO)
+    return pl.DataFrame(
+        {
+            "series_id": ["VIXCLS"] * len(values),
+            "observation_date": [date(2024, 1, 1)] * len(values),
+            "release_date": [datetime(2024, 2, 14, tzinfo=UTC)] * len(values),
+            "value": list(values),
+        },
+        schema=dict(spec.columns),
+    )
+
+
+def test_validate_frame_rejects_nonfinite_adjusted_close() -> None:
+    """NaN adjusted close is ERROR and blocks enforcement."""
+    calendar = load_calendar("XNYS")
+    spec = spec_for(Dataset.PRICES)
+    broken = _prices_frame([date(2024, 1, 30)], [100.0]).with_columns(
+        pl.lit(float("nan")).alias("adjusted_close")
+    )
+    snapshot = broken.clone()
+    report = validate_frame(_stamp(broken, spec, calendar), spec, calendar)
+    findings = [f for f in report.findings if f.code == "NUMERIC_NONFINITE"]
+    assert len(findings) == 1
+    assert findings[0].severity is FindingSeverity.ERROR
+    assert findings[0].row_count == 1
+    with pytest.raises(DataQualityError):
+        enforce(report)
+    assert broken.equals(snapshot)
+
+
+def test_validate_frame_retains_nullable_fx_gap() -> None:
+    """Null FX level under EXPLICIT_GAP stays and raises no numeric finding."""
+    calendar = load_calendar("XNYS")
+    spec = spec_for(Dataset.FX)
+    assert spec.missing_policy.name == "EXPLICIT_GAP"
+    frame = _fx_frame([None], [date(2024, 1, 30)])
+    stamped = _stamp(frame, spec, calendar)
+    report = validate_frame(stamped, spec, calendar)
+    assert all(finding.code != "NUMERIC_NONFINITE" for finding in report.findings)
+    assert report.has_errors is False
+    assert stamped.get_column("usdkrw").to_list() == [None]
+
+
+def test_validate_frame_rejects_infinite_nullable_macro_value() -> None:
+    """Infinite macro value is ERROR even though the column is nullable."""
+    spec = spec_for(Dataset.MACRO)
+    assert "value" in spec.nullable_columns
+    stamped = stamp_availability(_macro_frame([float("inf")]), spec)
+    report = validate_frame(stamped, spec, None)
+    findings = [f for f in report.findings if f.code == "NUMERIC_NONFINITE"]
+    assert len(findings) == 1
+    assert findings[0].severity is FindingSeverity.ERROR
+    assert findings[0].row_count == 1
+    with pytest.raises(DataQualityError):
+        enforce(report)
+
+
+def test_validate_frame_rejects_invalid_price_magnitudes() -> None:
+    """Zero adjusted/split or negative dividend/volume is ERROR counted once per row."""
+    calendar = load_calendar("XNYS")
+    spec = spec_for(Dataset.PRICES)
+    base = _prices_frame([date(2024, 1, 30)], [100.0])
+    cases = [
+        base.with_columns(pl.lit(0.0).alias("adjusted_close")),
+        base.with_columns(pl.lit(0.0).alias("split_factor")),
+        base.with_columns(pl.lit(-0.5).alias("dividend")),
+        base.with_columns(pl.lit(-5, dtype=pl.Int64).alias("volume")),
+    ]
+    for broken in cases:
+        report = validate_frame(_stamp(broken, spec, calendar), spec, calendar)
+        findings = [f for f in report.findings if f.code == "PRICE_FIELD_INVALID"]
+        assert len(findings) == 1
+        assert findings[0].severity is FindingSeverity.ERROR
+        assert findings[0].row_count == 1
+    combined = base.with_columns(
+        pl.lit(0.0).alias("adjusted_close"),
+        pl.lit(0.0).alias("split_factor"),
+        pl.lit(-0.5).alias("dividend"),
+        pl.lit(-5, dtype=pl.Int64).alias("volume"),
+    )
+    combined_report = validate_frame(_stamp(combined, spec, calendar), spec, calendar)
+    combined_findings = [f for f in combined_report.findings if f.code == "PRICE_FIELD_INVALID"]
+    assert len(combined_findings) == 1
+    assert combined_findings[0].row_count == 1
+
+
+def test_validate_frame_rejects_nonpositive_currency_and_cpi() -> None:
+    """Zero FX level and negative CPI level are ERROR."""
+    calendar = load_calendar("XNYS")
+    fx_spec = spec_for(Dataset.FX)
+    fx_report = validate_frame(
+        _stamp(_fx_frame([0.0], [date(2024, 1, 30)]), fx_spec, calendar), fx_spec, calendar
+    )
+    fx_findings = [f for f in fx_report.findings if f.code == "LEVEL_NONPOSITIVE"]
+    assert len(fx_findings) == 1
+    assert fx_findings[0].severity is FindingSeverity.ERROR
+    assert fx_findings[0].row_count == 1
+
+    cpi_spec = spec_for(Dataset.CPI)
+    cpi_report = validate_frame(stamp_availability(_cpi_frame([-1.0]), cpi_spec), cpi_spec, None)
+    cpi_findings = [f for f in cpi_report.findings if f.code == "LEVEL_NONPOSITIVE"]
+    assert len(cpi_findings) == 1
+    assert cpi_findings[0].severity is FindingSeverity.ERROR
+    assert cpi_findings[0].row_count == 1
+
+
+def test_validate_frame_keeps_outlier_warning_without_blocking() -> None:
+    """A finite large move stays WARN and passes enforcement."""
+    calendar = load_calendar("XNYS")
+    spec = spec_for(Dataset.PRICES)
+    pair = _prices_frame([date(2024, 1, 30), date(2024, 1, 31)], [100.0, 250.0])
+    report = validate_frame(_stamp(pair, spec, calendar), spec, calendar)
+    outlier = [f for f in report.findings if f.code == "RETURN_OUTLIER"]
+    assert len(outlier) == 1
+    assert outlier[0].severity is FindingSeverity.WARN
+    assert report.has_errors is False
+    assert enforce(report) is None

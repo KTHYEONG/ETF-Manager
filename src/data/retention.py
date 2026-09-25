@@ -3,15 +3,16 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
-from src.data.schema import Dataset
+from src.data.catalog import _load_manifest_document, _reconstruct_manifest
+from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
+from src.data.storage import DatasetArtifact, DataStore
 
 logger = logging.getLogger(__name__)
 
@@ -34,27 +35,6 @@ class PruneReport:
     plan: PrunePlan | None = None
 
 
-def _load_manifest_document(path: Path) -> dict[str, object] | None:
-    try:
-        doc = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(doc, dict):
-            return doc
-    except Exception:
-        return None
-    return None
-
-
-def _manifest_key(doc: dict[str, object]) -> tuple[datetime, str] | None:
-    try:
-        retrieved_at = datetime.fromisoformat(str(doc["retrieved_at"]))
-        sha = str(doc["normalized_sha256"])
-        if retrieved_at.tzinfo is None:
-            return None
-        return (retrieved_at, sha)
-    except Exception:
-        return None
-
-
 def _collect_datasets(root: Path) -> list[Dataset]:
     # Discover datasets that have manifests, fallback to all known Dataset values
     manifests_root = root / "manifests"
@@ -73,6 +53,36 @@ def _collect_datasets(root: Path) -> list[Dataset]:
     return list(Dataset)
 
 
+@dataclass(frozen=True, slots=True)
+class _VerifiedManifest:
+    """One manifest that parsed and passed storage verification."""
+
+    manifest_path: Path
+    parquet_path: Path
+    retrieved_at: datetime
+    normalized_sha256: str
+    raw_sha256: str
+
+
+def _verify_manifest(store: DataStore, root: Path, dataset: Dataset, path: Path) -> _VerifiedManifest:
+    """Parse, reconstruct, and storage-verify one manifest; any defect fails closed."""
+    manifest = _reconstruct_manifest(_load_manifest_document(path), path)
+    spec = spec_for(dataset)
+    artifact = DatasetArtifact(
+        normalized_path=root.joinpath(*manifest.normalized_relative_path.parts),
+        manifest_path=path,
+        manifest=manifest,
+    )
+    store.read_normalized(artifact, spec)
+    return _VerifiedManifest(
+        manifest_path=path,
+        parquet_path=root.joinpath(*manifest.normalized_relative_path.parts),
+        retrieved_at=manifest.retrieved_at,
+        normalized_sha256=manifest.normalized_sha256,
+        raw_sha256=manifest.raw_artifact.sha256,
+    )
+
+
 def plan_prune(
     settings: DataSettings,
     *,
@@ -80,7 +90,23 @@ def plan_prune(
     drop_nport_zip_mirrors: bool = True,
     migrate_results_layout: bool = True,
 ) -> PrunePlan:
+    """Build a non-destructive retention plan from fully verified lineage references.
+
+    Args:
+        settings: Data root to inspect.
+        keep_latest_only: Keep only the latest trusted manifest per dataset when true.
+        drop_nport_zip_mirrors: Include redundant N-PORT mirrors in the proposed plan.
+        migrate_results_layout: Include eligible legacy result moves in the plan.
+
+    Returns:
+        Proposed file deletions and migrations without changing the filesystem.
+
+    Raises:
+        UntrustedDatasetError: If a manifest is malformed, a referenced file is
+            missing or corrupt, or safe reachability cannot be established.
+    """
     root = settings.resolved_data_root()
+    store = DataStore(settings)
     to_delete: list[Path] = []
     to_migrate: list[tuple[Path, Path]] = []
     retained_manifests: list[Path] = []
@@ -96,78 +122,25 @@ def plan_prune(
         candidates = sorted(manifests_dir.glob("*.json"))
         if not candidates:
             continue
-        # Parse manifests
-        parsed: list[tuple[Path, dict[str, object], tuple[datetime, str]]] = []
-        for p in candidates:
-            doc = _load_manifest_document(p)
-            if doc is None:
-                # Malformed manifest -> treat as deletable? But fail-closed: keep only if we can parse?
-                # For pruning, we will keep latest only among well-formed; malformed counted as stale.
-                continue
-            key = _manifest_key(doc)
-            if key is None:
-                continue
-            parsed.append((p, doc, key))
-        if not parsed:
-            # No well-formed manifests, keep none, but don't delete arbitrarily?
-            continue
-        # Determine latest by (retrieved_at, normalized_sha256)
-        parsed.sort(key=lambda x: x[2])
-        latest_path, latest_doc, latest_key = parsed[-1]
-        latest_sha = latest_key[1]
-        # Resolve parquet path for latest
-        try:
-            latest_rel = PurePosixPath(str(latest_doc["normalized_relative_path"]))
-            latest_parquet = root.joinpath(*latest_rel.parts)
-        except Exception:
-            latest_parquet = root / "normalized" / str(dataset) / f"schema_version={latest_doc.get('schema_version', '1')}" / f"{latest_sha}.parquet"
-        # Determine retention set
+        # Verify every candidate before selecting latest or computing reachability.
+        verified = [_verify_manifest(store, root, dataset, path) for path in candidates]
+        # Determine latest with the catalog order: (retrieved_at, sha, filename).
+        verified.sort(key=lambda item: (item.retrieved_at, item.normalized_sha256, item.manifest_path.name))
         if keep_latest_only:
-            keep_set = {latest_path}
+            keep_set = {verified[-1].manifest_path}
         else:
-            keep_set = {p for p, _, _ in parsed}
-        for p, doc, key in parsed:
-            sha = key[1]
-            # Resolve parquet path
-            try:
-                rel = PurePosixPath(str(doc["normalized_relative_path"]))
-                parquet = root.joinpath(*rel.parts)
-            except Exception:
-                parquet = root / "normalized" / str(dataset) / f"schema_version={doc.get('schema_version', '1')}" / f"{sha}.parquet"
-            if p in keep_set:
-                retained_manifests.append(p)
-                retained_parquets.append(parquet)
-                # Track raw sha
-                try:
-                    raw_section = doc["raw_artifact"]
-                    if isinstance(raw_section, dict):
-                        raw_sha = str(raw_section["sha256"])
-                        retained_raw_shas.add(raw_sha)
-                except Exception:  # noqa: S110
-                    pass
-            else:
-                # stale to delete
-                to_delete.append(p)
-                if parquet.exists() or True:
-                    # Always list parquet for deletion if manifest stale (even if missing, we list)
-                    # But only if parquet file expected exists; we still list to attempt delete
-                    to_delete.append(parquet)
-
-        # Handle manifests that were malformed or not parsed: treat as deletable but we already skipped?
-        # Include any files not in parsed as deletable?
-        parsed_paths = {p for p, _, _ in parsed}
-        for p in candidates:
-            if p not in parsed_paths:
-                to_delete.append(p)
-                # try to infer parquet name from manifest file name (sha.json)
-                sha_guess = p.stem
-                # attempt locate parquet
-                # We don't know schema_version, try glob?
-                # For safety, try to find parquet with same sha under normalized/dataset
-                norm_dir = root / "normalized" / str(dataset)
-                if norm_dir.is_dir():
-                    for parquet_candidate in norm_dir.rglob(f"{sha_guess}.parquet"):
-                        to_delete.append(parquet_candidate)
+            keep_set = {item.manifest_path for item in verified}
+        for item in verified:
+            if item.manifest_path in keep_set:
+                retained_manifests.append(item.manifest_path)
+                retained_parquets.append(item.parquet_path)
+                retained_raw_shas.add(item.raw_sha256)
+        retained_parquet_paths = set(retained_parquets)
+        for item in verified:
+            if item.manifest_path not in keep_set:
+                to_delete.append(item.manifest_path)
+                if item.parquet_path not in retained_parquet_paths:
+                    to_delete.append(item.parquet_path)
 
     # Raw deletion: only when sha256 is unreferenced by every retained manifest
     raw_root = root / "raw"
@@ -269,6 +242,15 @@ def plan_prune(
 
 
 def apply_prune(plan: PrunePlan, *, dry_run: bool = True) -> PruneReport:
+    """Apply only an explicitly supplied retention plan when dry-run is disabled.
+
+    Args:
+        plan: Verified candidate deletions and migrations.
+        dry_run: Preserve all files and report the plan when true.
+
+    Returns:
+        Paths actually deleted or migrated, together with dry-run status.
+    """
     deleted: list[Path] = []
     migrated: list[tuple[Path, Path]] = []
 

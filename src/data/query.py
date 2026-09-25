@@ -25,7 +25,6 @@ def load_as_of(frame: pl.DataFrame, dataset: Dataset, decision_ts: datetime) -> 
         LookAheadError: If any surviving row is not yet available at ``decision_ts``.
         ValueError: On a naive ``decision_ts`` or missing ``available_at`` column.
     """
-    spec = spec_for(dataset)
-    visible = as_of(frame, spec, decision_ts)
+    visible = as_of(frame, spec_for(dataset), decision_ts)
     assert_no_lookahead(visible, decision_ts)
     return visible

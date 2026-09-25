@@ -128,6 +128,23 @@ def _atomic_create(path: Path, data: bytes) -> None:
         temp_path.unlink(missing_ok=True)
 
 
+def _serialize_manifest_document(document: dict[str, JSONValue]) -> bytes:
+    """Canonical bytes of a manifest document; the exact bytes hashed and persisted."""
+    return json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def canonical_manifest_sha256(manifest: DatasetManifest) -> str:
+    """Hash the credential-free canonical manifest document as one provenance identity.
+
+    Args:
+        manifest: Dataset lineage, source, retrieval, schema, and quality record.
+
+    Returns:
+        Lowercase SHA-256 digest of the canonical serialized manifest document.
+    """
+    return hashlib.sha256(_serialize_manifest_document(_manifest_document(manifest))).hexdigest()
+
+
 def _manifest_document(manifest: DatasetManifest) -> dict[str, JSONValue]:
     """Relative-path, credential-free JSON projection of a manifest."""
     return {
@@ -203,14 +220,24 @@ class DataStore:
         report: QualityReport,
         normalization_version: str = "1",
     ) -> DatasetArtifact:
-        """Persist one validated, PIT-stamped frame with its bound manifest.
+        """Publish a validated Silver frame with an independently addressed lineage record.
+
+        Args:
+            frame: Nonempty, availability-stamped, quality-approved normalized rows.
+            spec: Dataset schema and persisted-row contract.
+            raw_artifact: Archived source payload used for this ingest.
+            payload: Source request metadata corresponding to `raw_artifact`.
+            report: Quality findings for this exact frame.
+            normalization_version: Version of the provider normalization behavior.
+
+        Returns:
+            Paths and lineage matching the files that exist after publication.
 
         Raises:
-            DataQualityError: When ``report`` carries ERROR findings.
-            LookAheadError: When any row becomes available after the frame's
-                own latest ``available_at`` instant.
-            ValueError: On empty frames, missing availability stamps, or paths
-                escaping the data root.
+            DataQualityError: If the report contains an ERROR finding.
+            UntrustedDatasetError: If an existing content address contains different data
+                or an existing manifest address contains different metadata.
+            ValueError: If the frame, timestamps, or paths violate the storage contract.
         """
         if report.has_errors:
             raise DataQualityError(report)
@@ -230,9 +257,6 @@ class DataStore:
             f"schema_version={spec.schema_version}",
             f"{frame_sha256}.parquet",
         )
-        manifest_relative = PurePosixPath("manifests", str(spec.dataset), f"{frame_sha256}.json")
-        parquet_path = self._resolve_under_root(normalized_relative)
-        manifest_path = self._resolve_under_root(manifest_relative)
 
         manifest = DatasetManifest(
             dataset=spec.dataset,
@@ -249,20 +273,24 @@ class DataStore:
             quality_findings=report.findings,
         )
 
+        document = _manifest_document(manifest)
+        serialized = _serialize_manifest_document(document)
+        manifest_relative = PurePosixPath("manifests", str(spec.dataset), f"{canonical_manifest_sha256(manifest)}.json")
+        parquet_path = self._resolve_under_root(normalized_relative)
+        manifest_path = self._resolve_under_root(manifest_relative)
+
         buffer = io.BytesIO()
         frame.write_parquet(buffer)
         if parquet_path.exists():
             if not self._parquet_matches(parquet_path, spec, frame.height, frame_sha256):
-                _atomic_create(parquet_path, buffer.getvalue())
+                raise UntrustedDatasetError(f"existing parquet conflicts at {normalized_relative.as_posix()}")
         else:
             parquet_path.parent.mkdir(parents=True, exist_ok=True)
             _atomic_create(parquet_path, buffer.getvalue())
 
-        document = _manifest_document(manifest)
-        serialized = json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")
         if manifest_path.exists():
             if not self._manifest_matches(manifest_path, document):
-                _atomic_create(manifest_path, serialized)
+                raise UntrustedDatasetError(f"existing manifest conflicts at {manifest_relative.as_posix()}")
         else:
             manifest_path.parent.mkdir(parents=True, exist_ok=True)
             _atomic_create(manifest_path, serialized)
@@ -289,12 +317,18 @@ class DataStore:
         return existing == dict(document)
 
     def read_normalized(self, artifact: DatasetArtifact, spec: DatasetSpec) -> pl.DataFrame:
-        """Return the stored frame only when every lineage check verifies.
+        """Read a Silver frame only after its stored data and source binding are verified.
+
+        Args:
+            artifact: Catalog reference to one persisted manifest and frame.
+            spec: Expected dataset and schema version.
+
+        Returns:
+            Stored normalized rows matching the manifest's row count and canonical hash.
 
         Raises:
-            UntrustedDatasetError: On missing files, undecodable manifests,
-                dataset/schema-version mismatches, wrong row counts, or any
-                canonical/raw hash divergence.
+            UntrustedDatasetError: If a required file, path binding, manifest field,
+                normalized frame hash, or archived raw payload hash is invalid.
         """
         root = self._settings.resolved_data_root().resolve()
         parquet_path = Path(artifact.normalized_path).resolve()
@@ -305,6 +339,12 @@ class DataStore:
             if not path.is_file():
                 raise UntrustedDatasetError(f"required file missing: {path.as_posix()}")
         document = self._load_manifest(manifest_path)
+        if hashlib.sha256(manifest_path.read_bytes()).hexdigest() != manifest_path.stem:
+            recorded_name_sha = document.get("normalized_sha256")
+            if not isinstance(recorded_name_sha, str) or recorded_name_sha != manifest_path.stem:
+                raise UntrustedDatasetError(f"manifest filename hash mismatch at {manifest_path.as_posix()}")
+        if document != _manifest_document(artifact.manifest):
+            raise UntrustedDatasetError(f"manifest artifact binding mismatch at {manifest_path.as_posix()}")
         if document.get("dataset") != str(spec.dataset) or document.get("schema_version") != spec.schema_version:
             raise UntrustedDatasetError(f"manifest identity mismatch at {manifest_path.as_posix()}")
         frame = pl.read_parquet(parquet_path)
@@ -317,10 +357,14 @@ class DataStore:
             raise UntrustedDatasetError("manifest normalized_sha256 is malformed")
         if recorded_sha256 != actual_sha256 or recorded_sha256 != artifact.manifest.normalized_sha256:
             raise UntrustedDatasetError(f"canonical frame hash mismatch at {parquet_path.as_posix()}")
-        raw_section = document.get("raw_artifact")
-        raw_hash = raw_section.get("sha256") if isinstance(raw_section, dict) else None
-        if raw_hash != artifact.manifest.raw_artifact.sha256:
-            raise UntrustedDatasetError("manifest raw-payload hash binding failed")
+        try:
+            raw_path = self._resolve_under_root(artifact.manifest.raw_artifact.relative_path)
+        except ValueError as exc:
+            raise UntrustedDatasetError(f"manifest raw path escapes data_root: {exc}") from exc
+        if not raw_path.is_file():
+            raise UntrustedDatasetError(f"archived raw payload missing: {raw_path.as_posix()}")
+        if hashlib.sha256(raw_path.read_bytes()).hexdigest() != artifact.manifest.raw_artifact.sha256:
+            raise UntrustedDatasetError(f"archived raw payload hash mismatch at {raw_path.as_posix()}")
         logger.info(
             "[DATA] event=normalized_read dataset=%s rows=%d frame_sha256=%s",
             str(spec.dataset),

@@ -115,29 +115,39 @@ def stamp_availability(
 
 
 def as_of(frame: pl.DataFrame, spec: DatasetSpec, as_of_ts: datetime) -> pl.DataFrame:
-    """Keep only rows visible at ``as_of_ts``; revisable specs collapse to the latest vintage.
+    """Return only rows public by a decision instant, resolving each revisable observation.
 
-    Semantics: filter ``available_at <= as_of_ts``; when ``spec.revisable``, keep per key
-    group the row with maximum ``available_at`` (ties broken by the last sorted row).
+    Args:
+        frame: Availability-stamped rows retaining all stored publication versions.
+        spec: Dataset contract containing stored and logical observation identities.
+        as_of_ts: Timezone-aware decision instant.
+
+    Returns:
+        All visible rows for non-revisable data; for revisable data, the latest
+        visible publication per effective observation key.
 
     Raises:
-        ValueError: If ``as_of_ts`` is naive.
+        ValueError: If the instant is naive or required key/availability columns are absent.
     """
     cutoff = _ensure_utc(as_of_ts, "as_of_ts")
+    if AVAILABLE_AT not in frame.columns:
+        raise ValueError(f"missing required column {AVAILABLE_AT!r}")
     visible = frame.filter(pl.col(AVAILABLE_AT) <= pl.lit(cutoff, dtype=TS_DTYPE))
     if not spec.revisable or visible.is_empty():
         return visible
-    # Holdings amendment consolidation: within (etf_ticker, report_date, holding_id) keep max filing_date
-    dedup_keys = list(spec.key)
-    try:
-        from src.data.schema import Dataset as _Dataset
-
-        if spec.dataset == _Dataset.ETF_HOLDINGS:
-            dedup_keys = ["etf_ticker", "report_date", "holding_id"]
-    except Exception:  # noqa: S110
-        pass
-    ordered = visible.sort([*dedup_keys, AVAILABLE_AT], maintain_order=True)
-    return ordered.filter(pl.struct(dedup_keys).is_last_distinct())
+    effective_keys = list(spec.effective_observation_key)
+    missing = [name for name in [*effective_keys, *spec.key] if name not in frame.columns]
+    if missing:
+        raise ValueError(f"missing required key column(s) {missing!r}")
+    versions = visible.group_by([*effective_keys, AVAILABLE_AT]).agg(
+        pl.struct(list(spec.key)).n_unique().alias("_versions")
+    )
+    if (versions.get_column("_versions") > 1).any():
+        raise ValueError(
+            f"ambiguous revisions share observation key and {AVAILABLE_AT}"
+        )
+    ordered = visible.sort([*effective_keys, AVAILABLE_AT], maintain_order=True)
+    return ordered.filter(pl.struct(effective_keys).is_last_distinct())
 
 
 def assert_no_lookahead(frame: pl.DataFrame, decision_ts: datetime) -> None:

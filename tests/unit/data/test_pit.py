@@ -224,3 +224,155 @@ def test_pit_a07_no_imputation() -> None:
     source = Path("src/data/pit.py").read_text(encoding="utf-8")
     for banned in ("fill_null", "forward_fill", "interpolate", "upsample"):
         assert banned not in source
+
+
+def _macro_two_release_frame() -> pl.DataFrame:
+    spec = spec_for(Dataset.MACRO)
+    return pl.DataFrame(
+        {
+            "series_id": ["CPI", "CPI"],
+            "observation_date": [date(2024, 1, 1), date(2024, 1, 1)],
+            "release_date": [
+                datetime(2024, 2, 10, tzinfo=UTC),
+                datetime(2024, 3, 12, tzinfo=UTC),
+            ],
+            "value": [1.0, 1.2],
+        },
+        schema=dict(spec.columns),
+    )
+
+
+def test_registered_macro_vintage_selection() -> None:
+    """Two macro releases resolve to the then-latest visible vintage."""
+    spec = spec_for(Dataset.MACRO)
+    stamped = stamp_availability(_macro_two_release_frame(), spec)
+    early = as_of(stamped, spec, datetime(2024, 3, 1, tzinfo=UTC))
+    assert early.height == 1
+    assert early.get_column("value")[0] == 1.0
+    late = as_of(stamped, spec, datetime(2024, 3, 31, tzinfo=UTC))
+    assert late.height == 1
+    assert late.get_column("value")[0] == 1.2
+
+
+def test_future_revision_independence() -> None:
+    """Appending a later revision leaves an earlier decision result unchanged."""
+    spec = spec_for(Dataset.MACRO)
+    decision_ts = datetime(2024, 3, 1, tzinfo=UTC)
+    before = as_of(stamp_availability(_macro_two_release_frame().head(1), spec), spec, decision_ts)
+    after = as_of(stamp_availability(_macro_two_release_frame(), spec), spec, decision_ts)
+    assert before.height == 1
+    assert after.equals(before)
+
+
+def _holdings_two_filing_frame() -> pl.DataFrame:
+    spec = spec_for(Dataset.ETF_HOLDINGS)
+    return pl.DataFrame(
+        {
+            "etf_ticker": ["FOO", "FOO"],
+            "report_date": [date(2024, 3, 31), date(2024, 3, 31)],
+            "filing_date": [
+                datetime(2024, 5, 1, tzinfo=UTC),
+                datetime(2024, 5, 30, tzinfo=UTC),
+            ],
+            "holding_id": ["H1", "H1"],
+            "issuer_name": ["Acme", "Acme"],
+            "cusip": ["111", "111"],
+            "isin": ["US111", "US111"],
+            "lei": ["LEI1", "LEI1"],
+            "weight_pct": [10.0, 12.0],
+            "value_usd": [100.0, 120.0],
+            "source": ["sec", "sec"],
+            "retrieved_at": [
+                datetime(2024, 5, 1, tzinfo=UTC),
+                datetime(2024, 5, 30, tzinfo=UTC),
+            ],
+        },
+        schema=dict(spec.columns),
+    )
+
+
+def test_holdings_amendment_selection() -> None:
+    """Two filings for one holding resolve to the later visible filing."""
+    spec = spec_for(Dataset.ETF_HOLDINGS)
+    stamped = stamp_availability(_holdings_two_filing_frame(), spec)
+    result = as_of(stamped, spec, datetime(2024, 6, 30, tzinfo=UTC))
+    assert result.height == 1
+    assert result.get_column("weight_pct")[0] == 12.0
+    assert result.get_column("filing_date")[0] == datetime(2024, 5, 30, tzinfo=UTC)
+
+
+def test_equal_time_ambiguity_fails() -> None:
+    """Distinct revisions sharing observation key and availability fail closed."""
+    spec = DatasetSpec(
+        dataset=Dataset.MACRO,
+        columns={
+            "observation_date": pl.Date,
+            "release_date": TS_DTYPE,
+            "value": pl.Float64,
+        },
+        key=("observation_date", "release_date"),
+        observation_column="observation_date",
+        availability=AvailabilityRule(kind=AvailabilityKind.RELEASE_COLUMN, release_column="release_date"),
+        missing_policy=MissingPolicy.FAIL,
+        revisable=True,
+        total_return_source=TotalReturnSource.NOT_APPLICABLE,
+        schema_version="1",
+        observation_key=("observation_date",),
+    )
+    frame = pl.DataFrame(
+        {
+            "observation_date": [date(2024, 1, 1), date(2024, 1, 1)],
+            "release_date": [
+                datetime(2024, 2, 10, tzinfo=UTC),
+                datetime(2024, 3, 12, tzinfo=UTC),
+            ],
+            "value": [1.0, 1.2],
+            AVAILABLE_AT: [
+                datetime(2024, 4, 1, tzinfo=UTC),
+                datetime(2024, 4, 1, tzinfo=UTC),
+            ],
+        },
+        schema={
+            "observation_date": pl.Date,
+            "release_date": TS_DTYPE,
+            "value": pl.Float64,
+            AVAILABLE_AT: TS_DTYPE,
+        },
+    )
+    try:
+        as_of(frame, spec, datetime(2024, 4, 2, tzinfo=UTC))
+        raised = False
+    except ValueError:
+        raised = True
+    assert raised is True
+
+
+def test_storage_versions_remain_distinct() -> None:
+    """Two macro releases are distinct stored rows under quality checks."""
+    from src.data.quality import validate_frame
+
+    spec = spec_for(Dataset.MACRO)
+    stamped = stamp_availability(_macro_two_release_frame(), spec)
+    report = validate_frame(stamped, spec)
+    assert not any(finding.code == "KEY_DUPLICATE" for finding in report.findings)
+
+
+def test_as_of_missing_availability_column_fails() -> None:
+    """A frame without the availability stamp fails closed."""
+    import pytest
+
+    spec = spec_for(Dataset.MACRO)
+    frame = _macro_two_release_frame()
+    assert AVAILABLE_AT not in frame.columns
+    with pytest.raises(ValueError, match=r"available_at"):
+        as_of(frame, spec, datetime(2024, 6, 30, tzinfo=UTC))
+
+
+def test_as_of_missing_key_column_fails() -> None:
+    """A revisable frame missing an observation key column fails closed."""
+    import pytest
+
+    spec = spec_for(Dataset.MACRO)
+    stamped = stamp_availability(_macro_two_release_frame(), spec).drop("series_id")
+    with pytest.raises(ValueError, match=r"key column"):
+        as_of(stamped, spec, datetime(2024, 6, 30, tzinfo=UTC))
