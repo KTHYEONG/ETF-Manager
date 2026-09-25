@@ -1,0 +1,160 @@
+{
+  "entries": [
+    {
+      "ticker": "BND",
+      "listing_date": "2007-04-10",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/BND"
+    },
+    {
+      "ticker": "BOTZ",
+      "listing_date": "2016-09-13",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/BOTZ"
+    },
+    {
+      "ticker": "EFA",
+      "listing_date": "2001-08-17",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/EFA"
+    },
+    {
+      "ticker": "EWJ",
+      "listing_date": "1998-01-02",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/EWJ"
+    },
+    {
+      "ticker": "GLD",
+      "listing_date": "2004-11-18",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/GLD"
+    },
+    {
+      "ticker": "GRID",
+      "listing_date": "2009-11-17",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/GRID"
+    },
+    {
+      "ticker": "IBB",
+      "listing_date": "2001-02-12",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/IBB"
+    },
+    {
+      "ticker": "IEF",
+      "listing_date": "2002-07-26",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/IEF"
+    },
+    {
+      "ticker": "IEMG",
+      "listing_date": "2012-10-24",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/IEMG"
+    },
+    {
+      "ticker": "ITA",
+      "listing_date": "2006-05-05",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/ITA"
+    },
+    {
+      "ticker": "ITOT",
+      "listing_date": "2004-01-23",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/ITOT"
+    },
+    {
+      "ticker": "IVV",
+      "listing_date": "2000-05-19",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/IVV"
+    },
+    {
+      "ticker": "IWF",
+      "listing_date": "2000-05-26",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/IWF"
+    },
+    {
+      "ticker": "PAVE",
+      "listing_date": "2017-03-08",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/PAVE"
+    },
+    {
+      "ticker": "QQQ",
+      "listing_date": "1999-03-10",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/QQQ"
+    },
+    {
+      "ticker": "ROBO",
+      "listing_date": "2013-10-22",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/ROBO"
+    },
+    {
+      "ticker": "SCHF",
+      "listing_date": "2009-11-03",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/SCHF"
+    },
+    {
+      "ticker": "SOXX",
+      "listing_date": "2001-07-13",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/SOXX"
+    },
+    {
+      "ticker": "SPY",
+      "listing_date": "1998-01-02",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/SPY"
+    },
+    {
+      "ticker": "TLT",
+      "listing_date": "2002-07-26",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/TLT"
+    },
+    {
+      "ticker": "VEA",
+      "listing_date": "2007-07-26",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/VEA"
+    },
+    {
+      "ticker": "VT",
+      "listing_date": "2008-06-26",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/VT"
+    },
+    {
+      "ticker": "VTI",
+      "listing_date": "2001-05-31",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/VTI"
+    },
+    {
+      "ticker": "VTV",
+      "listing_date": "2004-01-30",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/VTV"
+    },
+    {
+      "ticker": "VWO",
+      "listing_date": "2005-03-10",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/VWO"
+    },
+    {
+      "ticker": "XLI",
+      "listing_date": "1998-12-22",
+      "last_trading_date": null,
+      "evidence_url": "https://api.tiingo.com/tiingo/daily/XLI"
+    }
+  ]
+}

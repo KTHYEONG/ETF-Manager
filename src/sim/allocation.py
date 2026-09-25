@@ -11,10 +11,11 @@ from typing import TYPE_CHECKING, Final, Literal
 import polars as pl
 
 from src.analytics.metrics import max_drawdown, real_krw, xirr
-from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
+from src.data.calendar import DEFAULT_CALENDAR_NAME, TradingCalendar, load_calendar
 from src.data.catalog import load_snapshot_visible, resolve_snapshot
 from src.data.schedule import build_decision_schedule, contribution_krw_for_point
 from src.data.schema import Dataset
+from src.data.universe import UniverseMembership, eligible_at
 from src.etf.mapping import MappingConfig, apply_etf_mapping
 from src.policy.adaptive_contribution import (
     AdaptiveContributionConfig,
@@ -46,6 +47,7 @@ from src.sim.allocation_market import (
     visible_fx,
 )
 from src.sim.contribution import allocate_contribution
+from src.sim.liquidity import LiquidityBreachError, LiquidityConfig, check_fill_liquidity
 from src.sim.lots import fill_integer_buys
 
 if TYPE_CHECKING:
@@ -86,6 +88,66 @@ _visible_fx = visible_fx
 _visible_cpi = visible_cpi
 
 
+def _eligible_delisting_targets(
+    targets: Mapping[str, float], membership: UniverseMembership | None, day: date
+) -> dict[str, float]:
+    if membership is None:
+        return dict(targets)
+    eligible = eligible_at(membership, tuple(targets), day)
+    funded = [ticker for ticker in eligible if targets[ticker] > 0.0]
+    if not funded:
+        logger.warning(
+            "[PORTFOLIO] event=delisted_no_eligible_target session=%s",
+            day.isoformat(),
+        )
+        return {}
+    funded_weight = sum(targets[ticker] for ticker in funded)
+    return {ticker: targets[ticker] / funded_weight for ticker in funded}
+
+
+def _liquidate_delisted_positions(
+    prices: pl.DataFrame,
+    shares_by_ticker: dict[str, int],
+    membership: UniverseMembership | None,
+    session: date,
+    calendar: TradingCalendar,
+    usdkrw: float,
+    commission_bps: float,
+) -> tuple[float, float]:
+    if membership is None:
+        return 0.0, 0.0
+    settlements: list[tuple[str, int, float]] = []
+    for ticker in sorted(shares_by_ticker):
+        quantity = shares_by_ticker[ticker]
+        entry = membership.entries.get(ticker)
+        if entry is None:
+            raise AllocationDataError(  # pragma: no cover - every held ticker passed target membership
+                f"held ticker {ticker!r} has no universe membership entry"
+            )
+        last_trading_date = entry.last_trading_date
+        if last_trading_date is None or last_trading_date >= session:
+            continue
+        last_close_ts = calendar.close_ts(last_trading_date)
+        last_close = visible_close(
+            prices,
+            ticker,
+            last_trading_date,
+            last_close_ts,
+            adjusted=False,
+        )
+        settlements.append((ticker, quantity, last_close))
+
+    liquidation_cash_usd = 0.0
+    fees_krw = 0.0
+    for ticker, quantity, last_close in settlements:
+        gross_usd = quantity * last_close
+        commission_usd = gross_usd * commission_bps / _BPS
+        liquidation_cash_usd += gross_usd - commission_usd
+        fees_krw += commission_usd * usdkrw
+        del shares_by_ticker[ticker]
+    return liquidation_cash_usd, fees_krw
+
+
 @dataclass(frozen=True, slots=True)
 class AllocationConfig:
     """Policy identity plus external cashflow and implementation parameters."""
@@ -109,6 +171,8 @@ class AllocationConfig:
     adaptive_contribution: AdaptiveContributionConfig | None = None
     targets_override: Mapping[str, float] | None = None
     mix_risk_budget: MixRiskBudgetConfig | None = None
+    liquidity: LiquidityConfig | None = None
+    membership: UniverseMembership | None = None
 
 
 def apply_operational_contribution_lock(config: AllocationConfig) -> AllocationConfig:
@@ -217,16 +281,16 @@ def run_allocation(
     fully invested (no reserve book). When ``config.adaptive_contribution`` is set,
     each month's external credit is sized independently from the KAFI opportunity
     score with no horizon conservation or reserve book. New money follows the mapped targets
-    and no position is ever sold; integer-lot rounding dust recycles into the
-    next conversion instead of idling. Nominal marks drive the equity path; CPI levels only deflate
+    and no position is sold except for configured delisting settlement; integer-lot
+    rounding dust recycles into the next conversion instead of idling. Nominal marks drive the equity path; CPI levels only deflate
     terminal wealth and the money-weighted rate into first-snapshot purchasing power.
 
     Raises:
         ValueError: When ``monthly_contribution_krw`` is not positive, the policy is a
             research_proxy identity, allocation modules conflict, or mapping lacks its metadata frame.
         PolicyError: When weight resolution, ETF mapping, or contribution shaping fails closed at a signal instant.
-        AllocationDataError: When the schedule is empty or a required price, FX,
-            or CPI observation is missing, non-positive, or null at an execution close.
+        AllocationDataError: When the schedule is empty, a required price, FX,
+            or CPI observation is invalid, or a fill breaches configured liquidity.
         XirrError: When the money-weighted rate cannot be identified.
     """
     if config.policy is PolicyId.FF_PROXY:
@@ -343,6 +407,17 @@ def run_allocation(
         close_ts = calendar.close_ts(point.execution_session)
         usdkrw = visible_fx(fx, point.execution_session, close_ts)
         cpi_level = visible_cpi(cpi, point.execution_session, close_ts)
+        settled_cash, settlement_fees = _liquidate_delisted_positions(
+            prices=prices,
+            shares_by_ticker=shares_by_ticker,
+            membership=config.membership,
+            session=point.execution_session,
+            calendar=calendar,
+            usdkrw=usdkrw,
+            commission_bps=config.commission_bps,
+        )
+        # 상장폐지 청산 대금은 USD 현금으로 편입되어 다음 매수(fill_integer_buys)에서 재투자된다.
+        cash_usd += settled_cash
         if config.mix_risk_budget is not None:
             targets = resolve_mix_risk_budget_targets(prices, point.signal_at, config.mix_risk_budget)
         elif config.targets_override is not None:
@@ -363,6 +438,7 @@ def run_allocation(
             targets, incumbents_by_sleeve = apply_etf_mapping(
                 targets, prices, metadata, point.signal_at, config.mapping, incumbents_by_sleeve
             )
+        targets = _eligible_delisting_targets(targets, config.membership, point.execution_session)
         fraction = 1.0 if config.currency is None else conversion_fraction(fx, point.signal_at, config.currency)
 
         # Σ external KRW per calendar month stays invariant: twice_monthly splits 50/50.
@@ -428,22 +504,23 @@ def run_allocation(
             for ticker in mark_keys
         }
         nav_krw = sum(marks_krw.values()) + cash_usd * usdkrw + cash_krw
-        spend_weights = (
-            targets
-            if config.rebalance_band is None
-            else allocate_contribution(
+        if not targets:
+            spend_weights: dict[str, float] = {}
+        elif config.rebalance_band is None:
+            spend_weights = targets
+        else:
+            spend_weights = allocate_contribution(
                 targets=targets,
                 marks_krw=marks_krw,
                 nav_krw=nav_krw,
                 commission_bps=config.commission_bps,
                 rebalance_band=config.rebalance_band,
             )
-        )
         # Overlay residual and FX defer both stay in cash: spend only the converted budget.
         convert_krw = investable_krw * fraction
         weight_sum = sum(spend_weights.values())
         sleeve_budget_krw = convert_krw * weight_sum
-        fees_krw = sleeve_budget_krw * (fx_gross - usdkrw)
+        fees_krw = sleeve_budget_krw * (fx_gross - usdkrw) + settlement_fees
         if sleeve_budget_krw > 0.0:
             # Overlay/FX defer leave residual cash: budget scales by weight sum; lots split a simplex.
             fill_weights = spend_weights
@@ -457,6 +534,21 @@ def run_allocation(
                 prices=mark_prices,
                 commission_bps=config.commission_bps,
             )
+            liquidity = config.liquidity
+            if liquidity is not None:
+                for ticker, lot in lots.items():
+                    if lot > 0:
+                        try:
+                            check_fill_liquidity(
+                                prices=prices,
+                                ticker=ticker,
+                                session=point.execution_session,
+                                close_ts=close_ts,
+                                shares=lot,
+                                config=liquidity,
+                            )
+                        except LiquidityBreachError as exc:
+                            raise AllocationDataError(str(exc)) from exc
             fees_krw += commission_krw
             for ticker, lot in lots.items():
                 shares_by_ticker[ticker] = shares_by_ticker.get(ticker, 0) + lot
@@ -470,7 +562,12 @@ def run_allocation(
                 cash_krw=cash_krw,
                 cash_usd=cash_usd,
                 shares=dict(shares_by_ticker),
-                mark_krw=position_value_usd * usdkrw + cash_usd * usdkrw + cash_krw + reserve_krw,
+                mark_krw=(
+                    position_value_usd * usdkrw
+                    + cash_usd * usdkrw
+                    + cash_krw
+                    + reserve_krw
+                ),
                 contribution_krw=contribution,
                 fees_krw=fees_krw,
                 reserve_krw=reserve_krw,

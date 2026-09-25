@@ -17,10 +17,12 @@ from src.data.calendar import DEFAULT_CALENDAR_NAME, TradingCalendar, load_calen
 from src.data.catalog import load_snapshot_visible, resolve_snapshot
 from src.data.schedule import DecisionPoint, build_decision_schedule
 from src.data.schema import Dataset
+from src.data.universe import UniverseMembership, eligible_at
 from src.features.pit_market import PitMarket
 from src.policy.weight_rule import CASH_SLEEVE, WeightRule
 from src.sim.after_tax_market import AfterTaxDataError, _CpiIndex, _FxIndex, _PriceIndex, _RateIndex
 from src.sim.corporate_actions import CorporateAction, CorporateActionKind, corporate_actions_from_prices
+from src.sim.liquidity import LiquidityBreachError, LiquidityConfig, check_fill_liquidity
 from src.sim.tax import KrOverseasTaxRegime, annual_capital_gains_tax_krw
 from src.sim.tax_lots import RealizedDisposal, TaxLotBook
 
@@ -66,6 +68,8 @@ class AfterTaxConfig:
     schedule, or ``monthly_contribution_krw == 0`` with a non-empty
     ``contribution_schedule_krw`` of positive KRW amounts dated within ``[start, end]``;
     scheduled cash is deposited at the first execution session on or after its date.
+    When set, ``liquidity`` checks every market buy and sell before its lot ledger changes.
+    When set, ``membership`` force-settles delisted holdings and filters execution targets.
     """
 
     start: date
@@ -87,6 +91,8 @@ class AfterTaxConfig:
     fx_max_staleness_days: int = 7
     cash_rate_series: str = "DTB3"
     label: str = ""
+    liquidity: LiquidityConfig | None = None
+    membership: UniverseMembership | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +170,7 @@ def run_after_tax(
             a non-simplex static target, a missing/invalid band for REBALANCE_BAND,
             ``fill_delay_sessions < 1``, or ``fx_max_staleness_days < 0``.
         AfterTaxDataError: On an empty schedule, missing/stale price, FX, CPI, or rate,
-            or scheduled cash dated after the final execution session.
+            scheduled cash dated after the final execution session, or a liquidity breach.
         PitMarketError: When a rule lacks visible history at a signal instant.
         CorporateActionError: On unmappable vendor split factors.
         TaxLotError: On an internally inconsistent disposal (never expected; fail closed).
@@ -188,7 +194,7 @@ def run_after_tax(
     market = PitMarket(prices, rates)
     actions = _extract_actions(prices, config)
     book = TaxLotBook(config.tax_regime.basis_method)
-    state = _EngineState(config, calendar)
+    state = _EngineState(config, calendar, prices)
     previous_execution: date | None = None
     for point in schedule:
         state.step(
@@ -207,13 +213,13 @@ def run_after_tax(
 
 
 def run_after_tax_from_store(config: AfterTaxConfig, settings: DataSettings) -> AfterTaxResult:
-    """Load pinned PRICES, FX_KRW_BASE, CPI (and RATES when the cash sleeve is used) then simulate.
+    """Load pinned PRICES, FX_KRW_BASE, CPI and RATES when cash can earn interest.
 
     Raises:
         UntrustedDatasetError: When a required pinned dataset is absent or changes.
         AfterTaxDataError: As in :func:`run_after_tax`.
     """
-    needs_rates = (config.rule is not None and config.rule.requires_cash_rate) or (
+    needs_rates = config.membership is not None or (config.rule is not None and config.rule.requires_cash_rate) or (
         config.targets is not None and CASH_SLEEVE in config.targets
     )
     datasets: tuple[Dataset, ...] = (Dataset.PRICES, Dataset.FX_KRW_BASE, Dataset.CPI)
@@ -294,6 +300,24 @@ def _validate_config(config: AfterTaxConfig) -> None:
             raise ValueError(f"{name} must be finite and nonnegative, got {value!r}")
 
 
+def _eligible_execution_weights(
+    weights: Mapping[str, float], membership: UniverseMembership | None, day: date
+) -> dict[str, float]:
+    if membership is None:
+        return dict(weights)
+    membership_tickers = tuple(ticker for ticker in weights if ticker != CASH_SLEEVE)
+    eligible = set(eligible_at(membership, membership_tickers, day))
+    filtered = {
+        ticker: weight
+        for ticker, weight in weights.items()
+        if weight > 0.0 and (ticker == CASH_SLEEVE or ticker in eligible)
+    }
+    if not filtered:
+        return {CASH_SLEEVE: 1.0}
+    total = sum(filtered.values())
+    return {ticker: weight / total for ticker, weight in filtered.items()}
+
+
 def _check_simplex(weights: Mapping[str, float], name: str) -> None:
     """Fail closed on negative, non-finite, or non-simplex weights within 1e-6."""
     total = 0.0
@@ -348,9 +372,10 @@ def _verify_usd_flows(
 class _EngineState:
     """Mutable per-run ledger advanced one execution session at a time."""
 
-    def __init__(self, config: AfterTaxConfig, calendar: TradingCalendar) -> None:
+    def __init__(self, config: AfterTaxConfig, calendar: TradingCalendar, prices: pl.DataFrame) -> None:
         self._config = config
         self._calendar = calendar
+        self._prices = prices
         self._regime = config.tax_regime
         self._commission = config.commission_bps / _BPS
         self._spread = config.fx_spread_bps / _BPS
@@ -368,6 +393,111 @@ class _EngineState:
         self._cpi_levels: list[float] = []
         self._sell_count = 0
         self._last_liquidation_tax = 0.0
+
+    def _check_fill_liquidity(
+        self, ticker: str, day: date, close: datetime, shares: int | float
+    ) -> None:
+        liquidity = self._config.liquidity
+        if liquidity is None:
+            return
+        try:
+            check_fill_liquidity(
+                prices=self._prices,
+                ticker=ticker,
+                session=day,
+                close_ts=close,
+                shares=abs(shares),
+                config=liquidity,
+            )
+        except LiquidityBreachError as exc:
+            raise AfterTaxDataError(str(exc)) from exc
+
+    def _settle_delisted_holdings(
+        self,
+        day: date,
+        price_index: _PriceIndex,
+        fx_index: _FxIndex,
+        book: TaxLotBook,
+    ) -> tuple[float, float]:
+        membership = self._config.membership
+        if membership is None:
+            return 0.0, 0.0
+        settlements: list[
+            tuple[str, float, date, date, datetime, float, float, float, float]
+        ] = []
+        for ticker in sorted(book.tickers()):
+            entry = membership.entries.get(ticker)
+            if entry is None:
+                raise AfterTaxDataError(  # pragma: no cover - every held ticker passed target membership
+                    f"held ticker {ticker!r} has no universe membership entry"
+                )
+            last_trading_date = entry.last_trading_date
+            if last_trading_date is None or last_trading_date >= day:
+                continue
+            quantity = book.quantity(ticker)
+            trade_close = self._calendar.close_ts(last_trading_date)
+            price = price_index.price(ticker, last_trading_date, trade_close, adjusted=False)
+            settle_session = last_trading_date
+            for _ in range(self._regime.settlement_sessions):
+                settle_session = self._calendar.next_session(settle_session)
+            settle_close = self._calendar.close_ts(settle_session)
+            trade_fx = fx_index.resolve(
+                last_trading_date, trade_close, self._config.fx_max_staleness_days
+            )
+            settle_fx = fx_index.resolve(
+                settle_session, settle_close, self._config.fx_max_staleness_days
+            )
+            gross_usd = quantity * price
+            commission_usd = gross_usd * self._commission
+            net_proceeds_usd = gross_usd - commission_usd
+            settlements.append(
+                (
+                    ticker,
+                    quantity,
+                    last_trading_date,
+                    settle_session,
+                    trade_close,
+                    net_proceeds_usd,
+                    commission_usd,
+                    trade_fx,
+                    settle_fx,
+                )
+            )
+
+        proceeds_usd = 0.0
+        fees_krw = 0.0
+        for (
+            ticker,
+            quantity,
+            trade_session,
+            settle_session,
+            trade_close,
+            net_proceeds_usd,
+            commission_usd,
+            trade_fx,
+            settle_fx,
+        ) in settlements:
+            self._check_fill_liquidity(ticker, trade_session, trade_close, quantity)
+            disposal = book.sell(
+                ticker,
+                quantity,
+                net_proceeds_usd,
+                settle_fx,
+                trade_session=trade_session,
+                settle_session=settle_session,
+            )
+            held_earmark = self._earmarks.pop(ticker, 0.0)
+            self._earmarks[CASH_SLEEVE] = (
+                self._earmarks.get(CASH_SLEEVE, 0.0) + net_proceeds_usd + held_earmark
+            )
+            self._disposals.append(disposal)
+            self._net_by_year[disposal.tax_year] = (
+                self._net_by_year.get(disposal.tax_year, 0.0) + disposal.gain_krw
+            )
+            proceeds_usd += net_proceeds_usd
+            fees_krw += commission_usd * trade_fx
+            self._sell_count += 1
+        return proceeds_usd, fees_krw
 
     def step(
         self,
@@ -449,6 +579,12 @@ class _EngineState:
             inflows_usd += credit_usd
             self._income[day.year] = self._income.get(day.year, 0.0) + gross_usd * fx_day
 
+        settlement_proceeds, settlement_fees = self._settle_delisted_holdings(
+            day, price_index, fx_index, book
+        )
+        inflows_usd += settlement_proceeds
+        fees_krw += settlement_fees
+
         # Assess every tax year before this execution's year; pay what is due.
         for assessed_year in sorted(self._net_by_year):
             if assessed_year >= day.year or assessed_year in self._assessed:
@@ -499,13 +635,14 @@ class _EngineState:
             else dict(cast(WeightRule, config.rule)(point.signal_at, market))
         )
         _check_simplex(weights, "weights")
+        weights = _eligible_execution_weights(weights, config.membership, day)
         weight_total = sum(weights.values())
         weights = {ticker: weight / weight_total for ticker, weight in weights.items()}
         for ticker, weight in weights.items():
             if weight > 0 and converted_usd > 0:
                 self._earmarks[ticker] = self._earmarks.get(ticker, 0.0) + converted_usd * weight
 
-        # Optional band rebalancing with sells; buy-only never sells here.
+        # Optional band rebalancing with sells; membership settlement ran before targets.
         if config.mode is ExecutionMode.REBALANCE_BAND:
             pool_usd, cash_take_usd, sell_fees = self._rebalance(
                 weights, day, fx_day, settle, settle_fx, price_index, book, config
@@ -539,6 +676,7 @@ class _EngineState:
             gross_usd = lots * cost_per_share
             if gross_usd > earmark:
                 gross_usd = earmark
+            self._check_fill_liquidity(ticker, day, close, lots)
             book.buy(ticker, lots, gross_usd, settle_fx, trade_session=day, settle_session=settle)
             self._earmarks[ticker] = max(0.0, earmark - gross_usd)
             outflows_usd += gross_usd
@@ -649,6 +787,7 @@ class _EngineState:
             if lots <= 0:
                 continue
             proceeds_usd = lots * price * (1.0 - self._commission)
+            self._check_fill_liquidity(ticker, day, close, lots)
             disposal = book.sell(ticker, lots, proceeds_usd, settle_fx, trade_session=day, settle_session=settle)
             self._disposals.append(disposal)
             self._net_by_year[disposal.tax_year] = self._net_by_year.get(disposal.tax_year, 0.0) + disposal.gain_krw
@@ -736,6 +875,7 @@ class _EngineState:
             if lots <= 0:
                 continue
             proceeds_usd = lots * net_price
+            self._check_fill_liquidity(ticker, day, self._calendar.close_ts(day), lots)
             disposal = book.sell(ticker, lots, proceeds_usd, settle_fx, trade_session=day, settle_session=settle)
             self._disposals.append(disposal)
             self._net_by_year[disposal.tax_year] = self._net_by_year.get(disposal.tax_year, 0.0) + disposal.gain_krw
@@ -747,6 +887,7 @@ class _EngineState:
             rebuy = min(rebuy, lots)
             if rebuy > 0:
                 rebuy_gross = rebuy * rebuy_cost
+                self._check_fill_liquidity(ticker, day, self._calendar.close_ts(day), rebuy)
                 book.buy(ticker, rebuy, rebuy_gross, settle_fx, trade_session=day, settle_session=settle)
                 outflows_usd += rebuy_gross
                 fees_krw += rebuy * price * self._commission * fx_day

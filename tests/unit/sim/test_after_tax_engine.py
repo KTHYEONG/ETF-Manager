@@ -25,6 +25,7 @@ from src.sim.after_tax_engine import (
     run_after_tax_from_store,
 )
 from src.sim.allocation import AllocationConfig, run_allocation
+from src.sim.liquidity import LiquidityConfig
 from src.sim.tax import BasisMethod, load_tax_regime
 
 _CALENDAR = load_calendar("XNYS")
@@ -172,8 +173,10 @@ def test_legacy_parity_single_sleeve_adjusted_mode() -> None:
     fx_base = _fx_frame(window)
     fx_legacy = _fx_frame(window, legacy=True)
     cpi = _cpi_frame()
+    config = _config(price_mode="adjusted", tax_enabled=False, harvest_gains=False, label="parity")
+    assert config.liquidity is None
     result = run_after_tax(
-        _config(price_mode="adjusted", tax_enabled=False, harvest_gains=False, label="parity"),
+        config,
         prices,
         fx_base,
         cpi,
@@ -495,6 +498,45 @@ def test_rebalance_band_triggers_sells() -> None:
         for ticker in ("QQQ", "SPY")
     )
     assert drift <= 0.05 + 1e-6
+
+
+def test_guarded_rebalance_sell_fails_closed_on_zero_volume() -> None:
+    window = _sessions(date(2024, 1, 2), date(2025, 6, 30))
+    qqq = [100.0 * (2.0 ** (index / (len(window) - 1))) for index in range(len(window))]
+    prices = _prices_frame(window, {"QQQ": qqq, "SPY": [50.0] * len(window)})
+    fx = _fx_frame(window)
+    cpi = _cpi_frame()
+    base_config = _config(
+        monthly_contribution_krw=5_000_000.0,
+        targets={"QQQ": 0.5, "SPY": 0.5},
+        mode=ExecutionMode.REBALANCE_BAND,
+        rebalance_band=0.05,
+        tax_enabled=False,
+        harvest_gains=False,
+    )
+    unguarded = run_after_tax(base_config, prices, fx, cpi)
+    assert unguarded.disposals
+    sell_session = unguarded.disposals[0].trade_session
+    guarded_prices = prices.with_columns(
+        pl.when(pl.col("date") == sell_session)
+        .then(pl.lit(0, dtype=pl.Int64))
+        .otherwise(pl.col("volume"))
+        .alias("volume")
+    )
+    guarded_config = _replace(
+        base_config,
+        liquidity=LiquidityConfig(
+            adv_window_sessions=1,
+            max_adv_participation=1.0,
+            reject_zero_volume=True,
+        ),
+    )
+
+    with pytest.raises(AfterTaxDataError) as exc_info:
+        run_after_tax(guarded_config, guarded_prices, fx, cpi)
+
+    assert sell_session.isoformat() in str(exc_info.value)
+    assert "QQQ" in str(exc_info.value)
 
 
 def test_rebalance_exit_of_sleeve_drains_earmark_and_caps_sale_at_holdings() -> None:

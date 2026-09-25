@@ -25,7 +25,14 @@ class AllocationDataError(RuntimeError):
     """Missing PIT price, FX, or CPI at an execution close; never skipped silently."""
 
 
-def visible_close(prices: pl.DataFrame, ticker: str, session: date, close_ts: datetime) -> float:
+def visible_close(
+    prices: pl.DataFrame,
+    ticker: str,
+    session: date,
+    close_ts: datetime,
+    *,
+    adjusted: bool = True,
+) -> float:
     """Resolve one causal execution close from a pinned tradable price frame.
 
     Args:
@@ -33,6 +40,7 @@ def visible_close(prices: pl.DataFrame, ticker: str, session: date, close_ts: da
         ticker: Execution instrument.
         session: Execution session.
         close_ts: Exchange close instant.
+        adjusted: Use the split/dividend-adjusted close when true; otherwise use raw close.
 
     Returns:
         Positive finite executable close.
@@ -40,17 +48,18 @@ def visible_close(prices: pl.DataFrame, ticker: str, session: date, close_ts: da
     Raises:
         AllocationDataError: If the close is missing, invalid, or unavailable.
     """
-    if "ticker" not in prices.columns or "adjusted_close" not in prices.columns:
+    price_field = "adjusted_close" if adjusted else "close"
+    if "ticker" not in prices.columns or price_field not in prices.columns:
         raise AllocationDataError(
-            f"price frame lacks tradable close columns for {ticker!r} on {session.isoformat()}"
+            f"price frame lacks {price_field} for {ticker!r} on {session.isoformat()}"
         )
     visible = load_as_of(prices, Dataset.PRICES, close_ts)
     rows = visible.filter((pl.col("ticker") == ticker) & (pl.col("date") == session))
     if rows.is_empty():
         raise AllocationDataError(f"missing {ticker!r} price row on {session.isoformat()} at its execution close")
-    value = rows.item(0, "adjusted_close")
+    value = rows.item(0, price_field)
     if value is None or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0.0:
-        raise AllocationDataError(f"non-positive adjusted_close for {ticker!r} on {session.isoformat()}")
+        raise AllocationDataError(f"non-positive {price_field} for {ticker!r} on {session.isoformat()}")
     return float(value)
 
 

@@ -553,6 +553,10 @@
     "family": "data",
     "testing": "tests/unit/data/test_ingest_guard.py"
   },
+  "src/data/macro_backfill.py": {
+    "family": "data",
+    "testing": "tests/unit/data/test_macro_backfill.py"
+  },
   "src/data/merge.py": {
     "family": "data",
     "testing": "tests/unit/data/test_merge.py"
@@ -740,6 +744,10 @@
       "tests/unit/data/test_tiingo.py"
     ]
   },
+  "src/data/price_corrections.py": {
+    "family": "data",
+    "testing": "tests/unit/data/test_price_corrections.py"
+  },
   "src/data/quality.py": {
     "family": "data",
     "testing": "tests/unit/data/test_quality.py"
@@ -784,6 +792,10 @@
   "src/data/thesis_fundamentals.py": {
     "family": "data",
     "testing": "tests/unit/data/test_thesis_fundamentals.py"
+  },
+  "src/data/universe.py": {
+    "family": "data",
+    "testing": "tests/unit/data/test_universe.py"
   },
   "src/etf/__init__.py": {
     "family": "etf",
@@ -1013,6 +1025,10 @@
   "src/sim/corporate_actions.py": {
     "family": "sim",
     "testing": "tests/unit/sim/test_corporate_actions.py"
+  },
+  "src/sim/liquidity.py": {
+    "family": "sim",
+    "testing": "tests/unit/sim/test_liquidity.py"
   },
   "src/sim/lots.py": {
     "family": "sim",

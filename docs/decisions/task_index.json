@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_RESEARCH_DATA_READINESS",
+      "date": "2026-09-25",
+      "adr_id": "ADR_20260925_RESEARCH_DATA_READINESS",
+      "domain": "data",
+      "title": "Research data readiness: price anomaly/corrections, macro backfill, liquidity guard, PIT universe, delisting settlement",
+      "why": "Bad 2010-05-06 prints, missing pre-2012 macro history, dead-session fills, and survivorship blocked reliable backtests beyond the current allocation set.",
+      "resolution": "Reverting flat print rule, evidence-backed price corrections in ingest lineage, unrevised FRED backfill with session lag, opt-in liquidity guard, PIT membership, and delisting settlement in both engines.",
+      "impact": "Real PRICES now carry corrected ITA/IWF/VTV bars and MACRO VIXCLS/BAA10Y reach 1998 without look-ahead; new engine modules stay opt-in so pinned results are unchanged.",
+      "caveat": "After-tax buy-only mode parks delisting proceeds in the cash sleeve, corrections rest on a second vendor plus peer-return checks, and closed-ETF prices from Tiingo are truncated, reused, or illiquid."
+    },
+    {
       "task_id": "TASK_REFACTOR_07_13",
       "date": "2026-09-25",
       "adr_id": "ADR_20260925_REFACTOR_07_13",
@@ -1001,16 +1012,6 @@
       "why": "Phase 3 strategic weights lacked factor data, ETF regression, bounded fixed tilt, and ex-post attribution required by next.md Phase 4.",
       "resolution": "Expanded Dataset.FACTORS to US 5F+Mom+rf, Ken French ZIP client and ingest factors CLI, PIT OLS loadings, long-only FactorTilt overlay on any PolicyId, tilt-aware run_allocation, and attribute_factor_returns reporting; tilt=None preserves Phase 3 identity.",
       "impact": "Closes Phase 4 factor research path under I9; unblocks Phase 5 contribution rebalancing and Phase 6 overlays without factor timing."
-    },
-    {
-      "task_id": "TASK_P3_STRATEGIC_ALLOCATION",
-      "date": "2026-08-23",
-      "adr_id": "ADR_20260823_P3_STRATEGIC_ALLOCATION",
-      "domain": "policy",
-      "title": "Phase 3: Strategic Allocation (L2 features, L3 policy, multi-sleeve sim)",
-      "why": "Phase 2 only supported single-ticker B0/B1 DCA; Phase 3 requires regional/defensive alternatives under identical KRW cashflows with PIT target weights.",
-      "resolution": "Implemented session_returns and trailing_simple_vol (L2), six PolicyId targets including inverse-vol (L3), buy-only multi-sleeve run_allocation with CPI real metrics, and run policy CLI; S0 matches B0 on identical panels.",
-      "impact": "Closes Phase 3 simple allocation research path; unblocks Phase 4 factor tilts and Phase 5 contribution rebalancing."
     }
   ]
 }

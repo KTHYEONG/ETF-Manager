@@ -12,7 +12,7 @@ import pytest
 import src.sim.allocation as allocation_module
 from src.data.calendar import load_calendar, next_execution_session
 from src.data.pit import AVAILABLE_AT
-from src.data.schedule import DecisionPoint
+from src.data.schedule import DecisionPoint, build_decision_schedule
 from src.etf.mapping import MappingConfig
 from src.execution.broker import PaperBroker, reconcile, replay_paper
 from src.data.pipeline import ingest
@@ -31,6 +31,7 @@ from src.sim.allocation import (
     run_allocation,
 )
 from src.sim.baseline import BaselineConfig, BaselineId, run_baseline
+from src.sim.liquidity import LiquidityConfig
 from src.validation.evaluate import evaluate_cohort_wealths
 
 _CALENDAR = load_calendar("XNYS")
@@ -130,6 +131,8 @@ def test_sim_g05_s0_matches_b0(scenario_id: str) -> None:
     prices = ingest(_prices_panel(window, ("VT",)), Dataset.PRICES)
     fx = ingest(_fx_panel(window), Dataset.FX)
     cpi = _constant_cpi()
+    config = _allocation_config(PolicyId.VT)
+    assert config.liquidity is None
 
     baseline = run_baseline(
         BaselineConfig(
@@ -143,12 +146,44 @@ def test_sim_g05_s0_matches_b0(scenario_id: str) -> None:
         fx,
         cpi,
     )
-    result = run_allocation(_allocation_config(PolicyId.VT), prices, fx, cpi)
+    result = run_allocation(config, prices, fx, cpi)
 
     assert result.terminal_wealth_krw == pytest.approx(baseline.terminal_wealth_krw, rel=1e-6)
     contributions_alloc = tuple(snapshot.contribution_krw for snapshot in result.snapshots)
     contributions_base = tuple(snapshot.contribution_krw for snapshot in baseline.snapshots)
     assert contributions_alloc == contributions_base
+
+
+def test_guarded_allocation_fails_closed_on_zero_volume() -> None:
+    window = _panel_window()
+    schedule = build_decision_schedule(
+        _CONFIG_START,
+        _CONFIG_END,
+        frequency="monthly",
+        fill_delay_sessions=1,
+    )
+    execution_session = schedule[0].execution_session
+    raw_prices = _prices_panel(window, ("VT",)).with_columns(
+        pl.when(pl.col("date") == execution_session)
+        .then(pl.lit(0, dtype=pl.Int64))
+        .otherwise(pl.col("volume"))
+        .alias("volume")
+    )
+    prices = ingest(raw_prices, Dataset.PRICES)
+    config = replace(
+        _allocation_config(PolicyId.VT),
+        liquidity=LiquidityConfig(
+            adv_window_sessions=1,
+            max_adv_participation=1.0,
+            reject_zero_volume=True,
+        ),
+    )
+
+    with pytest.raises(AllocationDataError) as exc_info:
+        run_allocation(config, prices, ingest(_fx_panel(window), Dataset.FX), _constant_cpi())
+
+    assert execution_session.isoformat() in str(exc_info.value)
+    assert "VT" in str(exc_info.value)
 
 
 @pytest.mark.parametrize("scenario_id", ["SIM-G06-buy-only-split"])

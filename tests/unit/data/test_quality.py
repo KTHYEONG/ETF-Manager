@@ -331,6 +331,180 @@ def test_validate_frame_rejects_nonpositive_currency_and_cpi() -> None:
     assert cpi_findings[0].row_count == 1
 
 
+def _prices_bars(bars: list[tuple[str, date, float, bool]]) -> pl.DataFrame:
+    """Build a PRICES frame from (ticker, session, close, is_flat_print) bars.
+
+    A flat bar carries open == high == low == close, the signature of a vendor
+    single print; every other bar keeps the traded range of the plain helper.
+    """
+    spec = spec_for(Dataset.PRICES)
+    n = len(bars)
+    return pl.DataFrame(
+        {
+            "ticker": [ticker for ticker, _, _, _ in bars],
+            "date": [session for _, session, _, _ in bars],
+            "open": [close if flat else close * 0.98 for _, _, close, flat in bars],
+            "high": [close if flat else close * 1.02 for _, _, close, flat in bars],
+            "low": [close if flat else close * 0.97 for _, _, close, flat in bars],
+            "close": [close for _, _, close, _ in bars],
+            "volume": [10_000] * n,
+            "adjusted_close": [close for _, _, close, _ in bars],
+            "dividend": [0.0] * n,
+            "split_factor": [1.0] * n,
+            "source": ["synthetic"] * n,
+            "retrieved_at": [_RETRIEVED_AT] * n,
+        },
+        schema=dict(spec.columns),
+    )
+
+
+def _reverting_findings(report: QualityReport) -> tuple[QualityFinding, ...]:
+    return tuple(finding for finding in report.findings if finding.code == "REVERTING_FLAT_PRINT")
+
+
+def test_validate_frame_flags_flash_crash_flat_print() -> None:
+    """Flash crash print: a -30%/+33% flat bar is WARN naming ticker and session."""
+    calendar = load_calendar("XNYS")
+    spec = spec_for(Dataset.PRICES)
+    bars = [
+        ("SPY", date(2024, 1, 29), 100.0, False),
+        ("SPY", date(2024, 1, 30), 70.0, True),
+        ("SPY", date(2024, 1, 31), 93.1, False),
+    ]
+    stamped = _stamp(_prices_bars(bars), spec, calendar)
+    snapshot = stamped.clone()
+    report = validate_frame(stamped, spec, calendar)
+    findings = _reverting_findings(report)
+    assert len(findings) == 1
+    assert findings[0].severity is FindingSeverity.WARN
+    assert findings[0].row_count == 1
+    assert "SPY@2024-01-30" in findings[0].message
+    assert report.has_errors is False
+    assert enforce(report) is None
+    assert stamped.equals(snapshot)
+
+
+def test_validate_frame_flags_moderate_reverting_flat_print() -> None:
+    """An asymmetric +6%/-11% flat print (VTV 2010-05-06 shape) is still flagged."""
+    calendar = load_calendar("XNYS")
+    spec = spec_for(Dataset.PRICES)
+    bars = [
+        ("VTV", date(2024, 1, 29), 100.0, False),
+        ("VTV", date(2024, 1, 30), 106.0, True),
+        ("VTV", date(2024, 1, 31), 94.34, False),
+    ]
+    findings = _reverting_findings(validate_frame(_stamp(_prices_bars(bars), spec, calendar), spec, calendar))
+    assert len(findings) == 1
+    assert "VTV@2024-01-30" in findings[0].message
+
+
+def test_validate_frame_ignores_small_reverting_flat_print() -> None:
+    """A +3%/-4% flat bar stays below both bounds and is not a stray print."""
+    calendar = load_calendar("XNYS")
+    spec = spec_for(Dataset.PRICES)
+    bars = [
+        ("SPY", date(2024, 1, 29), 100.0, False),
+        ("SPY", date(2024, 1, 30), 103.0, True),
+        ("SPY", date(2024, 1, 31), 98.88, False),
+    ]
+    assert _reverting_findings(validate_frame(_stamp(_prices_bars(bars), spec, calendar), spec, calendar)) == ()
+
+
+def test_validate_frame_ignores_reversal_with_distinct_ohlc() -> None:
+    """A real crash keeps a traded range and is not a stray print.
+
+    Both legs (-12%, +11%) clear the detection bound, so the distinct OHLC alone
+    must keep the bar out of the finding.
+    """
+    calendar = load_calendar("XNYS")
+    spec = spec_for(Dataset.PRICES)
+    bars = [
+        ("SPY", date(2024, 1, 29), 100.0, False),
+        ("SPY", date(2024, 1, 30), 88.0, False),
+        ("SPY", date(2024, 1, 31), 97.68, False),
+    ]
+    report = validate_frame(_stamp(_prices_bars(bars), spec, calendar), spec, calendar)
+    assert _reverting_findings(report) == ()
+    assert report.has_errors is False
+
+
+def test_validate_frame_ignores_flat_bar_without_reversal() -> None:
+    """A flat bar that keeps drifting one way is a halts session, not a print."""
+    calendar = load_calendar("XNYS")
+    spec = spec_for(Dataset.PRICES)
+    bars = [
+        ("SPY", date(2024, 1, 29), 100.0, False),
+        ("SPY", date(2024, 1, 30), 70.0, True),
+        ("SPY", date(2024, 1, 31), 60.0, False),
+    ]
+    report = validate_frame(_stamp(_prices_bars(bars), spec, calendar), spec, calendar)
+    assert _reverting_findings(report) == ()
+
+
+def test_validate_frame_ignores_flat_print_on_boundary_rows() -> None:
+    """First and last ticker rows have no observable reversal partner."""
+    calendar = load_calendar("XNYS")
+    spec = spec_for(Dataset.PRICES)
+    leading_jump = [
+        ("SPY", date(2024, 1, 29), 70.0, True),
+        ("SPY", date(2024, 1, 30), 100.0, False),
+    ]
+    trailing_jump = [
+        ("SPY", date(2024, 1, 29), 100.0, False),
+        ("SPY", date(2024, 1, 30), 70.0, True),
+    ]
+    for bars in (leading_jump, trailing_jump):
+        report = validate_frame(_stamp(_prices_bars(bars), spec, calendar), spec, calendar)
+        assert _reverting_findings(report) == ()
+
+
+def test_validate_frame_does_not_leak_reversal_across_tickers() -> None:
+    """A flat bar opening a ticker is never the previous ticker's reversal."""
+    calendar = load_calendar("XNYS")
+    spec = spec_for(Dataset.PRICES)
+    bars = [
+        ("AAA", date(2024, 1, 29), 100.0, False),
+        ("AAA", date(2024, 1, 30), 70.0, True),
+        ("BBB", date(2024, 1, 31), 100.0, True),
+        ("BBB", date(2024, 2, 1), 60.0, False),
+    ]
+    report = validate_frame(_stamp(_prices_bars(bars), spec, calendar), spec, calendar)
+    assert _reverting_findings(report) == ()
+    assert report.has_errors is False
+
+
+def test_validate_frame_reports_reverting_print_sample_truncation() -> None:
+    """Six flagged bars report the count and only the first five ascending samples."""
+    calendar = load_calendar("XNYS")
+    spec = spec_for(Dataset.PRICES)
+    bars = [
+        bar
+        for ticker in ("AAA", "BBB", "CCC", "DDD", "EEE", "FFF")
+        for bar in (
+            (ticker, date(2024, 1, 29), 100.0, False),
+            (ticker, date(2024, 1, 30), 70.0, True),
+            (ticker, date(2024, 1, 31), 93.1, False),
+        )
+    ]
+    report = validate_frame(_stamp(_prices_bars(bars), spec, calendar), spec, calendar)
+    findings = _reverting_findings(report)
+    assert len(findings) == 1
+    assert findings[0].row_count == 6
+    assert "6 row(s)" in findings[0].message
+    preview = ", ".join(f"{ticker}@2024-01-30" for ticker in ("AAA", "BBB", "CCC", "DDD", "EEE"))
+    assert findings[0].message.endswith(f"{preview}, ...")
+    assert "FFF@2024-01-30" not in findings[0].message
+
+
+def test_validate_frame_skips_flat_print_rule_for_non_ohlc_datasets() -> None:
+    """A valid FX frame keeps exactly the pre-change rule set, which is empty."""
+    calendar = load_calendar("XNYS")
+    spec = spec_for(Dataset.FX)
+    stamped = _stamp(_fx_frame([1300.0], [date(2024, 1, 30)]), spec, calendar)
+    report = validate_frame(stamped, spec, calendar)
+    assert report.findings == ()
+
+
 def test_validate_frame_keeps_outlier_warning_without_blocking() -> None:
     """A finite large move stays WARN and passes enforcement."""
     calendar = load_calendar("XNYS")

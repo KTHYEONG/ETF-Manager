@@ -1,0 +1,12 @@
+{
+  "series": [
+    {
+      "series_id": "BAA10Y",
+      "release_lag_sessions": 1
+    },
+    {
+      "series_id": "VIXCLS",
+      "release_lag_sessions": 1
+    }
+  ]
+}

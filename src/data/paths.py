@@ -25,10 +25,26 @@ THESIS_FUNDAMENTALS_DIR: Final[Path] = Path("configs/data/thesis_fundamentals")
 ETF_METADATA_BOOTSTRAP_PATH: Final[Path] = Path("configs/etf_metadata/bootstrap.json")
 NPORT_SERIES_MAP_PATH: Final[Path] = Path("configs/etf_metadata/nport_series_map.json")
 PANEL_HARD_STOP_PATH: Final[Path] = Path("configs/data/panel_hard_stop.json")
+PRICE_CORRECTIONS_PATH: Final[Path] = Path("configs/data/price_corrections.json")
+MACRO_BACKFILL_PATH: Final[Path] = Path("configs/data/macro_backfill.json")
+UNIVERSE_MEMBERSHIP_PATH: Final[Path] = Path("configs/data/universe_membership.json")
 
 
 def _repository_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def resolve_input_path(path: str | Path) -> Path:
+    """Anchor a repo-relative versioned input to the repository root.
+
+    Args:
+        path: Repo-relative config path, or an already absolute path.
+
+    Returns:
+        The absolute path every caller shares regardless of process working directory.
+    """
+    candidate = Path(path)
+    return candidate if candidate.is_absolute() else _repository_root() / candidate
 
 
 def _is_within(path: Path, parent: Path) -> bool:

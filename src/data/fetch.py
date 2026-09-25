@@ -5,7 +5,9 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import httpx
@@ -15,6 +17,7 @@ from src.data.merge import load_prior_partition, merge_incremental
 from src.data.nport_ingest import fetch_and_persist_nport_quarter
 from src.data.pipeline import persist_ingest
 from src.data.pit import AVAILABLE_AT
+from src.data.price_corrections import apply_price_corrections, load_price_corrections
 from src.data.providers.base import DEFAULT_TIMEOUT_S, ProviderError
 from src.data.providers.ecos import EcosClient
 from src.data.providers.fred import FredClient
@@ -25,6 +28,11 @@ from src.data.schema import Dataset
 from src.data.secrets import ProviderSecrets
 from src.data.settings import DataSettings
 from src.data.storage import DatasetArtifact, RawPayload
+from src.data.universe import (
+    UniverseMembership,
+    assert_rows_within_lifetime,
+    load_universe_membership,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -32,6 +40,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _FX_PROVIDERS: Final[frozenset[str]] = frozenset({"fred", "ecos"})
+
+
+def _validate_price_membership(
+    frame: pl.DataFrame, membership: UniverseMembership | None
+) -> None:
+    if membership is not None:
+        assert_rows_within_lifetime(frame, membership)
 
 
 def resolve_price_http_window(
@@ -112,15 +127,19 @@ def fetch_and_persist_prices(
     settings: DataSettings,
     client: httpx.Client | None = None,
     incremental: bool = False,
+    membership_path: str | Path | None = None,
 ) -> DatasetArtifact:
     """Fetch Tiingo EOD prices and persist through the ingest seam.
 
     When ``incremental`` is true each ticker is resolved via
     ``resolve_price_http_window``; tickers whose window is None contribute
-    zero HTTP and keep prior catalog rows.
+    zero HTTP and keep prior catalog rows. ``membership_path`` opts into
+    lifetime validation of the final frame before persistence.
     """
     if not tickers:
         raise ValueError("fetch_and_persist_prices requires at least one ticker")
+    corrections = load_price_corrections()
+    membership = load_universe_membership(membership_path) if membership_path is not None else None
     with _http(client) as session:
         gate = PacingGate(TIINGO_QUOTA)
         tiingo = TiingoClient(secrets.tiingo_api, session)
@@ -162,12 +181,15 @@ def fetch_and_persist_prices(
                             "endDate": end.isoformat(),
                             "format": "json",
                             "incremental": True,
+                            "price_corrections_sha256": corrections.sha256,
                         },
                         retrieved_at=retrieved_at,
                         extension="json",
                         content=b"{}",
                     )
-                    artifact = persist_ingest(merged, Dataset.PRICES, payload, settings, prior=prior)
+                    corrected = apply_price_corrections(merged, corrections)
+                    _validate_price_membership(corrected, membership)
+                    artifact = persist_ingest(corrected, Dataset.PRICES, payload, settings, prior=prior)
                     _log_done("prices", "tiingo", artifact.manifest.row_count)
                     return artifact
                 raise ProviderError("tiingo returned no prices for any requested ticker")
@@ -188,15 +210,24 @@ def fetch_and_persist_prices(
                     "endDate": end.isoformat(),
                     "format": "json",
                     "incremental": True,
+                    "price_corrections_sha256": corrections.sha256,
                 },
                 retrieved_at=retrieved_at_val,
                 extension="json",
                 content=b"\n".join(bodies),
             )
-            artifact = persist_ingest(merged, Dataset.PRICES, payload, settings, prior=prior)
+            corrected = apply_price_corrections(merged, corrections)
+            _validate_price_membership(corrected, membership)
+            artifact = persist_ingest(corrected, Dataset.PRICES, payload, settings, prior=prior)
         else:
             payload, frame = tiingo.fetch_prices(tickers, start, end, gate=gate)
-            artifact = persist_ingest(frame, Dataset.PRICES, payload, settings)
+            payload = replace(
+                payload,
+                request_params={**payload.request_params, "price_corrections_sha256": corrections.sha256},
+            )
+            corrected = apply_price_corrections(frame, corrections)
+            _validate_price_membership(corrected, membership)
+            artifact = persist_ingest(corrected, Dataset.PRICES, payload, settings)
     _log_done("prices", "tiingo", artifact.manifest.row_count)
     return artifact
 
