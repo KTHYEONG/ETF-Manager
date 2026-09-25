@@ -11,7 +11,7 @@ import polars as pl
 
 from src.analytics.metrics import max_drawdown, real_krw, xirr
 from src.data.calendar import DEFAULT_CALENDAR_NAME, load_calendar
-from src.data.catalog import latest_artifact, load_visible
+from src.data.catalog import load_snapshot_visible, resolve_snapshot
 from src.data.query import load_as_of
 from src.data.schedule import build_decision_schedule
 from src.data.schema import Dataset
@@ -160,22 +160,21 @@ def run_research_proxy(
 
 
 def run_research_proxy_from_store(config: AllocationConfig, settings: DataSettings) -> AllocationResult:
-    """Load latest RESEARCH_RETURNS, FX, and CPI partitions (trust-gated), then simulate.
+    """Load pinned RESEARCH_RETURNS, FX, and CPI partitions, then simulate.
 
     Raises:
-        UntrustedDatasetError: When any required dataset lacks a manifest-verified partition.
+        UntrustedDatasetError: If a required pinned dataset is absent or changes.
         AllocationDataError: When the schedule is empty or fills lack data.
         ValueError: When the config or frames violate the research_proxy contract.
     """
-    for dataset in (Dataset.RESEARCH_RETURNS, Dataset.FX, Dataset.CPI):
-        latest_artifact(settings, dataset)
+    snapshot = resolve_snapshot(settings, (Dataset.RESEARCH_RETURNS, Dataset.FX, Dataset.CPI))
     schedule = build_decision_schedule(config.start, config.end, fill_delay_sessions=config.fill_delay_sessions)
     if not schedule:
         raise AllocationDataError(f"empty decision schedule over [{config.start.isoformat()}, {config.end.isoformat()}]")
     cutoff = load_calendar(DEFAULT_CALENDAR_NAME).close_ts(schedule[-1].execution_session)
-    returns = load_visible(settings, Dataset.RESEARCH_RETURNS, cutoff)
-    fx = load_visible(settings, Dataset.FX, cutoff)
-    cpi = load_visible(settings, Dataset.CPI, cutoff)
+    returns = load_snapshot_visible(snapshot, Dataset.RESEARCH_RETURNS, cutoff)
+    fx = load_snapshot_visible(snapshot, Dataset.FX, cutoff)
+    cpi = load_snapshot_visible(snapshot, Dataset.CPI, cutoff)
     return run_research_proxy(config, returns, fx, cpi)
 
 
@@ -185,14 +184,13 @@ def run_research_proxy_from_store_with_returns(
     returns: pl.DataFrame,
 ) -> AllocationResult:
     """Simulate with a caller-supplied RESEARCH_RETURNS slice (single series_id per frame)."""
-    for dataset in (Dataset.RESEARCH_RETURNS, Dataset.FX, Dataset.CPI):
-        latest_artifact(settings, dataset)
+    snapshot = resolve_snapshot(settings, (Dataset.RESEARCH_RETURNS, Dataset.FX, Dataset.CPI))
     schedule = build_decision_schedule(config.start, config.end, fill_delay_sessions=config.fill_delay_sessions)
     if not schedule:
         raise AllocationDataError(f"empty decision schedule over [{config.start.isoformat()}, {config.end.isoformat()}]")
     cutoff = load_calendar(DEFAULT_CALENDAR_NAME).close_ts(schedule[-1].execution_session)
-    fx = load_visible(settings, Dataset.FX, cutoff)
-    cpi = load_visible(settings, Dataset.CPI, cutoff)
+    fx = load_snapshot_visible(snapshot, Dataset.FX, cutoff)
+    cpi = load_snapshot_visible(snapshot, Dataset.CPI, cutoff)
     return run_research_proxy(config, returns, fx, cpi)
 
 

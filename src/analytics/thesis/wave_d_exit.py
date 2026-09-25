@@ -24,6 +24,17 @@ __all__ = [
 ]
 
 
+def _catalog_max_price_session(settings: DataSettings) -> object:
+    """Last pinned PRICES session from one verified snapshot."""
+    from src.data.catalog import resolve_snapshot
+    from src.data.schema import Dataset, spec_for
+    from src.data.storage import DataStore
+
+    snapshot = resolve_snapshot(settings, (Dataset.PRICES,))
+    frame = DataStore(settings).read_normalized(snapshot.artifacts[Dataset.PRICES], spec_for(Dataset.PRICES))
+    return frame.get_column("date").max()
+
+
 @dataclass(frozen=True, slots=True)
 class WaveDExitAssessment:
     thesis_id: ThesisId
@@ -235,14 +246,8 @@ def run_thesis_pipeline_command(
             # fail-closed if explicit as_of after last catalog price session
             try:
                 _ = resolve_catalog_panel_as_of(settings, reference_now=as_of_dt)
-                from src.data.catalog import latest_artifact
-                from src.data.schema import Dataset, spec_for
-                from src.data.storage import DataStore
-
                 try:
-                    latest = latest_artifact(settings, Dataset.PRICES)
-                    frame = DataStore(settings).read_normalized(latest, spec_for(Dataset.PRICES))
-                    max_d = frame.get_column("date").max()
+                    max_d = _catalog_max_price_session(settings)
                     from datetime import date as _date
 
                     if isinstance(max_d, _date) and as_of_dt.date() > max_d:

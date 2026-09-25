@@ -111,3 +111,30 @@ data/
 ```
 
 데이터를 읽어 들일 때마다 파일 내용의 해시값을 다시 계산하여 매니페스트와 대조합니다. 단 1바이트라도 변조되었거나 불완전하게 다운로드된 파일은 `UntrustedDatasetError`를 발생시키고 읽기를 거부합니다.
+
+---
+
+## 6. 신뢰 계층별 계약 (Bronze / Silver / Gold / Results)
+
+파이프라인의 신뢰 책임은 저장소 계층마다 분리되어 있습니다. 각 계층의 계약은 다음과 같으며, 구현(`src/data/storage.py`, `src/data/doctor.py`, `src/data/catalog.py`)이 이 문서보다 우선합니다.
+
+### Bronze (원본 캐시): 유실 시 복구 가능, 읽기 차단 없음
+
+* `data/raw/`의 원본 응답은 내용 주소(content-addressed) 캐시이며, Silver 판독의 필수 입력이 아닙니다. 과거의 모든 원본 페이로드가 매 읽기마다 필요한 것은 아닙니다.
+* 최신 Bronze가 유실되어도 Silver 읽기는 성공하고 경고(`silver_without_bronze`)만 남깁니다.
+* 유실된 Bronze는 `maintain data` 점검에서 `missing_bronze`로 보고되며, `maintain data --apply`가 검증된 재수집(`BronzeRepair`)으로 복원합니다. 재수집 바이트가 매니페스트 기록과 다르면 복구를 중단합니다(`SourceMismatchError`).
+
+### Silver (매니페스트 + Parquet): 손상 시 실행 중단
+
+* 모든 Silver 읽기는 매니페스트-아티팩트 바인딩, 데이터셋/스키마 일치, 행 수, 정규 Parquet 정준 해시를 검증합니다. 하나라도 어긋나면 `UntrustedDatasetError`를 발생시키고 읽기를 거부합니다.
+* 손상된 최신 Silver는 실행을 멈춥니다. 인제스트는 가져오기 전에 관련 Silver를 선검증(`preflight`)하므로, 손상된 파티션이 있으면 벤더 조회 없이 실패합니다. 복구 없이 과거 파티션으로 축소 대체하는 폴백은 없습니다.
+
+### Gold (고정된 PIT 뷰): 실행당 한 번 고정된 매니페스트
+
+* 실행에 필요한 데이터셋은 `CatalogSnapshot`으로 매니페스트 신원을 한 번 고정(`resolve_snapshot`)하고, 이후 조회는 그 스냅샷 안에서만 수행됩니다(`load_snapshot_visible`, `load_as_of`의 `available_at <= t` 필터).
+* 의사결정 시점보다 미래의 행을 읽으면 `assert_no_lookahead`가 즉시 중단합니다.
+
+### Results (생성물): 매니페스트 신원을 기록
+
+* 실행 생성물은 `data/results/<experiment>/`에 `<kind>_<run_id>.json(+.md)`으로 저장되고, `runs.jsonl` 원장에 `experiment/kind/run_id/written_at`이 기록됩니다.
+* 캠페인 리포트는 데이터셋별 고정 매니페스트 해시(`manifest_hashes`)를 함께 기록하므로, 어떤 Silver 위에서 계산됐는지 사후에 추적할 수 있습니다.

@@ -251,26 +251,29 @@ def test_write_normalized_rejects_conflicting_manifest(
         store.write_normalized(frame, spec, raw_artifact, payload, report)
 
 
-def test_read_normalized_rejects_corrupt_raw_archive(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_read_normalized_keeps_silver_readable_without_bronze(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Modified or missing archived raw bytes fail the read."""
+    """Missing or tampered Bronze leaves a verified Silver frame readable."""
+    import logging
+
     monkeypatch.chdir(tmp_path)
     store = DataStore(DataSettings())
     spec = spec_for(Dataset.PRICES)
     calendar = load_calendar("XNYS")
 
     artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    expected = store.read_normalized(artifact, spec)
     raw_path = tmp_path / "data" / Path(*artifact.manifest.raw_artifact.relative_path.parts)
     assert raw_path.is_file()
 
     raw_path.write_bytes(b"tampered-bytes")
-    with pytest.raises(UntrustedDatasetError):
-        store.read_normalized(artifact, spec)
+    assert store.read_normalized(artifact, spec).equals(expected)
 
     raw_path.unlink()
-    with pytest.raises(UntrustedDatasetError):
-        store.read_normalized(artifact, spec)
+    with caplog.at_level(logging.WARNING):
+        assert store.read_normalized(artifact, spec).equals(expected)
+    assert any("[DATA]" in message for message in caplog.messages)
 
 
 def test_read_normalized_rejects_raw_path_escape(
@@ -460,3 +463,178 @@ def test_catalog_rejects_malformed_prior_hash_in_manifest(
     catalog_module.clear_catalog_frame_cache()
     with pytest.raises(UntrustedDatasetError, match="manifest malformed"):
         catalog_module.latest_artifact(settings, Dataset.PRICES)
+
+
+def _write_consistent_evil_manifest(
+    artifact: DatasetArtifact, mutate: dict[str, object]
+) -> DatasetArtifact:
+    """Rewrite the manifest document and return a matching artifact handle."""
+    document = json.loads(artifact.manifest_path.read_text(encoding="utf-8"))
+    for key, value in mutate.items():
+        document[key] = value
+    evil_bytes = json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    evil_path = artifact.manifest_path.parent / f"{hashlib.sha256(evil_bytes).hexdigest()}.json"
+    evil_path.write_bytes(evil_bytes)
+    raw_section = document["raw_artifact"]
+    assert isinstance(raw_section, dict)
+    raw_count = document["row_count"]
+    assert isinstance(raw_count, int)
+    assert not isinstance(raw_count, bool)
+    manifest = replace(
+        artifact.manifest,
+        raw_artifact=RawArtifact(
+            relative_path=PurePosixPath(str(raw_section["relative_path"])),
+            sha256=str(raw_section["sha256"]),
+            retrieved_at=artifact.manifest.raw_artifact.retrieved_at,
+        ),
+        normalized_relative_path=PurePosixPath(str(document["normalized_relative_path"])),
+        normalized_sha256=str(document["normalized_sha256"]),
+        row_count=raw_count,
+    )
+    return DatasetArtifact(
+        normalized_path=artifact.normalized_path,
+        manifest_path=evil_path,
+        manifest=manifest,
+    )
+
+
+def test_read_normalized_rejects_tampered_parquet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A modified Silver Parquet fails closed even with an intact Bronze archive."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    tampered = pl.read_parquet(artifact.normalized_path).with_columns(pl.col("close") + 1.0)
+    tampered.write_parquet(artifact.normalized_path)
+    with pytest.raises(UntrustedDatasetError):
+        store.read_normalized(artifact, spec)
+
+
+def test_read_normalized_rejects_unreadable_parquet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Corrupt Parquet bytes fail closed instead of surfacing a backend error."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    artifact.normalized_path.write_bytes(b"not-a-parquet-file")
+    with pytest.raises(UntrustedDatasetError):
+        store.read_normalized(artifact, spec)
+
+
+def test_read_normalized_rejects_parquet_path_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Silver path that diverges from the manifest declaration fails closed."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    impostor = DatasetArtifact(
+        normalized_path=artifact.manifest_path,
+        manifest_path=artifact.manifest_path,
+        manifest=artifact.manifest,
+    )
+    with pytest.raises(UntrustedDatasetError):
+        store.read_normalized(impostor, spec)
+
+    escaped = _write_consistent_evil_manifest(artifact, {"normalized_relative_path": "../evil.parquet"})
+    with pytest.raises(UntrustedDatasetError):
+        store.read_normalized(escaped, spec)
+
+
+def test_read_normalized_rejects_schema_broken_parquet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Silver frame missing spec columns fails closed on canonical hashing."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    broken = pl.read_parquet(artifact.normalized_path).drop("ticker")
+    broken.write_parquet(artifact.normalized_path)
+    with pytest.raises(UntrustedDatasetError):
+        store.read_normalized(artifact, spec)
+
+
+def test_read_normalized_rejects_tampered_manifest_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A manifest body rewritten after publication fails closed."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    document = json.loads(artifact.manifest_path.read_text(encoding="utf-8"))
+    document["row_count"] = document["row_count"] + 1
+    artifact.manifest_path.write_bytes(
+        json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+    with pytest.raises(UntrustedDatasetError):
+        store.read_normalized(artifact, spec)
+
+    impostor = DatasetArtifact(
+        normalized_path=artifact.normalized_path,
+        manifest_path=artifact.manifest_path,
+        manifest=replace(artifact.manifest, provider="impostor"),
+    )
+    with pytest.raises(UntrustedDatasetError):
+        store.read_normalized(impostor, spec)
+
+
+def test_read_normalized_rejects_malformed_raw_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A raw reference outside the Bronze namespace fails the Silver read."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    evil = _write_consistent_evil_manifest(
+        artifact,
+        {"raw_artifact": {"relative_path": "evil/payload.json", "retrieved_at": artifact.manifest.raw_artifact.retrieved_at.isoformat(), "sha256": artifact.manifest.raw_artifact.sha256}},
+    )
+    with pytest.raises(UntrustedDatasetError):
+        store.read_normalized(evil, spec)
+
+    bad_sha = _write_consistent_evil_manifest(
+        artifact,
+        {"raw_artifact": {"relative_path": artifact.manifest.raw_artifact.relative_path.as_posix(), "retrieved_at": artifact.manifest.raw_artifact.retrieved_at.isoformat(), "sha256": "not-hex"}},
+    )
+    with pytest.raises(UntrustedDatasetError):
+        store.read_normalized(bad_sha, spec)
+
+
+def test_store_raw_rejects_conflicting_content_address(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bytes occupying a raw address with the wrong hash stop publication."""
+    monkeypatch.chdir(tmp_path)
+    settings = DataSettings()
+    store = DataStore(settings)
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    payload = _payload(b"prices-payload")
+    raw_artifact = store.store_raw(Dataset.PRICES, payload)
+    raw_path = tmp_path / "data" / Path(*raw_artifact.relative_path.parts)
+    raw_path.write_bytes(b"occupying-bytes-with-wrong-hash")
+    with pytest.raises(UntrustedDatasetError):
+        store.store_raw(Dataset.PRICES, payload)
+    manifests_dir = tmp_path / "data" / "manifests" / str(Dataset.PRICES)
+    assert not manifests_dir.is_dir() or list(manifests_dir.glob("*.json")) == []

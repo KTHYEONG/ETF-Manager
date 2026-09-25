@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import bisect
 import logging
 import math
 from collections.abc import Mapping
@@ -15,11 +14,12 @@ import polars as pl
 
 from src.analytics.metrics import max_drawdown, real_krw, xirr
 from src.data.calendar import DEFAULT_CALENDAR_NAME, TradingCalendar, load_calendar
-from src.data.catalog import latest_artifact, load_visible
+from src.data.catalog import load_snapshot_visible, resolve_snapshot
 from src.data.schedule import DecisionPoint, build_decision_schedule
 from src.data.schema import Dataset
 from src.features.pit_market import PitMarket
 from src.policy.weight_rule import CASH_SLEEVE, WeightRule
+from src.sim.after_tax_market import AfterTaxDataError, _CpiIndex, _FxIndex, _PriceIndex, _RateIndex
 from src.sim.corporate_actions import CorporateAction, CorporateActionKind, corporate_actions_from_prices
 from src.sim.tax import KrOverseasTaxRegime, annual_capital_gains_tax_krw
 from src.sim.tax_lots import RealizedDisposal, TaxLotBook
@@ -44,10 +44,6 @@ __all__ = [
     "run_after_tax",
     "run_after_tax_from_store",
 ]
-
-
-class AfterTaxDataError(RuntimeError):
-    """Missing or stale raw price, base-rate FX, CPI, or rate at a required instant; never skipped."""
 
 
 class ExecutionMode(StrEnum):
@@ -211,20 +207,19 @@ def run_after_tax(
 
 
 def run_after_tax_from_store(config: AfterTaxConfig, settings: DataSettings) -> AfterTaxResult:
-    """Load latest trusted PRICES, FX_KRW_BASE, CPI (and RATES when the cash sleeve is used) then simulate.
+    """Load pinned PRICES, FX_KRW_BASE, CPI (and RATES when the cash sleeve is used) then simulate.
 
     Raises:
-        UntrustedDatasetError: When a required dataset lacks a verified partition.
+        UntrustedDatasetError: When a required pinned dataset is absent or changes.
         AfterTaxDataError: As in :func:`run_after_tax`.
     """
     needs_rates = (config.rule is not None and config.rule.requires_cash_rate) or (
         config.targets is not None and CASH_SLEEVE in config.targets
     )
-    datasets = [Dataset.PRICES, Dataset.FX_KRW_BASE, Dataset.CPI]
+    datasets: tuple[Dataset, ...] = (Dataset.PRICES, Dataset.FX_KRW_BASE, Dataset.CPI)
     if needs_rates:
-        datasets.append(Dataset.RATES)
-    for dataset in datasets:
-        latest_artifact(settings, dataset)
+        datasets = (*datasets, Dataset.RATES)
+    snapshot = resolve_snapshot(settings, datasets)
     calendar = load_calendar(DEFAULT_CALENDAR_NAME)
     schedule = build_decision_schedule(
         config.start, config.end, frequency="monthly", fill_delay_sessions=config.fill_delay_sessions
@@ -232,13 +227,13 @@ def run_after_tax_from_store(config: AfterTaxConfig, settings: DataSettings) -> 
     if not schedule:
         raise AfterTaxDataError(f"empty decision schedule over [{config.start.isoformat()}, {config.end.isoformat()}]")
     cutoff = calendar.close_ts(schedule[-1].execution_session)
-    prices = load_visible(settings, Dataset.PRICES, cutoff)
-    cpi = load_visible(settings, Dataset.CPI, cutoff)
+    prices = load_snapshot_visible(snapshot, Dataset.PRICES, cutoff)
+    cpi = load_snapshot_visible(snapshot, Dataset.CPI, cutoff)
     last_settle = schedule[-1].execution_session
     for _ in range(config.tax_regime.settlement_sessions):
         last_settle = calendar.next_session(last_settle)
-    fx = load_visible(settings, Dataset.FX_KRW_BASE, calendar.close_ts(last_settle))
-    rate_frame = load_visible(settings, Dataset.RATES, cutoff) if needs_rates else None
+    fx = load_snapshot_visible(snapshot, Dataset.FX_KRW_BASE, calendar.close_ts(last_settle))
+    rate_frame = load_snapshot_visible(snapshot, Dataset.RATES, cutoff) if needs_rates else None
     return run_after_tax(config, prices, fx, cpi, rate_frame)
 
 
@@ -333,119 +328,6 @@ class _Payable:
     def __init__(self, due: date, amount: float) -> None:
         self.due = due
         self.amount = amount
-
-
-class _PriceIndex:
-    """Once-per-run (ticker, date) map of raw/adjusted closes with availability."""
-
-    def __init__(self, frame: pl.DataFrame) -> None:
-        missing = [column for column in ("ticker", "date", "close", "adjusted_close", "available_at") if column not in frame.columns]
-        if missing:
-            raise AfterTaxDataError(f"prices frame lacks columns {missing}")
-        self._rows = {
-            (row["ticker"], row["date"]): (row["close"], row["adjusted_close"], row["available_at"])
-            for row in frame.iter_rows(named=True)
-        }
-
-    def price(self, ticker: str, day: date, instant: datetime, *, adjusted: bool) -> float:
-        """Close visible at ``instant``; fail-closed on gaps and invalid marks."""
-        row = self._rows.get((ticker, day))
-        if row is None or row[2] > instant:
-            raise AfterTaxDataError(f"missing {ticker!r} price row on {day.isoformat()} at its execution close")
-        value = row[1] if adjusted else row[0]
-        if value is None or not isinstance(value, int | float) or not math.isfinite(value) or value <= 0.0:
-            raise AfterTaxDataError(f"non-positive close for {ticker!r} on {day.isoformat()}")
-        return float(value)
-
-
-class _FxIndex:
-    """Once-per-run sorted base-rate series resolved as-of with a staleness bound."""
-
-    def __init__(self, frame: pl.DataFrame) -> None:
-        missing = [column for column in ("date", "usdkrw", "available_at") if column not in frame.columns]
-        if missing:
-            raise AfterTaxDataError(f"fx frame lacks columns {missing}")
-        rows = sorted(
-            ((row["date"], row["usdkrw"], row["available_at"]) for row in frame.iter_rows(named=True)),
-            key=lambda item: item[0],
-        )
-        self._dates = [item[0] for item in rows]
-        self._rows = rows
-
-    def resolve(self, day: date, instant: datetime, max_staleness_days: int) -> float:
-        """Latest visible non-null rate with ``date <= day`` inside the staleness bound."""
-        position = bisect.bisect_right(self._dates, day) - 1
-        while position >= 0:
-            rate_date, value, available_at = self._rows[position]
-            position -= 1
-            if available_at > instant:
-                continue
-            if value is None or not isinstance(value, int | float) or not math.isfinite(value) or value <= 0.0:
-                continue
-            if (day - rate_date).days > max_staleness_days:
-                break
-            return float(value)
-        raise AfterTaxDataError(f"missing usdkrw row on {day.isoformat()} within staleness bound")
-
-
-class _CpiIndex:
-    """Once-per-run CPI levels; latest positive visible period_end wins."""
-
-    def __init__(self, frame: pl.DataFrame) -> None:
-        missing = [column for column in ("period_end", "value", "available_at") if column not in frame.columns]
-        if missing:
-            raise AfterTaxDataError(f"cpi frame lacks columns {missing}")
-        self._rows = sorted(
-            ((row["period_end"], row["value"], row["available_at"]) for row in frame.iter_rows(named=True)),
-            key=lambda item: item[0],
-        )
-
-    def resolve(self, instant: datetime) -> float:
-        """Latest positive finite level visible at ``instant``."""
-        level: float | None = None
-        for _period_end, value, available_at in self._rows:
-            if available_at > instant:
-                continue
-            if value is None or not isinstance(value, int | float) or not math.isfinite(value) or value <= 0.0:
-                continue
-            level = float(value)
-        if level is None:
-            raise AfterTaxDataError("missing positive CPI row at execution close")
-        return level
-
-
-class _RateIndex:
-    """Once-per-run RATES observations for the cash-sleeve accrual."""
-
-    def __init__(self, frame: pl.DataFrame | None) -> None:
-        if frame is None:
-            self._rows: dict[str, list[tuple[date, float, datetime]]] = {}
-            self._loaded = False
-            return
-        missing = [column for column in ("series_id", "observation_date", "value", "available_at") if column not in frame.columns]
-        if missing:
-            raise AfterTaxDataError(f"rates frame lacks columns {missing}")
-        rows: dict[str, list[tuple[date, float, datetime]]] = {}
-        for row in frame.iter_rows(named=True):
-            value = row["value"]
-            if value is None or not isinstance(value, int | float) or not math.isfinite(value):
-                continue
-            rows.setdefault(row["series_id"], []).append((row["observation_date"], float(value), row["available_at"]))
-        self._rows = {series: sorted(entries) for series, entries in rows.items()}
-        self._loaded = True
-
-    def resolve(self, series_id: str, instant: datetime) -> float:
-        """Latest non-null observation visible at ``instant``."""
-        if not self._loaded:
-            raise AfterTaxDataError(f"rates series {series_id!r} required but no RATES frame was passed")
-        latest: float | None = None
-        for _observation_date, value, available_at in self._rows.get(series_id, []):
-            if available_at > instant:
-                continue
-            latest = value
-        if latest is None:
-            raise AfterTaxDataError(f"missing {series_id!r} rate at its required instant")
-        return latest
 
 
 def _verify_usd_flows(

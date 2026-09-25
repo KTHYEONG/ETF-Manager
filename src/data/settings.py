@@ -8,7 +8,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class DataSettings(BaseSettings):
-    """Only the data root is configurable; no provider credentials exist yet."""
+    """Own typed runtime roots and dated operational defaults in one validated settings boundary.
+
+    Args:
+        data_root: Allowed repository-local generated data root.
+
+    Raises:
+        ValueError: If roots or effective dates are malformed or escape the repository.
+    """
 
     data_root: Path = Path("data")
     model_config = SettingsConfigDict(env_prefix="ETF_MANAGER_", env_file=".env", extra="ignore")

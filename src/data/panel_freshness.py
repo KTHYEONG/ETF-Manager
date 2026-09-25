@@ -18,6 +18,7 @@ from src.data.calendar import DEFAULT_CALENDAR_NAME, TradingCalendar, load_calen
 from src.data.paths import PANEL_HARD_STOP_PATH
 from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
+from src.data.storage import UntrustedDatasetError
 
 logger = logging.getLogger(__name__)
 
@@ -141,15 +142,33 @@ def effective_thesis_end(panel_as_of: datetime) -> date:
 
 def _load_catalog_frames(settings: DataSettings) -> dict[Dataset, pl.DataFrame]:
     """Load PRICES/FX/CPI frames via catalog; patchable for tests."""
-    from src.data.catalog import latest_artifact
+    from src.data.catalog import resolve_snapshot
     from src.data.storage import DataStore
 
-    frames: dict[Dataset, pl.DataFrame] = {}
-    for ds in (Dataset.PRICES, Dataset.FX, Dataset.CPI):
-        artifact = latest_artifact(settings, ds)
-        frame = DataStore(settings).read_normalized(artifact, spec_for(ds))
-        frames[ds] = frame
-    return frames
+    snapshot = resolve_snapshot(settings, (Dataset.PRICES, Dataset.FX, Dataset.CPI))
+    store = DataStore(settings)
+    return {
+        dataset: store.read_normalized(snapshot.artifacts[dataset], spec_for(dataset))
+        for dataset in (Dataset.PRICES, Dataset.FX, Dataset.CPI)
+    }
+
+
+def _any_required_manifest_missing(settings: DataSettings) -> bool:
+    root = settings.resolved_data_root() / "manifests"
+    return any(not any((root / str(ds)).glob("*.json")) for ds in (Dataset.PRICES, Dataset.FX, Dataset.CPI))
+
+
+def _insufficient_report(reference_now: datetime) -> CatalogPanelReport:
+    return CatalogPanelReport(
+        panel_as_of=reference_now.astimezone(UTC),
+        lag_days=0,
+        status=PanelFreshnessStatus.INSUFFICIENT_DATA,
+        ticker_last_session={},
+        cpi_last_observation=None,
+        fx_last_observation=None,
+        holdings_last_filing=None,
+        hard_stop_reason=None,
+    )
 
 
 def _month_end_session_for(calendar: TradingCalendar, day: date) -> date | None:
@@ -265,27 +284,30 @@ def resolve_catalog_panel_as_of(
     reference_now: datetime,
     tickers: Sequence[str] = THESIS_PANEL_TICKERS,
 ) -> CatalogPanelReport:
+    """Resolve coverage and freshness for the manifest set consumed by a run.
+
+    Args:
+        settings: Catalog root.
+        reference_now: Timezone-aware panel reference instant.
+        tickers: Required panel instruments.
+
+    Returns:
+        Existing coverage report tied to verified Silver inputs.
+
+    Raises:
+        UntrustedDatasetError: If a required source cannot be verified.
+    """
     if reference_now.tzinfo is None:
         raise ValueError("reference_now must be timezone-aware, got naive datetime")
     # panel_as_of must be tz-aware later but reference check above satisfies requirement
     calendar = load_calendar(DEFAULT_CALENDAR_NAME)
     try:
         frames = _load_catalog_frames(settings)
-    except Exception:
-        # INSUFFICIENT_DATA
-        # Use reference_now as panel_as_of placeholder? Choose reference_now truncated to UTC
-        panel_as_of = reference_now.astimezone(UTC)
-        lag = 0
-        return CatalogPanelReport(
-            panel_as_of=panel_as_of,
-            lag_days=lag,
-            status=PanelFreshnessStatus.INSUFFICIENT_DATA,
-            ticker_last_session={},
-            cpi_last_observation=None,
-            fx_last_observation=None,
-            holdings_last_filing=None,
-            hard_stop_reason=None,
-        )
+    except UntrustedDatasetError:
+        # 매니페스트가 하나라도 있으면 손상(fail-closed), 전혀 없으면 부재(INSUFFICIENT_DATA)로 구분한다.
+        if _any_required_manifest_missing(settings):
+            return _insufficient_report(reference_now)
+        raise
 
     prices_frame = frames.get(Dataset.PRICES)
     if prices_frame is None or prices_frame.is_empty():

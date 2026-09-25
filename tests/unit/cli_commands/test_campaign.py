@@ -47,3 +47,31 @@ def test_strategy_selection_thesis_preregistration(scenario_id: str, tmp_path: P
     settings = DataSettings(data_root=str(tmp_path / "data"))
 
     assert camp_mod.run_strategy_selection_command(config_path=str(config_path), settings=settings) == 0
+
+
+def test_campaign_commands_fail_closed_on_missing_definition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Missing definitions resolve through the repository anchor and fail closed."""
+    import src.cli_commands.campaign as camp_mod
+    from src.data.settings import DataSettings
+
+    source_text = Path("experiments/acc_qqq_baseline_120m.json").read_text(encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    settings = DataSettings(data_root=tmp_path / "data")
+    missing = str(tmp_path / "no-such-experiment.json")
+    definition = tmp_path / "acc_qqq_baseline_120m.json"
+    definition.write_text(source_text, encoding="utf-8")
+    assert camp_mod.run_ablation_command(config_path=missing, settings=settings) == 1
+    assert camp_mod.run_walk_forward_command(config_path=missing, settings=settings) == 1
+    assert camp_mod.run_strategy_selection_command(config_path=missing, settings=settings) == 1
+    assert camp_mod.run_walk_forward_costs_command(config_path=missing, settings=settings) == 1
+    assert camp_mod.run_walk_forward_proxy_command(config_path=missing, settings=settings) == 1
+    assert camp_mod.run_cadence_robustness_command(config_path=missing, settings=settings, seed=1, bootstrap_paths=1) == 1
+    assert camp_mod.run_accumulation_cohort_command(
+        config_path=missing, settings=settings, horizon_months=120, cohort_step_months=12, bootstrap_paths=1, seed=1
+    ) == 1
+    assert camp_mod.run_final_historical_campaign_command(config_path=missing, settings=settings, seed=1) == 1
+    assert camp_mod.run_audit_feasibility_command(config_path=missing, settings=settings, write_report=False) == 1
+    assert camp_mod.run_prospective_monitor_command(bundle_path=missing, as_of="2026-10-01", settings=settings) == 1
+    assert camp_mod.run_ablation_command(config_path=str(definition), settings=settings) == 1

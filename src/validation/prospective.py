@@ -136,13 +136,14 @@ def resolve_proxy_history_span(
     """Return first/last price session for the thesis primary proxy at ``as_of``."""
     import polars as pl
 
-    from src.data.catalog import load_visible
+    from src.data.catalog import load_snapshot_visible, resolve_snapshot
     from src.data.schema import Dataset
 
     if not thesis.historical_proxies:
         raise ValueError("thesis has no historical_proxies")
     proxy = thesis.historical_proxies[0].value
-    prices = load_visible(settings, Dataset.PRICES, as_of)
+    snapshot = resolve_snapshot(settings, (Dataset.PRICES,))
+    prices = load_snapshot_visible(snapshot, Dataset.PRICES, as_of)
     ticker_prices = prices.filter(pl.col("ticker") == proxy)
     if ticker_prices.is_empty():
         raise ValueError(f"no price history for proxy {proxy!r}")

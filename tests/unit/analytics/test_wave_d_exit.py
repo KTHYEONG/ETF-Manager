@@ -243,3 +243,123 @@ def test_run_thesis_pipeline_writes_result_store(scenario_id: str, tmp_path: Pat
     artifacts = list((tmp_path / "data" / "results" / "thesis_ai_compute").glob("wave_d_exit_*.json"))
     assert len(artifacts) == 1
     assert artifacts[0].with_suffix(".md").is_file()
+
+
+def test_catalog_max_price_session_reads_pinned_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The as-of guard reads the last pinned PRICES session from one snapshot."""
+    from datetime import date as _date
+
+    import polars as _pl
+
+    from src.analytics.thesis.wave_d_exit import _catalog_max_price_session
+    from src.data.calendar import load_calendar as _load_calendar
+    from src.data.pipeline import persist_ingest as _persist
+    from src.data.schema import Dataset as _Dataset
+    from src.data.schema import spec_for as _spec_for
+    from src.data.settings import DataSettings as _Settings
+    from src.data.storage import RawPayload as _Payload
+
+    monkeypatch.chdir(tmp_path)
+    settings = _Settings(data_root="data")
+    retrieved_at = datetime(2024, 1, 5, 5, 0, tzinfo=UTC)
+    sessions = list(_load_calendar("XNYS").sessions(_date(2024, 1, 2), _date(2024, 1, 31)))
+    _persist(
+        _pl.DataFrame(
+            {
+                "ticker": ["QQQ"] * len(sessions),
+                "date": sessions,
+                "open": [100.0] * len(sessions),
+                "high": [101.0] * len(sessions),
+                "low": [99.0] * len(sessions),
+                "close": [100.0] * len(sessions),
+                "volume": [10_000] * len(sessions),
+                "adjusted_close": [100.0] * len(sessions),
+                "dividend": [0.0] * len(sessions),
+                "split_factor": [1.0] * len(sessions),
+                "source": ["synthetic"] * len(sessions),
+                "retrieved_at": [retrieved_at] * len(sessions),
+            },
+            schema=dict(_spec_for(_Dataset.PRICES).columns),
+        ),
+        _Dataset.PRICES,
+        _Payload(provider="synthetic", endpoint="probe", request_params={},
+                 retrieved_at=retrieved_at, extension="json", content=b"{}"),
+        settings,
+    )
+    assert _catalog_max_price_session(settings) == sessions[-1]
+
+
+def test_run_thesis_pipeline_explicit_as_of_checks_pinned_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An explicit as-of at the last pinned session passes the snapshot guard."""
+    from datetime import date as _date
+
+    import polars as _pl
+
+    import src.analytics.thesis.incremental as incremental_mod
+    import src.analytics.thesis.wave as wave_mod
+    import src.analytics.wave_d_exit as wde_mod
+    import src.data.panel_freshness as panel_mod
+    from src.data.calendar import load_calendar as _load_calendar
+    from src.data.panel_freshness import CatalogPanelReport, PanelFreshnessStatus
+    from src.data.pipeline import persist_ingest as _persist
+    from src.data.schema import Dataset as _Dataset
+    from src.data.schema import spec_for as _spec_for
+    from src.data.settings import DataSettings
+    from src.data.storage import RawPayload as _Payload
+
+    monkeypatch.chdir(tmp_path)
+    settings = DataSettings(data_root=tmp_path / "data")
+    sessions = list(_load_calendar("XNYS").sessions(_date(2024, 1, 2), _date(2024, 1, 31)))
+    retrieved_at = datetime(2024, 1, 5, 5, 0, tzinfo=UTC)
+    _persist(
+        _pl.DataFrame(
+            {
+                "ticker": ["QQQ"] * len(sessions),
+                "date": sessions,
+                "open": [100.0] * len(sessions),
+                "high": [101.0] * len(sessions),
+                "low": [99.0] * len(sessions),
+                "close": [100.0] * len(sessions),
+                "volume": [10_000] * len(sessions),
+                "adjusted_close": [100.0] * len(sessions),
+                "dividend": [0.0] * len(sessions),
+                "split_factor": [1.0] * len(sessions),
+                "source": ["synthetic"] * len(sessions),
+                "retrieved_at": [retrieved_at] * len(sessions),
+            },
+            schema=dict(_spec_for(_Dataset.PRICES).columns),
+        ),
+        _Dataset.PRICES,
+        _Payload(provider="synthetic", endpoint="probe", request_params={},
+                 retrieved_at=retrieved_at, extension="json", content=b"{}"),
+        settings,
+    )
+    wave = _make_wave()
+    inc = _make_incremental()
+    as_of = datetime(2024, 1, 31, 20, 0, tzinfo=UTC)
+
+    def fake_panel(settings, reference_now=None):  # type: ignore[no-untyped-def]
+        return CatalogPanelReport(
+            panel_as_of=as_of,
+            lag_days=1,
+            status=PanelFreshnessStatus.FRESH,
+            ticker_last_session={},
+            cpi_last_observation=None,
+            fx_last_observation=None,
+            holdings_last_filing=None,
+        )
+
+    monkeypatch.setattr(panel_mod, "resolve_catalog_panel_as_of", fake_panel)
+    monkeypatch.setattr(wave_mod, "run_thesis_wave", lambda **kwargs: wave)  # type: ignore[arg-type]
+    monkeypatch.setattr(incremental_mod, "run_incremental_portfolio", lambda **kwargs: inc)  # type: ignore[arg-type]
+
+    code = wde_mod.run_thesis_pipeline_command(
+        thesis_id="ai_compute", as_of="2024-01-31", settings=settings
+    )
+    assert code == 0
+    artifacts = list((tmp_path / "data" / "results" / "thesis_ai_compute").glob("wave_d_exit_*.json"))
+    assert len(artifacts) == 1

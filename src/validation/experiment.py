@@ -12,7 +12,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.data.paths import EXPERIMENT_ARCHIVE_DIR, EXPERIMENTS_DIR, LEGACY_EXPERIMENTS_PREFIX
+from src.data.paths import (
+    EXPERIMENT_ARCHIVE_DIR,
+    EXPERIMENTS_DIR,
+    LEGACY_EXPERIMENTS_PREFIX,
+    resolve_repository_paths,
+)
+from src.data.settings import DataSettings
 from src.etf.mapping import MappingConfig
 from src.policy.adaptive_contribution import AdaptiveContributionConfig
 from src.policy.contribution_shape import ContributionShapeConfig
@@ -636,7 +642,7 @@ def _relative_after_prefix(posix_path: str, prefix: str) -> tuple[str, ...] | No
     return tuple(parts[len(head):])
 
 
-def resolve_experiment_config_path(path: str | Path) -> Path:
+def resolve_experiment_config_path(path: str | Path, *, settings: DataSettings | None = None) -> Path:
     """Resolve an experiment config path, tolerating relocation and archiving.
 
     Experiment definitions moved from ``configs/experiments/`` to ``experiments/`` and
@@ -649,12 +655,16 @@ def resolve_experiment_config_path(path: str | Path) -> Path:
     3. If ``path`` is under either prefix: ``experiments/archive/<basename>``.
     4. Steps 2-3 retried relative to the repository root (cwd-independent).
 
+    Historical ``configs/experiments`` aliases resolve to the same versioned
+    definitions without writing a copy.
+
     Returns:
         Resolved absolute path of the first existing candidate.
 
     Raises:
         FileNotFoundError: No candidate exists.
     """
+    paths = resolve_repository_paths(settings if settings is not None else DataSettings())
     candidate = Path(path)
     if candidate.is_file():
         return candidate.resolve()
@@ -672,7 +682,13 @@ def resolve_experiment_config_path(path: str | Path) -> Path:
             resolved = fallback.resolve()
             logger.info("[DATA] event=experiment_config_fallback requested=%s resolved=%s", path, resolved)
             return resolved
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = paths.root
+    if not candidate.is_absolute():
+        rooted_candidate = repo_root / candidate.as_posix()
+        if rooted_candidate.is_file():
+            resolved = rooted_candidate.resolve()
+            logger.info("[DATA] event=experiment_config_fallback requested=%s resolved=%s", path, resolved)
+            return resolved
     for fallback in fallbacks:
         rooted = repo_root / fallback.as_posix()
         if rooted.is_file():
@@ -685,14 +701,14 @@ def resolve_experiment_config_path(path: str | Path) -> Path:
 BaselineSpec = CandidateSpec
 
 
-def load_experiment_config(path: str | Path) -> ExperimentSpec:
+def load_experiment_config(path: str | Path, *, settings: DataSettings | None = None) -> ExperimentSpec:
     """Parse an experiment JSON file into a validated spec.
 
     Raises:
         OSError: When the file cannot be read.
         ValueError: When the payload is not valid JSON or violates the schema.
     """
-    resolved = resolve_experiment_config_path(path)
+    resolved = resolve_experiment_config_path(path, settings=settings)
     text = resolved.read_text(encoding="utf-8")
     # Strip // line and trailing comments to allow placeholder comments in JSON.
     import re

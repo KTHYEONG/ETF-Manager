@@ -3,18 +3,27 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import Final
 
 from src.data.catalog import _load_manifest_document, _reconstruct_manifest
 from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
-from src.data.storage import DatasetArtifact, DataStore
+from src.data.storage import DatasetArtifact, DataStore, UntrustedDatasetError
 
 logger = logging.getLogger(__name__)
+
+_HEX64_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$")
+_AMBIGUOUS_SINGLE_KEYS: Final[tuple[str, ...]] = ("manifest_hash",)
+_AMBIGUOUS_MULTI_KEYS: Final[tuple[str, ...]] = ("manifest_hashes",)
+_EXACT_SINGLE_KEYS: Final[tuple[str, ...]] = ("manifest_sha256",)
+_EXACT_MULTI_KEYS: Final[tuple[str, ...]] = ("manifest_sha256s",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +34,8 @@ class PrunePlan:
     retained_parquets: tuple[Path, ...] = ()
     raw_sha_to_keep: frozenset[str] = frozenset()
     nport_mirrors_to_delete: tuple[Path, ...] = ()
+    missing_evidence: tuple[str, ...] = ()
+    missing_raw: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +73,7 @@ class _VerifiedManifest:
     retrieved_at: datetime
     normalized_sha256: str
     raw_sha256: str
+    raw_relative_path: PurePosixPath
 
 
 def _verify_manifest(store: DataStore, root: Path, dataset: Dataset, path: Path) -> _VerifiedManifest:
@@ -80,7 +92,62 @@ def _verify_manifest(store: DataStore, root: Path, dataset: Dataset, path: Path)
         retrieved_at=manifest.retrieved_at,
         normalized_sha256=manifest.normalized_sha256,
         raw_sha256=manifest.raw_artifact.sha256,
+        raw_relative_path=manifest.raw_artifact.relative_path,
     )
+
+
+def _register_pin_value(value: object, source: Path, exact: bool, ambiguous: list[str], exact_pins: list[str]) -> None:
+    """Validate one recorded pin value; sentinels are skipped, malformed syntax fails closed."""
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, str):
+        raise UntrustedDatasetError(f"malformed pin value in {source.as_posix()}")
+    if value.startswith("NO_"):
+        return
+    if _HEX64_PATTERN.fullmatch(value) is None:
+        raise UntrustedDatasetError(f"malformed pin value in {source.as_posix()}")
+    (exact_pins if exact else ambiguous).append(value)
+
+
+def _collect_recorded_pins(settings: DataSettings) -> tuple[list[str], list[str]]:
+    """Collect ambiguous frame-or-manifest pins and exact manifest pins from evidence files."""
+    roots = [settings.resolved_data_root() / "results", Path.cwd() / "docs" / "results", Path.cwd() / "records" / "prospective"]
+    ambiguous: list[str] = []
+    exact_pins: list[str] = []
+    for evidence_root in roots:
+        if not evidence_root.is_dir():
+            continue
+        for candidate in sorted(evidence_root.rglob("*.json")):
+            try:
+                document = json.loads(candidate.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, ValueError):
+                continue
+            if not isinstance(document, dict):
+                continue
+            for key in _AMBIGUOUS_SINGLE_KEYS:
+                if key in document:
+                    _register_pin_value(document[key], candidate, False, ambiguous, exact_pins)
+            for key in _EXACT_SINGLE_KEYS:
+                if key in document:
+                    _register_pin_value(document[key], candidate, True, ambiguous, exact_pins)
+            for key, exact in (
+                *((k, False) for k in _AMBIGUOUS_MULTI_KEYS),
+                *((k, True) for k in _EXACT_MULTI_KEYS),
+            ):
+                if key not in document:
+                    continue
+                multi = document[key]
+                if multi is None:
+                    continue
+                if isinstance(multi, dict):
+                    items: list[object] = list(multi.values())
+                elif isinstance(multi, (list, tuple)):
+                    items = list(multi)
+                else:
+                    raise UntrustedDatasetError(f"malformed pin value in {candidate.as_posix()}")
+                for item in items:
+                    _register_pin_value(item, candidate, exact, ambiguous, exact_pins)
+    return ambiguous, exact_pins
 
 
 def plan_prune(
@@ -90,20 +157,19 @@ def plan_prune(
     drop_nport_zip_mirrors: bool = True,
     migrate_results_layout: bool = True,
 ) -> PrunePlan:
-    """Build a non-destructive retention plan from fully verified lineage references.
+    """Plan deletion only after resolving latest and recorded Silver references.
 
     Args:
-        settings: Data root to inspect.
-        keep_latest_only: Keep only the latest trusted manifest per dataset when true.
-        drop_nport_zip_mirrors: Include redundant N-PORT mirrors in the proposed plan.
-        migrate_results_layout: Include eligible legacy result moves in the plan.
+        settings: Root containing manifests, Silver, Bronze, and run results.
+        keep_latest_only: Retain latest plus recorded pins when true; retain every valid Silver when false.
+        drop_nport_zip_mirrors: Include redundant N-PORT mirror ZIPs when safe.
+        migrate_results_layout: Preserve the existing result-layout migration option.
 
     Returns:
-        Proposed file deletions and migrations without changing the filesystem.
+        A dry, explicit plan with all retained and deletable paths.
 
     Raises:
-        UntrustedDatasetError: If a manifest is malformed, a referenced file is
-            missing or corrupt, or safe reachability cannot be established.
+        UntrustedDatasetError: If Silver integrity or reference reachability cannot be established safely.
     """
     root = settings.resolved_data_root()
     store = DataStore(settings)
@@ -111,10 +177,12 @@ def plan_prune(
     to_migrate: list[tuple[Path, Path]] = []
     retained_manifests: list[Path] = []
     retained_parquets: list[Path] = []
-    retained_raw_shas: set[str] = set()
+    latest_raw_shas: set[str] = set()
+    missing_raw: list[str] = []
     nport_mirrors: list[Path] = []
 
-    # Collect manifests per dataset and decide retention
+    # Verify every candidate before selecting latest or computing reachability.
+    verified_by_dataset: dict[Dataset, list[_VerifiedManifest]] = {}
     for dataset in _collect_datasets(root):
         manifests_dir = root / "manifests" / str(dataset)
         if not manifests_dir.is_dir():
@@ -122,19 +190,54 @@ def plan_prune(
         candidates = sorted(manifests_dir.glob("*.json"))
         if not candidates:
             continue
-        # Verify every candidate before selecting latest or computing reachability.
         verified = [_verify_manifest(store, root, dataset, path) for path in candidates]
-        # Determine latest with the catalog order: (retrieved_at, sha, filename).
         verified.sort(key=lambda item: (item.retrieved_at, item.normalized_sha256, item.manifest_path.name))
+        verified_by_dataset[dataset] = verified
+
+    # Resolve recorded pins against verified manifests; malformed syntax fails closed.
+    ambiguous_pins, exact_pins = _collect_recorded_pins(settings)
+    all_verified = [item for verified in verified_by_dataset.values() for item in verified]
+    pinned_paths: set[Path] = set()
+    missing_evidence: list[str] = []
+    for pin in ambiguous_pins:
+        exact = [item for item in all_verified if item.manifest_path.stem == pin]
+        if exact:
+            pinned_paths.update(item.manifest_path for item in exact)
+            continue
+        framed = [item for item in all_verified if item.normalized_sha256 == pin]
+        if framed:
+            pinned_paths.update(item.manifest_path for item in framed)
+        else:
+            missing_evidence.append(pin)
+    for pin in exact_pins:
+        exact = [item for item in all_verified if item.manifest_path.stem == pin]
+        if exact:
+            pinned_paths.update(item.manifest_path for item in exact)
+        else:
+            missing_evidence.append(pin)
+
+    # Collect manifests per dataset and decide retention
+    for dataset, verified in verified_by_dataset.items():
+        # Determine latest with the catalog order: (retrieved_at, sha, filename).
+        latest = verified[-1]
+        latest_raw_shas.add(latest.raw_sha256)
+        raw_path = root.joinpath(*latest.raw_relative_path.parts)
+        if not raw_path.is_file():
+            logger.warning(
+                "[DATA] event=bronze_missing_for_repair dataset=%s raw_path=%s",
+                str(dataset),
+                raw_path.as_posix(),
+            )
+            if latest.raw_sha256 not in missing_raw:
+                missing_raw.append(latest.raw_sha256)
         if keep_latest_only:
-            keep_set = {verified[-1].manifest_path}
+            keep_set = {latest.manifest_path} | {p for p in pinned_paths if any(p == item.manifest_path for item in verified)}
         else:
             keep_set = {item.manifest_path for item in verified}
         for item in verified:
             if item.manifest_path in keep_set:
                 retained_manifests.append(item.manifest_path)
                 retained_parquets.append(item.parquet_path)
-                retained_raw_shas.add(item.raw_sha256)
         retained_parquet_paths = set(retained_parquets)
         for item in verified:
             if item.manifest_path not in keep_set:
@@ -142,7 +245,7 @@ def plan_prune(
                 if item.parquet_path not in retained_parquet_paths:
                     to_delete.append(item.parquet_path)
 
-    # Raw deletion: only when sha256 is unreferenced by every retained manifest
+    # Raw deletion: only when sha256 is unreferenced by every latest manifest
     raw_root = root / "raw"
     if raw_root.is_dir():
         # Walk raw directories: raw/<provider>/<dataset>/<sha>/payload.*
@@ -166,7 +269,7 @@ def plan_prune(
                     # Validate sha is hex64
                     if len(sha) != 64 or not all(c in "0123456789abcdef" for c in sha):
                         continue
-                    if sha not in retained_raw_shas:
+                    if sha not in latest_raw_shas:
                         # List all files under this sha_dir for deletion (payload.*)
                         for payload_file in sha_dir.iterdir():
                             if payload_file.is_file():
@@ -236,9 +339,19 @@ def plan_prune(
         to_migrate=tuple(to_migrate),
         retained_manifests=tuple(retained_manifests),
         retained_parquets=tuple(retained_parquets),
-        raw_sha_to_keep=frozenset(retained_raw_shas),
+        raw_sha_to_keep=frozenset(latest_raw_shas),
         nport_mirrors_to_delete=tuple(nport_mirrors),
+        missing_evidence=tuple(sorted(set(missing_evidence))),
+        missing_raw=tuple(sorted(set(missing_raw))),
     )
+
+
+def _resolved_identity(path: Path) -> Path:
+    """Resolve a plan path for protected-identity comparison; never raises."""
+    try:
+        return path.resolve()
+    except Exception:  # pragma: no cover
+        return path
 
 
 def apply_prune(plan: PrunePlan, *, dry_run: bool = True) -> PruneReport:
@@ -257,8 +370,15 @@ def apply_prune(plan: PrunePlan, *, dry_run: bool = True) -> PruneReport:
     if dry_run:
         return PruneReport(deleted=tuple(), migrated=tuple(), dry_run=True, plan=plan)
 
+    # Recheck protected Silver identities: a plan that outlived concurrent
+    # publication must never delete a currently retained manifest or Parquet.
+    protected = {_resolved_identity(p) for p in (*plan.retained_manifests, *plan.retained_parquets)}
+
     # Delete only paths listed in plan
     for p in plan.to_delete:
+        if _resolved_identity(p) in protected:
+            logger.warning("[DATA] event=prune_skip_protected path=%s", p.as_posix())
+            continue
         try:
             if p.is_file():
                 p.unlink()

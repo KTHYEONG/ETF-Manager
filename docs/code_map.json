@@ -1,15 +1,39 @@
 {
-  "configs/data/thesis_fundamentals/physical_automation.json": {
-    "architecture": "docs/architecture/components.md",
-    "testing": "tests/unit/data/test_thesis_fundamentals.py"
-  },
   "src/__init__.py": {
     "family": "core",
-    "testing": "tests/unit/test_cli.py"
+    "testing": [
+      "tests/unit/analytics/test_blends.py",
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_regimes.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/test_ablation.py"
+    ]
   },
   "src/analytics/__init__.py": {
     "family": "analytics",
-    "testing": "tests/unit/analytics/test_metrics.py"
+    "testing": [
+      "tests/unit/analytics/test_blends.py",
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_regimes.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/test_ablation.py"
+    ]
   },
   "src/analytics/accumulation_alpha.py": {
     "family": "analytics",
@@ -79,51 +103,242 @@
   },
   "src/analytics/thesis/__init__.py": {
     "family": "thesis",
-    "testing": "tests/unit/analytics/thesis/test_package_layout.py"
+    "testing": [
+      "tests/unit/analytics/test_blends.py",
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_regimes.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/test_ablation.py"
+    ]
   },
   "src/analytics/thesis/crowding.py": {
     "family": "thesis",
-    "testing": "tests/unit/analytics/test_crowding_evidence.py"
+    "testing": [
+      "tests/unit/analytics/test_crowding_evidence.py",
+      "tests/unit/analytics/test_thesis_decision.py",
+      "tests/unit/analytics/test_thesis_report.py",
+      "tests/unit/analytics/test_thesis_wave.py",
+      "tests/unit/analytics/test_wave_d_exit.py",
+      "tests/unit/analytics/thesis/test_evidence_slots_ai_compute.py",
+      "tests/unit/analytics/thesis/test_evidence_slots_other_theses.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/data/test_thesis_fundamentals.py",
+      "tests/unit/policy/test_thesis.py"
+    ]
   },
   "src/analytics/thesis/decision.py": {
     "family": "thesis",
-    "testing": "tests/unit/analytics/test_thesis_decision.py"
+    "testing": [
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_crowding_evidence.py",
+      "tests/unit/analytics/test_purity_evidence.py",
+      "tests/unit/analytics/test_structural_evidence.py",
+      "tests/unit/analytics/test_thesis_decision.py",
+      "tests/unit/analytics/test_thesis_report.py",
+      "tests/unit/analytics/test_valuation_evidence.py",
+      "tests/unit/analytics/test_wave_d_exit.py",
+      "tests/unit/analytics/thesis/test_evidence_historical.py",
+      "tests/unit/analytics/thesis/test_evidence_slots_ai_compute.py",
+      "tests/unit/analytics/thesis/test_evidence_slots_other_theses.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/analytics/thesis/test_structural.py",
+      "tests/unit/data/test_catalog.py",
+      "tests/unit/data/test_pension_fx.py",
+      "tests/unit/data/test_pit.py",
+      "tests/unit/data/test_schedule.py",
+      "tests/unit/features/test_pit_market.py",
+      "tests/unit/policy/test_kafi_deployment.py",
+      "tests/unit/policy/test_reserve.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/sim/test_allocation.py",
+      "tests/unit/validation/test_historical_campaign.py",
+      "tests/unit/validation/test_pension_selection.py",
+      "tests/unit/validation/test_prospective.py"
+    ]
   },
   "src/analytics/thesis/evidence.py": {
     "family": "thesis",
-    "testing": "tests/unit/analytics/thesis"
+    "testing": [
+      "tests/unit/analytics/test_crowding_evidence.py",
+      "tests/unit/analytics/test_incremental_portfolio.py",
+      "tests/unit/analytics/test_purity_evidence.py",
+      "tests/unit/analytics/test_structural_evidence.py",
+      "tests/unit/analytics/test_thesis_decision.py",
+      "tests/unit/analytics/test_thesis_evidence.py",
+      "tests/unit/analytics/test_thesis_meaning.py",
+      "tests/unit/analytics/test_thesis_report.py",
+      "tests/unit/analytics/test_thesis_wave.py",
+      "tests/unit/analytics/test_valuation_evidence.py",
+      "tests/unit/analytics/test_wave_d_exit.py",
+      "tests/unit/analytics/thesis/test_evidence_historical.py",
+      "tests/unit/analytics/thesis/test_evidence_layout_bounds.py",
+      "tests/unit/analytics/thesis/test_evidence_slots_ai_compute.py",
+      "tests/unit/analytics/thesis/test_evidence_slots_other_theses.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli_commands/test_pension_campaign_command.py",
+      "tests/unit/data/test_retention.py",
+      "tests/unit/policy/test_thesis.py",
+      "tests/unit/sim/test_pension_engine.py",
+      "tests/unit/validation/test_historical_campaign.py",
+      "tests/unit/validation/test_pension_campaign.py",
+      "tests/unit/validation/test_pension_selection.py",
+      "tests/unit/validation/test_result_layout_wiring.py"
+    ]
   },
   "src/analytics/thesis/incremental.py": {
     "family": "thesis",
-    "testing": "tests/unit/analytics/test_incremental_portfolio.py"
+    "testing": [
+      "tests/unit/analytics/test_compound_dca.py",
+      "tests/unit/analytics/test_incremental_portfolio.py",
+      "tests/unit/analytics/test_purity_evidence.py",
+      "tests/unit/analytics/test_wave_d_exit.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli_commands/test_thesis.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_merge.py",
+      "tests/unit/test_cli.py"
+    ]
   },
   "src/analytics/thesis/meaning.py": {
     "family": "thesis",
-    "testing": "tests/unit/analytics/test_thesis_meaning.py"
+    "testing": [
+      "tests/unit/analytics/test_incremental_portfolio.py",
+      "tests/unit/analytics/test_thesis_decision.py",
+      "tests/unit/analytics/test_thesis_meaning.py",
+      "tests/unit/analytics/test_wave_d_exit.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli_commands/test_thesis.py"
+    ]
   },
   "src/analytics/thesis/purity.py": {
     "family": "thesis",
-    "testing": "tests/unit/analytics/test_purity_evidence.py"
+    "testing": [
+      "tests/unit/analytics/test_purity_evidence.py",
+      "tests/unit/analytics/thesis/test_evidence_slots_other_theses.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/data/test_thesis_fundamentals.py"
+    ]
   },
   "src/analytics/thesis/report.py": {
     "family": "thesis",
-    "testing": "tests/unit/analytics/test_thesis_report.py"
+    "testing": [
+      "tests/unit/analytics/test_accumulation_alpha.py",
+      "tests/unit/analytics/test_adaptive_hp_screen.py",
+      "tests/unit/analytics/test_blends.py",
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_compound_dca.py",
+      "tests/unit/analytics/test_crowding_evidence.py",
+      "tests/unit/analytics/test_incremental_portfolio.py",
+      "tests/unit/analytics/test_metrics.py",
+      "tests/unit/analytics/test_overlap.py",
+      "tests/unit/analytics/test_purity_evidence.py",
+      "tests/unit/analytics/test_regimes.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/test_thesis_decision.py",
+      "tests/unit/analytics/test_thesis_report.py",
+      "tests/unit/analytics/test_thesis_wave.py",
+      "tests/unit/analytics/test_us_vehicles.py",
+      "tests/unit/analytics/test_wave_d_exit.py",
+      "tests/unit/analytics/thesis/test_evidence_historical.py",
+      "tests/unit/analytics/thesis/test_evidence_slots_ai_compute.py",
+      "tests/unit/analytics/thesis/test_evidence_slots_other_theses.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/cli_commands/test_after_tax_campaign_command.py",
+      "tests/unit/cli_commands/test_campaign.py",
+      "tests/unit/cli_commands/test_diagnose.py",
+      "tests/unit/cli_commands/test_pension_campaign_command.py",
+      "tests/unit/cli_commands/test_pension_selection_command.py",
+      "tests/unit/cli_commands/test_thesis.py",
+      "tests/unit/data/providers/test_sec_nport.py",
+      "tests/unit/data/test_doctor.py",
+      "tests/unit/data/test_nport_ingest.py",
+      "tests/unit/data/test_panel_freshness.py",
+      "tests/unit/data/test_pit.py",
+      "tests/unit/data/test_quality.py",
+      "tests/unit/data/test_result_maintenance.py",
+      "tests/unit/data/test_retention.py",
+      "tests/unit/data/test_schema.py",
+      "tests/unit/data/test_settings.py",
+      "tests/unit/data/test_storage.py",
+      "tests/unit/sim/test_pension_engine.py",
+      "tests/unit/sim/test_tax_lots.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward_tournament.py",
+      "tests/unit/validation/test_ablation.py",
+      "tests/unit/validation/test_accumulation_cohort.py",
+      "tests/unit/validation/test_after_tax_campaign.py",
+      "tests/unit/validation/test_feasibility.py",
+      "tests/unit/validation/test_feasibility_audit.py",
+      "tests/unit/validation/test_historical_campaign.py",
+      "tests/unit/validation/test_long_horizon_gate.py",
+      "tests/unit/validation/test_pension_campaign.py",
+      "tests/unit/validation/test_pension_household.py",
+      "tests/unit/validation/test_pension_selection.py",
+      "tests/unit/validation/test_prospective_registry.py",
+      "tests/unit/validation/test_registry.py",
+      "tests/unit/validation/test_result_layout_wiring.py",
+      "tests/unit/validation/test_strategy_selection.py"
+    ]
   },
   "src/analytics/thesis/structural.py": {
     "family": "thesis",
-    "testing": "tests/unit/analytics/test_structural_evidence.py"
+    "testing": "tests/unit/analytics/thesis/test_structural.py"
   },
   "src/analytics/thesis/valuation.py": {
     "family": "thesis",
-    "testing": "tests/unit/analytics/test_valuation_evidence.py"
+    "testing": [
+      "tests/unit/analytics/test_adaptive_hp_screen.py",
+      "tests/unit/analytics/test_pension_selection.py",
+      "tests/unit/analytics/test_thesis_decision.py",
+      "tests/unit/analytics/test_thesis_report.py",
+      "tests/unit/analytics/test_thesis_wave.py",
+      "tests/unit/analytics/test_valuation_evidence.py",
+      "tests/unit/analytics/test_wave_d_exit.py",
+      "tests/unit/analytics/thesis/test_evidence_historical.py",
+      "tests/unit/analytics/thesis/test_evidence_slots_ai_compute.py",
+      "tests/unit/analytics/thesis/test_evidence_slots_other_theses.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/data/test_thesis_fundamentals.py",
+      "tests/unit/policy/test_thesis.py",
+      "tests/unit/sim/test_pension_tax.py",
+      "tests/unit/validation/test_evaluate.py",
+      "tests/unit/validation/test_prospective.py"
+    ]
   },
   "src/analytics/thesis/wave.py": {
     "family": "thesis",
-    "testing": "tests/unit/analytics/test_thesis_wave.py"
+    "testing": [
+      "tests/unit/analytics/test_thesis_decision.py",
+      "tests/unit/analytics/test_thesis_wave.py",
+      "tests/unit/analytics/test_wave_d_exit.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_thesis_dispatch.py",
+      "tests/unit/cli_commands/test_thesis.py",
+      "tests/unit/data/test_result_maintenance.py",
+      "tests/unit/data/test_result_store.py",
+      "tests/unit/data/test_retention.py",
+      "tests/unit/validation/test_experiment_taxonomy.py",
+      "tests/unit/validation/test_feasibility_audit.py"
+    ]
   },
   "src/analytics/thesis/wave_d_exit.py": {
     "family": "thesis",
-    "testing": "tests/unit/analytics/test_wave_d_exit.py"
+    "testing": [
+      "tests/unit/analytics/test_wave_d_exit.py",
+      "tests/unit/analytics/thesis/test_package_layout.py"
+    ]
   },
   "src/analytics/thesis_decision.py": {
     "family": "thesis",
@@ -131,7 +346,7 @@
   },
   "src/analytics/thesis_evidence.py": {
     "family": "thesis",
-    "testing": "tests/unit/analytics/thesis"
+    "testing": "tests/unit/analytics/test_thesis_evidence.py"
   },
   "src/analytics/thesis_meaning.py": {
     "family": "thesis",
@@ -161,46 +376,158 @@
   "src/cli.py": {
     "architecture": "docs/architecture/module_index.md",
     "family": "cli",
-    "testing": [
-      "tests/unit/cli/test_facade_exports.py",
-      "tests/unit/cli/test_layout_bounds.py"
-    ]
+    "testing": "tests/unit/test_cli.py"
   },
   "src/cli_commands/__init__.py": {
     "family": "cli",
-    "testing": "tests/unit/cli/test_layout_bounds.py"
+    "testing": [
+      "tests/unit/analytics/test_blends.py",
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_regimes.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/test_ablation.py"
+    ]
   },
   "src/cli_commands/campaign.py": {
     "family": "cli",
-    "testing": "tests/unit/cli/test_sim_campaign_dispatch.py"
+    "testing": "tests/unit/cli_commands/test_campaign.py"
   },
   "src/cli_commands/diagnose.py": {
     "family": "cli",
-    "testing": "tests/unit/cli/test_diagnose_dispatch.py"
+    "testing": "tests/unit/cli_commands/test_diagnose.py"
   },
   "src/cli_commands/ingest.py": {
     "family": "cli",
-    "testing": "tests/unit/cli/test_ingest_dispatch.py"
+    "testing": [
+      "tests/unit/analytics/test_adaptive_hp_screen.py",
+      "tests/unit/analytics/test_incremental_portfolio.py",
+      "tests/unit/analytics/test_us_vehicles.py",
+      "tests/unit/analytics/test_wave_d_exit.py",
+      "tests/unit/cli/test_cli.py",
+      "tests/unit/cli/test_facade_exports.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli_commands/test_after_tax_campaign_command.py",
+      "tests/unit/cli_commands/test_pension_campaign_command.py",
+      "tests/unit/data/test_catalog.py",
+      "tests/unit/data/test_catalog_cache.py",
+      "tests/unit/data/test_doctor.py",
+      "tests/unit/data/test_etf_metadata_bootstrap.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_ingest_guard.py",
+      "tests/unit/data/test_merge.py",
+      "tests/unit/data/test_nport_batch.py",
+      "tests/unit/data/test_nport_ingest.py",
+      "tests/unit/data/test_panel_freshness.py",
+      "tests/unit/data/test_pension_market_schema.py",
+      "tests/unit/data/test_pipeline.py",
+      "tests/unit/data/test_query.py",
+      "tests/unit/data/test_retention.py",
+      "tests/unit/data/test_thesis_fundamentals.py",
+      "tests/unit/docs/test_module_index.py",
+      "tests/unit/etf/test_mapping.py",
+      "tests/unit/etf/test_score.py",
+      "tests/unit/features/test_pit_market.py",
+      "tests/unit/features/test_returns.py",
+      "tests/unit/policy/test_targets.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/sim/test_allocation.py",
+      "tests/unit/sim/test_allocation_adaptive_contribution.py",
+      "tests/unit/sim/test_allocation_deployment.py",
+      "tests/unit/sim/test_allocation_shape.py",
+      "tests/unit/sim/test_baseline.py",
+      "tests/unit/sim/test_research_proxy.py",
+      "tests/unit/validation/test_feasibility.py",
+      "tests/unit/validation/test_feasibility_audit.py",
+      "tests/unit/validation/test_historical_campaign.py",
+      "tests/unit/validation/test_pension_campaign.py",
+      "tests/unit/validation/test_pension_selection.py",
+      "tests/unit/validation/test_prospective.py",
+      "tests/unit/validation/test_strategy_selection.py"
+    ]
+  },
+  "src/cli_commands/maintenance.py": {
+    "family": "cli",
+    "testing": [
+      "tests/unit/cli/test_cli.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/data/test_doctor.py",
+      "tests/unit/data/test_result_maintenance.py"
+    ]
   },
   "src/cli_commands/parser.py": {
     "family": "cli",
-    "testing": "tests/unit/cli/test_facade_exports.py"
+    "testing": [
+      "tests/unit/cli/test_cli.py",
+      "tests/unit/cli/test_diagnose_dispatch.py",
+      "tests/unit/cli/test_facade_exports.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_parser.py",
+      "tests/unit/cli_commands/test_pension_selection_command.py",
+      "tests/unit/validation/test_pension_selection.py"
+    ]
   },
   "src/cli_commands/resolvers.py": {
     "family": "cli",
-    "testing": "tests/unit/cli/test_facade_exports.py"
+    "testing": "tests/unit/cli/test_layout_bounds.py"
+  },
+  "src/cli_commands/results.py": {
+    "family": "cli",
+    "testing": [
+      "tests/unit/analytics/test_thesis_wave.py",
+      "tests/unit/analytics/test_wave_d_exit.py",
+      "tests/unit/cli/test_parser.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/cli_commands/test_after_tax_campaign_command.py",
+      "tests/unit/cli_commands/test_pension_campaign_command.py",
+      "tests/unit/cli_commands/test_results_command.py",
+      "tests/unit/cli_commands/test_thesis.py",
+      "tests/unit/data/test_paths.py",
+      "tests/unit/data/test_result_maintenance.py",
+      "tests/unit/data/test_result_store.py",
+      "tests/unit/data/test_retention.py",
+      "tests/unit/validation/test_after_tax_campaign.py",
+      "tests/unit/validation/test_evaluate.py",
+      "tests/unit/validation/test_pension_campaign.py",
+      "tests/unit/validation/test_result_layout_wiring.py"
+    ]
   },
   "src/cli_commands/sim_run.py": {
     "family": "cli",
-    "testing": "tests/unit/cli/test_sim_campaign_dispatch.py"
+    "testing": [
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py"
+    ]
   },
   "src/cli_commands/thesis.py": {
     "family": "cli",
-    "testing": "tests/unit/cli/test_thesis_dispatch.py"
+    "testing": "tests/unit/cli_commands/test_thesis.py"
   },
   "src/data/__init__.py": {
     "family": "data",
-    "testing": "tests/unit/data/test_settings.py"
+    "testing": [
+      "tests/unit/analytics/test_blends.py",
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_regimes.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/test_ablation.py"
+    ]
   },
   "src/data/calendar.py": {
     "family": "data",
@@ -209,6 +536,10 @@
   "src/data/catalog.py": {
     "family": "data",
     "testing": "tests/unit/data/test_catalog.py"
+  },
+  "src/data/doctor.py": {
+    "family": "data",
+    "testing": "tests/unit/data/test_doctor.py"
   },
   "src/data/etf_metadata_bootstrap.py": {
     "family": "data",
@@ -222,6 +553,10 @@
     "family": "data",
     "testing": "tests/unit/data/test_ingest_guard.py"
   },
+  "src/data/merge.py": {
+    "family": "data",
+    "testing": "tests/unit/data/test_merge.py"
+  },
   "src/data/nport_ingest.py": {
     "family": "data",
     "testing": "tests/unit/data/test_nport_ingest.py"
@@ -234,6 +569,14 @@
     "family": "data",
     "testing": "tests/unit/data/test_paths.py"
   },
+  "src/data/pension_fx.py": {
+    "family": "data",
+    "testing": "tests/unit/data/test_pension_fx.py"
+  },
+  "src/data/pension_market.py": {
+    "family": "data",
+    "testing": "tests/unit/data/test_pension_market.py"
+  },
   "src/data/pipeline.py": {
     "family": "data",
     "testing": "tests/unit/data/test_pipeline.py"
@@ -244,28 +587,132 @@
   },
   "src/data/providers/__init__.py": {
     "family": "data",
-    "testing": "tests/unit/data/test_quota.py"
+    "testing": [
+      "tests/unit/analytics/test_blends.py",
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_regimes.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/test_ablation.py"
+    ]
   },
   "src/data/providers/base.py": {
     "family": "data",
     "testing": [
+      "tests/unit/analytics/test_accumulation_alpha.py",
+      "tests/unit/analytics/test_adaptive_hp_screen.py",
+      "tests/unit/analytics/test_compound_dca.py",
+      "tests/unit/analytics/test_incremental_portfolio.py",
+      "tests/unit/analytics/test_metrics.py",
+      "tests/unit/analytics/test_pension_selection.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/test_thesis_report.py",
+      "tests/unit/analytics/test_us_vehicles.py",
+      "tests/unit/analytics/thesis/test_evidence_historical.py",
+      "tests/unit/analytics/thesis/test_evidence_layout_bounds.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_cli.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/cli_commands/test_after_tax_campaign_command.py",
+      "tests/unit/cli_commands/test_campaign.py",
+      "tests/unit/cli_commands/test_diagnose.py",
+      "tests/unit/cli_commands/test_pension_campaign_command.py",
       "tests/unit/data/test_ecos.py",
+      "tests/unit/data/test_fetch.py",
       "tests/unit/data/test_fred.py",
       "tests/unit/data/test_french.py",
+      "tests/unit/data/test_paths.py",
+      "tests/unit/data/test_pension_market.py",
+      "tests/unit/data/test_pension_market_schema.py",
+      "tests/unit/data/test_quality.py",
       "tests/unit/data/test_quota.py",
+      "tests/unit/data/test_schema.py",
+      "tests/unit/data/test_settings.py",
       "tests/unit/data/test_tiingo.py",
-      "tests/unit/test_cli.py"
+      "tests/unit/features/test_kafi.py",
+      "tests/unit/policy/test_adaptive_contribution.py",
+      "tests/unit/policy/test_after_tax_rules.py",
+      "tests/unit/policy/test_after_tax_rules_boundaries.py",
+      "tests/unit/policy/test_contribution_shape.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/sim/test_allocation.py",
+      "tests/unit/sim/test_allocation_adaptive_contribution.py",
+      "tests/unit/sim/test_allocation_deployment.py",
+      "tests/unit/sim/test_allocation_shape.py",
+      "tests/unit/sim/test_baseline.py",
+      "tests/unit/sim/test_pension_engine.py",
+      "tests/unit/sim/test_pension_tax.py",
+      "tests/unit/sim/test_pension_tax_config.py",
+      "tests/unit/sim/test_tax.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward_tournament.py",
+      "tests/unit/validation/experiment/test_adaptive_and_mix.py",
+      "tests/unit/validation/experiment/test_layers_cadence_shape.py",
+      "tests/unit/validation/experiment/test_layers_mapping_currency.py",
+      "tests/unit/validation/experiment/test_layers_overlay_reserve.py",
+      "tests/unit/validation/experiment/test_layout_bounds.py",
+      "tests/unit/validation/experiment/test_load_core.py",
+      "tests/unit/validation/experiment/test_mix_thesis.py",
+      "tests/unit/validation/test_ablation.py",
+      "tests/unit/validation/test_accumulation_cohort.py",
+      "tests/unit/validation/test_after_tax_campaign.py",
+      "tests/unit/validation/test_after_tax_campaign_spec.py",
+      "tests/unit/validation/test_experiment_taxonomy.py",
+      "tests/unit/validation/test_feasibility.py",
+      "tests/unit/validation/test_feasibility_audit.py",
+      "tests/unit/validation/test_gate.py",
+      "tests/unit/validation/test_historical_campaign.py",
+      "tests/unit/validation/test_long_horizon_gate.py",
+      "tests/unit/validation/test_pension_campaign.py",
+      "tests/unit/validation/test_pension_campaign_v2_configs.py",
+      "tests/unit/validation/test_pension_household.py",
+      "tests/unit/validation/test_pension_selection.py",
+      "tests/unit/validation/test_prospective.py",
+      "tests/unit/validation/test_prospective_registry.py",
+      "tests/unit/validation/test_registry.py",
+      "tests/unit/validation/test_research_posture.py",
+      "tests/unit/validation/test_result_layout_wiring.py",
+      "tests/unit/validation/test_strategy_selection.py"
     ]
   },
   "src/data/providers/ecos.py": {
     "family": "data",
-    "testing": "tests/unit/data/test_ecos.py"
+    "testing": [
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/data/test_ecos.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_panel_freshness.py",
+      "tests/unit/data/test_pension_fx.py",
+      "tests/unit/data/test_schema.py",
+      "tests/unit/data/test_secrets.py",
+      "tests/unit/data/test_thesis_fundamentals.py"
+    ]
   },
   "src/data/providers/fred.py": {
     "family": "data",
     "testing": [
+      "tests/unit/cli/test_cli.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli_commands/test_pension_campaign_command.py",
+      "tests/unit/data/test_fetch.py",
       "tests/unit/data/test_fred.py",
-      "tests/unit/test_cli.py"
+      "tests/unit/data/test_merge.py",
+      "tests/unit/data/test_panel_freshness.py",
+      "tests/unit/data/test_pension_fx.py",
+      "tests/unit/data/test_secrets.py",
+      "tests/unit/data/test_thesis_fundamentals.py",
+      "tests/unit/validation/test_pension_campaign.py",
+      "tests/unit/validation/test_pension_selection.py"
     ]
   },
   "src/data/providers/french.py": {
@@ -285,7 +732,13 @@
   },
   "src/data/providers/tiingo.py": {
     "family": "data",
-    "testing": "tests/unit/data/test_tiingo.py"
+    "testing": [
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_panel_freshness.py",
+      "tests/unit/data/test_secrets.py",
+      "tests/unit/data/test_thesis_fundamentals.py",
+      "tests/unit/data/test_tiingo.py"
+    ]
   },
   "src/data/quality.py": {
     "family": "data",
@@ -294,6 +747,14 @@
   "src/data/query.py": {
     "family": "data",
     "testing": "tests/unit/data/test_query.py"
+  },
+  "src/data/result_maintenance.py": {
+    "family": "data",
+    "testing": "tests/unit/data/test_result_maintenance.py"
+  },
+  "src/data/result_store.py": {
+    "family": "data",
+    "testing": "tests/unit/data/test_result_store.py"
   },
   "src/data/retention.py": {
     "family": "data",
@@ -316,9 +777,9 @@
     "testing": "tests/unit/data/test_settings.py"
   },
   "src/data/storage.py": {
+    "architecture": "docs/specs/refactor_roadmap.md",
     "family": "data",
-    "testing": "tests/unit/data/test_storage.py",
-    "architecture": "docs/specs/refactor_roadmap.md"
+    "testing": "tests/unit/data/test_storage.py"
   },
   "src/data/thesis_fundamentals.py": {
     "family": "data",
@@ -326,7 +787,21 @@
   },
   "src/etf/__init__.py": {
     "family": "etf",
-    "testing": "tests/unit/etf/test_mapping.py"
+    "testing": [
+      "tests/unit/analytics/test_blends.py",
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_regimes.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/test_ablation.py"
+    ]
   },
   "src/etf/mapping.py": {
     "family": "etf",
@@ -343,7 +818,21 @@
   },
   "src/execution/__init__.py": {
     "family": "execution",
-    "testing": "tests/unit/execution/test_broker.py"
+    "testing": [
+      "tests/unit/analytics/test_blends.py",
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_regimes.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/test_ablation.py"
+    ]
   },
   "src/execution/broker.py": {
     "family": "execution",
@@ -355,7 +844,21 @@
   },
   "src/features/__init__.py": {
     "family": "features",
-    "testing": "tests/unit/features/test_returns.py"
+    "testing": [
+      "tests/unit/analytics/test_blends.py",
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_regimes.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/test_ablation.py"
+    ]
   },
   "src/features/drawdown.py": {
     "family": "features",
@@ -391,11 +894,29 @@
   },
   "src/policy/__init__.py": {
     "family": "policy",
-    "testing": "tests/unit/policy/test_targets.py"
+    "testing": [
+      "tests/unit/analytics/test_blends.py",
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_regimes.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/test_ablation.py"
+    ]
   },
   "src/policy/adaptive_contribution.py": {
     "family": "policy",
     "testing": "tests/unit/policy/test_adaptive_contribution.py"
+  },
+  "src/policy/after_tax_rule_parse.py": {
+    "family": "policy",
+    "testing": "tests/unit/policy/test_after_tax_rules.py"
   },
   "src/policy/after_tax_rules.py": {
     "family": "policy",
@@ -448,14 +969,36 @@
   },
   "src/sim/__init__.py": {
     "family": "sim",
-    "testing": "tests/unit/sim/test_baseline.py"
+    "testing": [
+      "tests/unit/analytics/test_blends.py",
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_regimes.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/test_ablation.py"
+    ]
   },
   "src/sim/after_tax_engine.py": {
+    "architecture": "docs/architecture/design-decisions.md",
     "family": "sim",
-    "testing": "tests/unit/sim/test_after_tax_engine.py",
-    "architecture": "docs/architecture/design-decisions.md"
+    "testing": "tests/unit/sim/test_after_tax_engine.py"
+  },
+  "src/sim/after_tax_market.py": {
+    "family": "sim",
+    "testing": "tests/unit/sim/test_after_tax_engine.py"
   },
   "src/sim/allocation.py": {
+    "family": "sim",
+    "testing": "tests/unit/sim/test_allocation.py"
+  },
+  "src/sim/allocation_market.py": {
     "family": "sim",
     "testing": "tests/unit/sim/test_allocation.py"
   },
@@ -475,6 +1018,19 @@
     "family": "sim",
     "testing": "tests/unit/sim/test_lots.py"
   },
+  "src/sim/pension_engine.py": {
+    "architecture": "docs/specs/pension_campaign_spec.md",
+    "family": "sim",
+    "testing": "tests/unit/sim/test_pension_engine.py"
+  },
+  "src/sim/pension_marks.py": {
+    "family": "sim",
+    "testing": "tests/unit/sim/test_pension_engine.py"
+  },
+  "src/sim/pension_tax.py": {
+    "family": "sim",
+    "testing": "tests/unit/sim/test_pension_tax.py"
+  },
   "src/sim/research_proxy.py": {
     "family": "sim",
     "testing": "tests/unit/sim/test_research_proxy.py"
@@ -489,7 +1045,21 @@
   },
   "src/validation/__init__.py": {
     "family": "validation",
-    "testing": "tests/unit/validation/test_gate.py"
+    "testing": [
+      "tests/unit/analytics/test_blends.py",
+      "tests/unit/analytics/test_cadence.py",
+      "tests/unit/analytics/test_regimes.py",
+      "tests/unit/analytics/test_reserve_usage.py",
+      "tests/unit/analytics/thesis/test_package_layout.py",
+      "tests/unit/cli/test_ingest_dispatch.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/sim/test_after_tax_engine.py",
+      "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
+      "tests/unit/validation/campaign_parts/test_cost_grid.py",
+      "tests/unit/validation/campaign_parts/test_walk_forward.py",
+      "tests/unit/validation/test_ablation.py"
+    ]
   },
   "src/validation/ablation.py": {
     "family": "validation",
@@ -503,21 +1073,29 @@
     "family": "validation",
     "testing": "tests/unit/validation/test_after_tax_campaign.py"
   },
+  "src/validation/after_tax_campaign_config.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_after_tax_campaign_spec.py"
+  },
+  "src/validation/after_tax_campaign_report.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_after_tax_campaign.py"
+  },
   "src/validation/bootstrap.py": {
     "family": "validation",
     "testing": "tests/unit/validation/test_bootstrap.py"
   },
   "src/validation/cadence_robustness.py": {
     "family": "validation",
-    "testing": "tests/unit/validation/campaign_parts/test_cadence_robustness.py"
+    "testing": "tests/unit/validation/test_cadence_robustness.py"
   },
   "src/validation/campaign.py": {
     "family": "validation",
-    "testing": "tests/unit/validation/campaign_parts"
+    "testing": "tests/unit/validation/test_campaign.py"
   },
   "src/validation/cost_grid.py": {
     "family": "validation",
-    "testing": "tests/unit/validation/campaign_parts/test_cost_grid.py"
+    "testing": "tests/unit/validation/test_cost_grid.py"
   },
   "src/validation/evaluate.py": {
     "family": "validation",
@@ -525,7 +1103,7 @@
   },
   "src/validation/experiment.py": {
     "family": "validation",
-    "testing": "tests/unit/validation/experiment"
+    "testing": "tests/unit/validation/test_experiment.py"
   },
   "src/validation/feasibility.py": {
     "family": "validation",
@@ -545,9 +1123,44 @@
     "family": "validation",
     "testing": "tests/unit/validation/test_historical_campaign.py"
   },
+  "src/validation/historical_campaign_audit.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_historical_campaign.py"
+  },
+  "src/validation/historical_campaign_report.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_historical_campaign.py"
+  },
+  "src/validation/pension_campaign.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_pension_campaign.py"
+  },
+  "src/validation/pension_campaign_config.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_pension_campaign.py"
+  },
+  "src/validation/pension_campaign_report.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_pension_campaign.py"
+  },
+  "src/validation/pension_household.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_pension_household.py"
+  },
   "src/validation/pension_selection.py": {
     "family": "validation",
     "testing": "tests/unit/validation/test_pension_selection.py"
+  },
+  "src/validation/pension_selection_config.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_pension_selection.py"
+  },
+  "src/validation/pension_selection_report.py": {
+    "family": "validation",
+    "testing": [
+      "tests/unit/cli_commands/test_pension_selection_command.py",
+      "tests/unit/validation/test_pension_selection.py"
+    ]
   },
   "src/validation/prospective.py": {
     "family": "validation",
@@ -574,29 +1187,10 @@
   },
   "src/validation/walk_forward.py": {
     "family": "validation",
-    "testing": "tests/unit/validation/campaign_parts/test_walk_forward.py"
+    "testing": "tests/unit/validation/test_walk_forward.py"
   },
   "src/validation/windows.py": {
     "family": "validation",
     "testing": "tests/unit/validation/test_windows.py"
-  },
-  "src/sim/pension_engine.py": {
-    "architecture": "docs/specs/pension_campaign_spec.md",
-    "testing": "tests/unit/sim/test_pension_engine.py"
-  },
-  "src/data/result_store.py": {
-    "testing": "tests/unit/data/test_result_store.py"
-  },
-  "src/data/pension_fx.py": {
-    "testing": "tests/unit/data/test_pension_fx.py"
-  },
-  "src/validation/pension_campaign.py": {
-    "testing": "tests/unit/validation/test_pension_campaign.py"
-  },
-  "src/validation/pension_household.py": {
-    "testing": "tests/unit/validation/test_pension_household.py"
-  },
-  "src/data/merge.py": {
-    "testing": "tests/unit/data/test_merge.py"
   }
 }

@@ -166,3 +166,149 @@ def test_load_panel_hard_stop_default_path_without_registry(
     """Default registry path resolves against cwd; absent file yields None."""
     monkeypatch.chdir(tmp_path)
     assert load_panel_hard_stop() is None
+
+
+def _persist_panel_frames(
+    settings: DataSettings,
+    sessions: tuple[date, ...],
+    tickers: tuple[str, ...] = THESIS_PANEL_TICKERS,
+    *,
+    close: float = 100.0,
+    fx_rate: float = 1300.0,
+    retrieved_at: datetime = datetime(2024, 1, 5, 5, 0, tzinfo=UTC),
+) -> None:
+    import polars as pl
+
+    from src.data.pipeline import persist_ingest
+    from src.data.schema import Dataset, spec_for
+    from src.data.storage import RawPayload
+
+    def _payload() -> RawPayload:
+        return RawPayload(
+            provider="synthetic",
+            endpoint="probe",
+            request_params={},
+            retrieved_at=retrieved_at,
+            extension="json",
+            content=b"{}",
+        )
+
+    spec_prices = spec_for(Dataset.PRICES)
+    rows = [(ticker, day) for ticker in tickers for day in sessions]
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "ticker": [ticker for ticker, _ in rows],
+                "date": [day for _, day in rows],
+                "open": [close * 0.98] * len(rows),
+                "high": [close * 1.02] * len(rows),
+                "low": [close * 0.97] * len(rows),
+                "close": [close] * len(rows),
+                "volume": [10_000] * len(rows),
+                "adjusted_close": [close] * len(rows),
+                "dividend": [0.0] * len(rows),
+                "split_factor": [1.0] * len(rows),
+                "source": ["synthetic"] * len(rows),
+                "retrieved_at": [retrieved_at] * len(rows),
+            },
+            schema=dict(spec_prices.columns),
+        ),
+        Dataset.PRICES,
+        _payload(),
+        settings,
+    )
+    spec_fx = spec_for(Dataset.FX)
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "date": list(sessions),
+                "usdkrw": [fx_rate] * len(sessions),
+                "source": ["synthetic"] * len(sessions),
+                "retrieved_at": [retrieved_at] * len(sessions),
+            },
+            schema=dict(spec_fx.columns),
+        ),
+        Dataset.FX,
+        _payload(),
+        settings,
+    )
+    spec_cpi = spec_for(Dataset.CPI)
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "period_end": [date(2023, 11, 1)],
+                "value": [300.0],
+                "source": ["synthetic"],
+                "retrieved_at": [retrieved_at],
+            },
+            schema=dict(spec_cpi.columns),
+        ),
+        Dataset.CPI,
+        _payload(),
+        settings,
+    )
+
+
+def test_resolve_catalog_panel_coverage_and_read_agree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Coverage and pinned reads name the same manifest set across a later ingest."""
+    from pathlib import Path as _Path
+
+    import polars as _pl
+
+    from src.data.calendar import load_calendar
+    from src.data.catalog import load_snapshot_visible, resolve_snapshot
+    from src.data.schema import Dataset
+
+    monkeypatch.chdir(tmp_path)
+    settings = DataSettings(data_root="data")
+    sessions = load_calendar("XNYS").sessions(date(2024, 1, 2), date(2024, 1, 31))
+    _persist_panel_frames(settings, sessions)
+    reference_now = datetime(2024, 2, 15, tzinfo=UTC)
+    report = resolve_catalog_panel_as_of(settings, reference_now=reference_now)
+    assert report.status in (PanelFreshnessStatus.FRESH, PanelFreshnessStatus.STALE)
+    snapshot = resolve_snapshot(settings, (Dataset.PRICES, Dataset.FX, Dataset.CPI))
+    before = {dataset: _Path(artifact.manifest_path).stem for dataset, artifact in snapshot.artifacts.items()}
+
+    _persist_panel_frames(
+        settings,
+        sessions,
+        close=999.0,
+        fx_rate=9999.0,
+        retrieved_at=datetime(2024, 2, 2, 5, 0, tzinfo=UTC),
+    )
+
+    pinned = load_snapshot_visible(snapshot, Dataset.PRICES, report.panel_as_of)
+    assert pinned.filter(_pl.col("adjusted_close") == 999.0).is_empty()
+    assert before == {
+        dataset: _Path(artifact.manifest_path).stem for dataset, artifact in snapshot.artifacts.items()
+    }
+
+
+def test_resolve_catalog_panel_damaged_source_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Corrupt required Silver raises instead of returning healthy panel coverage."""
+    from pathlib import Path as _Path
+
+    from src.data.calendar import load_calendar
+    from src.data.catalog import latest_artifact
+    from src.data.schema import Dataset
+    from src.data.storage import UntrustedDatasetError
+
+    monkeypatch.chdir(tmp_path)
+    settings = DataSettings(data_root="data")
+    sessions = load_calendar("XNYS").sessions(date(2024, 1, 2), date(2024, 1, 31))
+    _persist_panel_frames(settings, sessions)
+    _Path(latest_artifact(settings, Dataset.FX).normalized_path).unlink()
+    with pytest.raises(UntrustedDatasetError, match=r"missing|unreadable|mismatch|manifest|parquet|required"):
+        resolve_catalog_panel_as_of(settings, reference_now=datetime(2024, 2, 15, tzinfo=UTC))
+
+
+def test_resolve_catalog_panel_absent_source_is_insufficient(tmp_path: Path) -> None:
+    """A catalog with no manifests reports INSUFFICIENT_DATA instead of a trust failure."""
+    settings = DataSettings(data_root=tmp_path / "data")
+    report = resolve_catalog_panel_as_of(settings, reference_now=datetime(2024, 2, 15, tzinfo=UTC))
+    assert report.status is PanelFreshnessStatus.INSUFFICIENT_DATA
+    assert report.ticker_last_session == {}

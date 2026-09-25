@@ -166,3 +166,91 @@ def test_synthesize_proxy_mix_returns_weighted_blend() -> None:
     jan = mixed.filter(pl.col("date") == date(2000, 1, 31)).item(0, "simple_return")
     assert abs(float(jan) - 0.11) < 1e-9
 
+
+def test_run_research_proxy_from_store_uses_pinned_partitions(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pinned RESEARCH_RETURNS, FX, and CPI partitions drive the proxy simulation."""
+    from pathlib import Path as _Path
+
+    from src.data.pipeline import persist_ingest
+    from src.data.settings import DataSettings
+    from src.data.storage import RawPayload
+    from src.sim.research_proxy import run_research_proxy_from_store, run_research_proxy_from_store_with_returns
+
+    root = _Path(str(tmp_path))  # type: ignore[arg-type]
+    monkeypatch.chdir(root)
+    settings = DataSettings(data_root="data")
+    days = _CALENDAR.sessions(date(2024, 1, 2), date(2024, 2, 29))
+
+    def _payload() -> RawPayload:
+        return RawPayload(
+            provider="synthetic",
+            endpoint="probe",
+            request_params={},
+            retrieved_at=_RETRIEVED_AT,
+            extension="json",
+            content=b"{}",
+        )
+
+    returns_spec = spec_for(Dataset.RESEARCH_RETURNS)
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "series_id": ["us_mkt_ff_daily"] * len(days),
+                "date": list(days),
+                "simple_return": [0.001] * len(days),
+                "label": ["research_proxy"] * len(days),
+                "source": ["synthetic"] * len(days),
+                "retrieved_at": [_RETRIEVED_AT] * len(days),
+            },
+            schema=dict(returns_spec.columns),
+        ),
+        Dataset.RESEARCH_RETURNS,
+        _payload(),
+        settings,
+    )
+    fx_spec = spec_for(Dataset.FX)
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "date": list(days),
+                "usdkrw": [1300.0] * len(days),
+                "source": ["synthetic"] * len(days),
+                "retrieved_at": [_RETRIEVED_AT] * len(days),
+            },
+            schema=dict(fx_spec.columns),
+        ),
+        Dataset.FX,
+        _payload(),
+        settings,
+    )
+    cpi_spec = spec_for(Dataset.CPI)
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "period_end": [date(2023, 12, 1)],
+                "value": [100.0],
+                "source": ["synthetic"],
+                "retrieved_at": [_RETRIEVED_AT],
+            },
+            schema=dict(cpi_spec.columns),
+        ),
+        Dataset.CPI,
+        _payload(),
+        settings,
+    )
+    config = AllocationConfig(
+        policy=PolicyId.FF_PROXY,
+        start=date(2024, 1, 15),
+        end=date(2024, 2, 26),
+        monthly_contribution_krw=_CONTRIBUTION_KRW,
+    )
+    result = run_research_proxy_from_store(config, settings)
+    assert result.terminal_wealth_krw > 0.0
+    assert result.snapshots[0].shares.keys() == {"us_mkt_ff_daily"}
+
+    supplied = _returns_frame("us_mkt_ff_daily", dict.fromkeys(days, 0.001))
+    supplied_result = run_research_proxy_from_store_with_returns(config, settings, supplied)
+    assert supplied_result.terminal_wealth_krw > 0.0
+

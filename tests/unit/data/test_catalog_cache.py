@@ -132,10 +132,10 @@ def test_load_visible_rejects_deleted_cached_parquet(
         load_visible(settings, Dataset.FX, cutoff)
 
 
-def test_load_visible_rejects_changed_cached_raw(
+def test_load_visible_ignores_changed_cached_raw(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A modified raw payload triggers re-verification that rejects the artifact."""
+    """A modified Bronze payload does not invalidate a verified Silver frame."""
     clear_catalog_frame_cache()
     root = tmp_path / "changed_raw"
     root.mkdir()
@@ -151,8 +151,7 @@ def test_load_visible_rejects_changed_cached_raw(
     artifact = latest_artifact(settings, Dataset.FX)
     raw_path = root / "data" / Path(*artifact.manifest.raw_artifact.relative_path.parts)
     raw_path.write_bytes(b'{"rows": ["tampered"]}')
-    with pytest.raises(UntrustedDatasetError):
-        load_visible(settings, Dataset.FX, cutoff)
+    assert load_visible(settings, Dataset.FX, cutoff).height == 2
 
 
 def test_load_visible_isolates_data_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -244,3 +243,50 @@ def test_latest_artifact_rejects_tampered_manifest(
     )
     with pytest.raises(UntrustedDatasetError):
         latest_artifact(settings, Dataset.FX)
+
+
+def test_load_visible_survives_bronze_removal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A removed Bronze payload leaves cached Silver rows PIT-visible."""
+    clear_catalog_frame_cache()
+    root = tmp_path / "missing_bronze"
+    root.mkdir()
+    monkeypatch.chdir(root)
+    settings = DataSettings(data_root="data")
+
+    days = [date(2024, 1, 30), date(2024, 1, 31)]
+    persist_ingest(_fx_frame(days, [1300.0, 1301.0], _RETRIEVED_EARLY), Dataset.FX, _payload(_RETRIEVED_EARLY), settings)
+    calendar = load_calendar("XNYS")
+    cutoff = calendar.close_ts(date(2024, 1, 31))
+    assert load_visible(settings, Dataset.FX, cutoff).height == 2
+
+    artifact = latest_artifact(settings, Dataset.FX)
+    raw_path = root / "data" / Path(*artifact.manifest.raw_artifact.relative_path.parts)
+    raw_path.unlink()
+    visible = load_visible(settings, Dataset.FX, cutoff)
+    assert visible.height == 2
+    assert visible.item(0, "usdkrw") == 1300.0
+
+
+def test_load_visible_rejects_changed_silver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A changed manifest or Parquet forces re-verification that fails closed."""
+    clear_catalog_frame_cache()
+    root = tmp_path / "changed_silver"
+    root.mkdir()
+    monkeypatch.chdir(root)
+    settings = DataSettings(data_root="data")
+
+    days = [date(2024, 1, 30), date(2024, 1, 31)]
+    persist_ingest(_fx_frame(days, [1300.0, 1301.0], _RETRIEVED_EARLY), Dataset.FX, _payload(_RETRIEVED_EARLY), settings)
+    calendar = load_calendar("XNYS")
+    cutoff = calendar.close_ts(date(2024, 1, 31))
+    assert load_visible(settings, Dataset.FX, cutoff).height == 2
+
+    artifact = latest_artifact(settings, Dataset.FX)
+    tampered = pl.read_parquet(artifact.normalized_path).with_columns(pl.col("usdkrw") + 1.0)
+    tampered.write_parquet(artifact.normalized_path)
+    with pytest.raises(UntrustedDatasetError):
+        load_visible(settings, Dataset.FX, cutoff)

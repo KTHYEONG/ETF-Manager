@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Final
 from src.analytics.us_vehicles import history_price_tickers
 from src.cli_commands.parser import _UsageError
 from src.data.catalog import latest_artifact
+from src.data.doctor import SilverCondition, inspect_data
 from src.data.fetch import (
     fetch_and_persist_cpi,
     fetch_and_persist_factors,
@@ -45,6 +46,34 @@ _HISTORY_FX_PROVIDER: Final[str] = "fred"
 _HISTORY_MACRO_SERIES: Final[tuple[str, ...]] = ("VIXCLS", "BAA10Y")
 _HISTORY_MACRO_START: Final[date] = date(2012, 6, 1)
 _HISTORY_RATE_SERIES: Final[tuple[str, ...]] = ("DTB3",)
+_HISTORY_PREFLIGHT_DATASETS: Final[tuple[Dataset, ...]] = (
+    Dataset.PRICES,
+    Dataset.FX,
+    Dataset.CPI,
+    Dataset.FACTORS,
+    Dataset.MACRO,
+    Dataset.RESEARCH_RETURNS,
+    Dataset.ETF_METADATA,
+    Dataset.FX_KRW_BASE,
+    Dataset.RATES,
+)
+_SMOKE_PREFLIGHT_DATASETS: Final[tuple[Dataset, ...]] = (Dataset.PRICES, Dataset.FX)
+_STATIC_DCA_PREFLIGHT_DATASETS: Final[tuple[Dataset, ...]] = (Dataset.PRICES, Dataset.FX, Dataset.CPI)
+
+
+def _preflight_relevant_silver(settings: DataSettings, datasets: tuple[Dataset, ...]) -> None:
+    """Run shared doctor inspection; a damaged relevant prior fails ingest before any fetch."""
+    report = inspect_data(settings)
+    conditions = {health.dataset: health for health in report.datasets}
+    for dataset in datasets:
+        health = conditions.get(dataset)
+        if health is None:
+            continue
+        if health.condition in (SilverCondition.DAMAGED_SILVER, SilverCondition.UNRECOVERABLE):
+            raise UntrustedDatasetError(
+                f"ingest preflight refuses {dataset.value}: latest silver at "
+                f"{health.manifest_path.as_posix()} is {health.condition.value}; repair before ingesting"
+            )
 
 
 def run_ingest_smoke(
@@ -63,6 +92,7 @@ def run_ingest_smoke(
     partitions hold row_count >= 1.
     """
     try:
+        _preflight_relevant_silver(settings, _SMOKE_PREFLIGHT_DATASETS)
         fx = fetch_and_persist_fx(
             provider=fx_provider, start=start, end=end, secrets=secrets, settings=settings, client=client
         )
@@ -73,7 +103,11 @@ def run_ingest_smoke(
         }
     except (ProviderError, ValueError, UntrustedDatasetError, OSError) as exc:
         # Vendor/catalog messages may echo api_key query strings; expose the failure class only.
-        logger.error("[DATA] event=smoke_required_failed reason_type=%s", type(exc).__name__)
+        logger.error(
+            "[DATA] event=smoke_required_failed command=ingest dataset=smoke reason_type=%s repair=%s",
+            type(exc).__name__,
+            "inspect Silver health via 'maintain data' and repair Bronze/Silver before retrying",
+        )
         return 1
     underfilled = sorted(name for name, count in row_counts.items() if count < 1)
     if underfilled:
@@ -104,32 +138,38 @@ def run_ingest_history(
     secrets: ProviderSecrets,
     client: httpx.Client | None = None,
 ) -> int:
-    """Persist FX, prices, CPI, factors, one combined VIXCLS+HY-OAS MACRO partition, research returns, ETF metadata, the ECOS base-rate FX_KRW_BASE partition, and RATES (DTB3).
+    """Run the existing history ingest after shared data preflight and surface failures.
 
-    ``tickers`` defaults to the policy sleeves plus the diagnostic vehicles (QQQ).
-    Returns 0 only when every fetch persists and each of the nine latest catalog
-    partitions holds row_count >= 1; vendor/catalog messages never reach the log.
+    Args:
+        start: First requested observation date.
+        end: Last requested observation date.
+        tickers: Optional requested tradable tickers.
+        fx_provider: Existing FX vendor selector.
+        settings: Data root.
+        secrets: Provider credentials, never logged.
+        client: Optional injected HTTP transport.
+
+    Returns:
+        Zero only after all required dataset updates publish safely.
+
+    Raises:
+        UntrustedDatasetError: If a prior required partition is damaged.
     """
     price_tickers = tickers if tickers is not None else history_price_tickers()
+    _preflight_relevant_silver(settings, _HISTORY_PREFLIGHT_DATASETS)
     try:
         fx = fetch_and_persist_fx(
             provider=fx_provider, start=start, end=end, secrets=secrets, settings=settings, client=client
         )
-        try:
-            prices = fetch_and_persist_prices(
-                price_tickers,
-                start,
-                end,
-                secrets=secrets,
-                settings=settings,
-                client=client,
-                incremental=True,
-            )
-        except ProviderError:
-            prices = latest_artifact(settings, Dataset.PRICES)
-            if prices.manifest.row_count < 1:
-                raise
-            logger.warning("[DATA] event=history_prices_skipped reason=provider_error")
+        prices = fetch_and_persist_prices(
+            price_tickers,
+            start,
+            end,
+            secrets=secrets,
+            settings=settings,
+            client=client,
+            incremental=True,
+        )
         cpi = fetch_and_persist_cpi(start, end, secrets=secrets, settings=settings, client=client)
         fx_krw_base = fetch_and_persist_fx_krw_base(start, end, secrets=secrets, settings=settings, client=client)
         rates = fetch_and_persist_rates(
@@ -137,15 +177,9 @@ def run_ingest_history(
         )
         factors = fetch_and_persist_factors(start, end, settings=settings, client=client)
         macro_start = start if start >= _HISTORY_MACRO_START else _HISTORY_MACRO_START
-        try:
-            macro = fetch_and_persist_macro(
-                _HISTORY_MACRO_SERIES, macro_start, end, secrets=secrets, settings=settings, client=client
-            )
-        except ProviderError:
-            macro = latest_artifact(settings, Dataset.MACRO)
-            if macro.manifest.row_count < 1:
-                raise
-            logger.warning("[DATA] event=history_macro_skipped reason=provider_error")
+        macro = fetch_and_persist_macro(
+            _HISTORY_MACRO_SERIES, macro_start, end, secrets=secrets, settings=settings, client=client
+        )
         research = fetch_and_persist_research_returns(start, end, settings=settings, client=client)
         metadata = persist_bootstrap_etf_metadata(settings)
         row_counts = {
@@ -162,9 +196,13 @@ def run_ingest_history(
                 Dataset.RATES,
             )
         }
-    except (ProviderError, ValueError, UntrustedDatasetError, OSError) as exc:
+    except (ProviderError, ValueError, OSError) as exc:
         # Vendor/catalog messages may echo api_key query strings; expose the failure class only.
-        logger.error("[DATA] event=history_failed reason_type=%s", type(exc).__name__)
+        logger.error(
+            "[DATA] event=history_failed command=ingest dataset=history reason_type=%s repair=%s",
+            type(exc).__name__,
+            "inspect Silver health via 'maintain data' and repair Bronze/Silver before retrying",
+        )
         return 1
     underfilled = sorted(name for name, count in row_counts.items() if count < 1)
     if underfilled:
@@ -208,6 +246,7 @@ def run_ingest_static_dca(
     if start > end:
         raise ValueError(f"start {start.isoformat()} is after end {end.isoformat()}")
     try:
+        _preflight_relevant_silver(settings, _STATIC_DCA_PREFLIGHT_DATASETS)
         row_counts = fetch_and_persist_static_dca_datasets(
             start=start, end=end, tickers=tickers, fx_provider=fx_provider, secrets=secrets, settings=settings, client=client
         )
@@ -221,7 +260,11 @@ def run_ingest_static_dca(
     except _UsageError:
         raise
     except (ProviderError, ValueError, UntrustedDatasetError, OSError) as exc:
-        logger.error("[DATA] event=static_dca_failed reason_type=%s", type(exc).__name__)
+        logger.error(
+            "[DATA] event=static_dca_failed command=ingest dataset=static-dca reason_type=%s repair=%s",
+            type(exc).__name__,
+            "inspect Silver health via 'maintain data' and repair Bronze/Silver before retrying",
+        )
         return 1
     underfilled = sorted(name for name, count in merged.items() if count < 1)
     if underfilled:

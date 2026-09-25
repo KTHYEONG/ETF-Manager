@@ -235,7 +235,7 @@ def _holdings_frame(rows: list[tuple[str, date, str]]) -> pl.DataFrame:
 
 
 def test_nport_unreadable_prior_aborts_and_writes_nothing(tmp_path: Path) -> None:
-    """2026-09-25 incident replay: missing Bronze aborts ingest without new manifests."""
+    """Untrusted prior Silver aborts ingest without new manifests (non-shrinking invariant)."""
     from src.data.merge import PriorPartitionUntrustedError
     from src.data.nport_ingest import fetch_and_persist_nport_quarter
 
@@ -263,9 +263,9 @@ def test_nport_unreadable_prior_aborts_and_writes_nothing(tmp_path: Path) -> Non
 
     from src.data.catalog import latest_artifact
 
+    # Bronze 유실은 Silver 신뢰와 무관하므로(Unit 7A), 신뢰 불가 상태는 Silver 손상으로 만든다.
     trusted = latest_artifact(settings, Dataset.ETF_HOLDINGS)
-    raw_path = settings.resolved_data_root().joinpath(*trusted.manifest.raw_artifact.relative_path.parts)
-    raw_path.unlink()
+    trusted.normalized_path.write_bytes(b"corrupted-parquet")
 
     from src.data.catalog import clear_catalog_frame_cache
 

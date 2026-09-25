@@ -325,18 +325,17 @@ class DataStore:
         return existing == dict(document)
 
     def read_normalized(self, artifact: DatasetArtifact, spec: DatasetSpec) -> pl.DataFrame:
-        """Read a Silver frame only after its stored data and source binding are verified.
+        """Read a Silver partition after verifying its manifest identity, schema, row count, and canonical Parquet hash.
 
         Args:
-            artifact: Catalog reference to one persisted manifest and frame.
-            spec: Expected dataset and schema version.
+            artifact: Manifest-bound partition selected by the catalog.
+            spec: Expected dataset and schema contract.
 
         Returns:
-            Stored normalized rows matching the manifest's row count and canonical hash.
+            Verified normalized rows.
 
         Raises:
-            UntrustedDatasetError: If a required file, path binding, manifest field,
-                normalized frame hash, or archived raw payload hash is invalid.
+            UntrustedDatasetError: If the manifest or Silver content is absent, malformed, outside the data root, or inconsistent.
         """
         root = self._settings.resolved_data_root().resolve()
         parquet_path = Path(artifact.normalized_path).resolve()
@@ -355,24 +354,45 @@ class DataStore:
             raise UntrustedDatasetError(f"manifest artifact binding mismatch at {manifest_path.as_posix()}")
         if document.get("dataset") != str(spec.dataset) or document.get("schema_version") != spec.schema_version:
             raise UntrustedDatasetError(f"manifest identity mismatch at {manifest_path.as_posix()}")
-        frame = pl.read_parquet(parquet_path)
+        declared_parquet = document.get("normalized_relative_path")
+        try:
+            expected_parquet = self._resolve_under_root(PurePosixPath(str(declared_parquet)))
+        except ValueError as exc:
+            raise UntrustedDatasetError(f"manifest parquet path escapes data_root: {exc}") from exc
+        if expected_parquet.resolve() != parquet_path:
+            raise UntrustedDatasetError(f"manifest parquet path mismatch at {manifest_path.as_posix()}")
+        try:
+            frame = pl.read_parquet(parquet_path)
+        except Exception as exc:
+            raise UntrustedDatasetError(f"parquet unreadable at {parquet_path.as_posix()}: {exc}") from exc
         row_count = document.get("row_count")
         if isinstance(row_count, bool) or not isinstance(row_count, int) or row_count != frame.height:
             raise UntrustedDatasetError(f"manifest row count {row_count!r} != parquet rows {frame.height}")
-        actual_sha256 = canonical_frame_sha256(frame, spec)
+        try:
+            actual_sha256 = canonical_frame_sha256(frame, spec)
+        except Exception as exc:
+            raise UntrustedDatasetError(f"canonical frame hash mismatch at {parquet_path.as_posix()}: {exc}") from exc
         recorded_sha256 = document.get("normalized_sha256")
         if not isinstance(recorded_sha256, str) or _HEX64_PATTERN.fullmatch(recorded_sha256) is None:
             raise UntrustedDatasetError("manifest normalized_sha256 is malformed")
         if recorded_sha256 != actual_sha256 or recorded_sha256 != artifact.manifest.normalized_sha256:
             raise UntrustedDatasetError(f"canonical frame hash mismatch at {parquet_path.as_posix()}")
+        raw_rel = artifact.manifest.raw_artifact.relative_path
+        raw_sha = artifact.manifest.raw_artifact.sha256
+        if not isinstance(raw_sha, str) or _HEX64_PATTERN.fullmatch(raw_sha) is None:
+            raise UntrustedDatasetError(f"manifest raw sha malformed at {manifest_path.as_posix()}")
+        if not raw_rel.parts or raw_rel.parts[0] != "raw":
+            raise UntrustedDatasetError(f"manifest raw path malformed at {manifest_path.as_posix()}")
         try:
-            raw_path = self._resolve_under_root(artifact.manifest.raw_artifact.relative_path)
+            raw_path = self._resolve_under_root(raw_rel)
         except ValueError as exc:
             raise UntrustedDatasetError(f"manifest raw path escapes data_root: {exc}") from exc
         if not raw_path.is_file():
-            raise UntrustedDatasetError(f"archived raw payload missing: {raw_path.as_posix()}")
-        if hashlib.sha256(raw_path.read_bytes()).hexdigest() != artifact.manifest.raw_artifact.sha256:
-            raise UntrustedDatasetError(f"archived raw payload hash mismatch at {raw_path.as_posix()}")
+            logger.warning(
+                "[DATA] event=silver_without_bronze dataset=%s raw_path=%s",
+                str(spec.dataset),
+                raw_path.as_posix(),
+            )
         logger.info(
             "[DATA] event=normalized_read dataset=%s rows=%d frame_sha256=%s",
             str(spec.dataset),

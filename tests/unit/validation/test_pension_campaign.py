@@ -18,7 +18,9 @@ from src.data.settings import DataSettings
 from src.data.storage import RawPayload
 from src.sim.pension_engine import PensionDataError, PensionMarketMode
 from src.validation.pension_campaign import (
+    PensionArmSummary,
     PensionCampaignReport,
+    PensionCohortRow,
     load_pension_campaign_spec,
     run_pension_campaign,
     write_pension_campaign_report,
@@ -820,17 +822,43 @@ def test_manifest_hashes_include_fallback_dataset(tmp_path: Path, monkeypatch: p
 
 
 def test_invalid_fx_series_converted_to_data_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A corrupt fallback quote aborts through the campaign's documented failure type."""
+    """A fallback sharing the primary source label aborts through the campaign's documented failure type."""
     settings = _settings(tmp_path, monkeypatch)
     _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
     bad = pl.DataFrame(
-        {"date": [date(2023, 6, 1)], "usdkrw": [0.0], "source": ["fred"],
+        {"date": [date(2023, 6, 1)], "usdkrw": [1305.0], "source": ["synthetic"],
          "retrieved_at": [_RETRIEVED_AT]},
         schema=dict(spec_for(Dataset.FX).columns),
     )
     persist_ingest(bad, Dataset.FX, _payload(), settings)
     spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
     with pytest.raises(PensionDataError, match="fx series is invalid"):
+        run_pension_campaign(spec, settings, seed=7)
+
+
+def test_damaged_fx_fallback_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A published but unverifiable fallback partition fails instead of degrading to absence."""
+    from src.data.catalog import latest_artifact
+
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    _persist_fx_fallback(settings, (date(2023, 6, 1),))
+    Path(latest_artifact(settings, Dataset.FX).normalized_path).unlink()
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    with pytest.raises(PensionDataError, match="damaged"):
+        run_pension_campaign(spec, settings, seed=7)
+
+
+def test_damaged_cpi_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A published but unverifiable CPI partition fails instead of degrading to null reals."""
+    from src.data.catalog import latest_artifact
+
+    settings = _settings(tmp_path, monkeypatch)
+    _persist_proxy_lake(settings, date(2023, 1, 1), date(2024, 12, 31))
+    _persist_cpi_lake(settings)
+    Path(latest_artifact(settings, Dataset.CPI).normalized_path).unlink()
+    spec = load_pension_campaign_spec(_write_config(tmp_path, _campaign_config()))
+    with pytest.raises(PensionDataError, match="damaged"):
         run_pension_campaign(spec, settings, seed=7)
 
 
@@ -1211,3 +1239,123 @@ def test_withholding_reaches_campaign_rows(tmp_path: Path, monkeypatch: pytest.M
     exposed = [row for row in spy_rows if row.cohort_start <= div_on <= row.cohort_end]
     assert exposed
     assert all(row.foreign_tax_withheld_krw > 0 for row in exposed)
+
+
+def _parity_report() -> PensionCampaignReport:
+    row = PensionCohortRow(
+        arm_id="nasdaq",
+        profile_id="accum",
+        cohort_start=date(2023, 1, 1),
+        cohort_end=date(2023, 12, 31),
+        horizon_months=12,
+        market_mode=PensionMarketMode.US_PROXY,
+        terminal_nav_krw=6_000_000,
+        after_tax_wealth_krw=6_000_000,
+        terminal_nav_real_krw=5_900_000.0,
+        after_tax_wealth_real_krw=5_900_000.0,
+        liquidation_wealth_krw=5_800_000,
+        liquidation_wealth_real_krw=5_700_000.0,
+        annuity_low_wealth_krw=5_850_000,
+        annuity_high_wealth_krw=5_900_000,
+        years_to_draw_at_threshold=11,
+        foreign_tax_withheld_krw=90_000,
+        after_tax_payout_krw=5_800_000,
+        contributed_krw=6_000_000,
+        gross_credit_krw=0,
+        usable_credit_krw=0,
+        credit_received_krw=0,
+        withdrawal_tax_krw=200_000,
+        payout_shortfall_krw=0,
+        is_retirement_terminal=False,
+        cashflow_normalized_rate=0.0123,
+        max_drawdown=0.04,
+        paired_wealth_ratio=None,
+        historical_overlap_group="overlapping",
+    )
+    summary = PensionArmSummary(
+        arm_id="nasdaq",
+        horizon_months=12,
+        cohort_count=1,
+        undefined_ratio_cohorts=1,
+        fully_undefined_profiles=("accum",),
+        independent_window_count=0,
+        underperforming_cohorts=0,
+        median_wealth_ratio=None,
+        worst_wealth_ratio=None,
+        median_annuity_low_ratio=None,
+        median_annuity_high_ratio=None,
+        median_cashflow_normalized_rate=None,
+        median_max_drawdown=0.04,
+        evidence_status="INSUFFICIENT_INDEPENDENT_20Y_EVIDENCE",
+    )
+    return PensionCampaignReport(
+        name="parity_probe",
+        market_mode=PensionMarketMode.US_PROXY,
+        market_coverage_start=date(2023, 1, 1),
+        market_coverage_end=date(2023, 12, 31),
+        cohort_rows=(row,),
+        summaries=(summary,),
+        real_data_status="PARTIAL_CPI_COVERAGE",
+        evidence_status="INSUFFICIENT_INDEPENDENT_20Y_EVIDENCE",
+        fx_provenance={},
+        manifest_hashes={"prices": "abc123", "fx_krw_base": "def456"},
+    )
+
+
+def test_load_pension_campaign_spec_import_paths_agree(tmp_path: Path) -> None:
+    """Config parsing preserved across the old and new import paths."""
+    from src.validation import pension_campaign as legacy
+    from src.validation import pension_campaign_config as extracted
+
+    pinned = [
+        _REPO / "experiments" / "pension_campaign_v2_dotcom.json",
+        _REPO / "experiments" / "pension_campaign_v2_semis.json",
+        _REPO / "experiments" / "pension_campaign_v1.json",
+        Path(_write_config(tmp_path, _campaign_config())),
+    ]
+    for config_path in pinned:
+        assert legacy.load_pension_campaign_spec(config_path) == extracted.load_pension_campaign_spec(config_path)
+    invalid = _campaign_config()
+    invalid["start"], invalid["end"] = invalid["end"], invalid["start"]
+    invalid_path = _write_config(tmp_path, invalid)
+    with pytest.raises(ValueError, match="is after end") as legacy_err:
+        legacy.load_pension_campaign_spec(invalid_path)
+    with pytest.raises(ValueError, match="is after end") as extracted_err:
+        extracted.load_pension_campaign_spec(invalid_path)
+    assert str(legacy_err.value) == str(extracted_err.value)
+
+
+def test_write_pension_campaign_report_paths_agree(tmp_path: Path) -> None:
+    """Report parity across the old and new writer paths."""
+    from src.validation import pension_campaign as legacy
+    from src.validation import pension_campaign_report as extracted
+
+    report = _parity_report()
+    provenance = {"prices": "abc123", "fx_krw_base": "def456"}
+    old_path = legacy.write_pension_campaign_report(
+        report, DataSettings(data_root=tmp_path / "old" / "data"), experiment_id="parity", provenance=provenance
+    )
+    new_path = extracted.write_pension_campaign_report(
+        report, DataSettings(data_root=tmp_path / "new" / "data"), experiment_id="parity", provenance=provenance
+    )
+    assert old_path.read_text(encoding="utf-8") == new_path.read_text(encoding="utf-8")
+    assert old_path.with_suffix(".md").read_text(encoding="utf-8") == new_path.with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_write_pension_campaign_report_undefined_ratio_preserved(tmp_path: Path) -> None:
+    """Undefined counts and N/A rendering remain unchanged."""
+    from src.validation.pension_campaign import _UNDEFINED_RATIO_NOTE
+
+    path = write_pension_campaign_report(
+        _parity_report(), DataSettings(data_root=tmp_path / "data"), experiment_id="undef"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["summaries"][0]["undefined_ratio_cohorts"] == 1
+    assert payload["summaries"][0]["fully_undefined_profiles"] == ["accum"]
+    assert payload["summaries"][0]["median_wealth_ratio"] is None
+    assert payload["rows"][0]["paired_wealth_ratio"] is None
+    markdown = path.with_suffix(".md").read_text(encoding="utf-8")
+    assert "N/A" in markdown
+    assert _UNDEFINED_RATIO_NOTE in markdown

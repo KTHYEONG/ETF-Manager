@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Final
 import polars as pl
 
 from src.data.calendar import DEFAULT_CALENDAR_NAME, TradingCalendar, load_calendar
-from src.data.catalog import latest_artifact, load_visible
+from src.data.catalog import load_snapshot_visible, resolve_snapshot
 from src.data.query import load_as_of
 from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
@@ -127,7 +127,8 @@ def audit_ticker_coverage(
         raise ValueError("tickers must be nonempty")
     if as_of.tzinfo is None:
         raise ValueError(f"as_of must be timezone-aware, got naive {as_of!r}")
-    frame = load_visible(settings, Dataset.PRICES, as_of)
+    snapshot = resolve_snapshot(settings, (Dataset.PRICES,))
+    frame = load_snapshot_visible(snapshot, Dataset.PRICES, as_of)
     rows: list[TickerCoverageRow] = []
     for ticker in tickers:
         tframe = frame.filter(pl.col("ticker") == ticker)
@@ -168,7 +169,8 @@ def _audit_dataset_coverage(settings: DataSettings, as_of: datetime) -> tuple[Da
     rows: list[DatasetCoverageRow] = []
     for dataset in STATIC_DCA_DATASETS:
         try:
-            frame = load_visible(settings, dataset, as_of)
+            snapshot = resolve_snapshot(settings, (dataset,))
+            frame = load_snapshot_visible(snapshot, dataset, as_of)
         except Exception:
             rows.append(DatasetCoverageRow(dataset=str(dataset), first_observation=None, last_observation=None))
             continue
@@ -286,8 +288,8 @@ def audit_static_dca_window(spec: ExperimentSpec, settings: DataSettings) -> Sta
 
     # Determine as_of for coverage: catalog last session close
     try:
-        latest = latest_artifact(settings, Dataset.PRICES)
-        raw_frame = DataStore(settings).read_normalized(latest, spec_for(Dataset.PRICES))
+        snapshot = resolve_snapshot(settings, (Dataset.PRICES,))
+        raw_frame = DataStore(settings).read_normalized(snapshot.artifacts[Dataset.PRICES], spec_for(Dataset.PRICES))
         max_date_raw = raw_frame.get_column("date").max()
         if isinstance(max_date_raw, date):
             last_session = max_date_raw
@@ -374,14 +376,15 @@ def audit_static_dca_window(spec: ExperimentSpec, settings: DataSettings) -> Sta
 
     # Need full frames for boundary checks
     try:
+        bounds_snapshot = resolve_snapshot(settings, (Dataset.PRICES, Dataset.FX, Dataset.CPI))
         prices_full = DataStore(settings).read_normalized(
-            latest_artifact(settings, Dataset.PRICES), spec_for(Dataset.PRICES)
+            bounds_snapshot.artifacts[Dataset.PRICES], spec_for(Dataset.PRICES)
         )
         fx_full = DataStore(settings).read_normalized(
-            latest_artifact(settings, Dataset.FX), spec_for(Dataset.FX)
+            bounds_snapshot.artifacts[Dataset.FX], spec_for(Dataset.FX)
         )
         cpi_full = DataStore(settings).read_normalized(
-            latest_artifact(settings, Dataset.CPI), spec_for(Dataset.CPI)
+            bounds_snapshot.artifacts[Dataset.CPI], spec_for(Dataset.CPI)
         )
     except Exception:
         prices_full = fx_full = cpi_full = None  # type: ignore

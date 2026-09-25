@@ -365,3 +365,119 @@ def test_parse_rejects_unknown_and_misplaced_fields() -> None:
             AfterTaxRuleSpec(rule_id=AfterTaxRuleId.STATIC, core_targets={}),
             horizon_end=date(2031, 8, 30),
         )
+
+
+def test_parse_and_weight_parity_across_extraction() -> None:
+    """Parser and weights agree before/after extraction; weights stay simplex."""
+    import src.policy.after_tax_rules as rules_module
+    from src.policy.after_tax_rule_parse import (
+        AfterTaxRuleSpec as ExtractedSpec,
+    )
+    from src.policy.after_tax_rule_parse import (
+        parse_after_tax_rule_spec as extracted_parse,
+    )
+
+    assert rules_module.parse_after_tax_rule_spec is extracted_parse
+    assert rules_module.AfterTaxRuleSpec is ExtractedSpec
+    payload = {"rule_id": "static", "core_targets": {"QQQ": 0.9, "SOXX": 0.1}}
+    assert extracted_parse(payload) == rules_module.parse_after_tax_rule_spec(payload)
+    rule = rules_module.build_weight_rule(extracted_parse(payload), horizon_end=date(2024, 12, 31))
+    market = _market(
+        [(ticker, day, 100.0) for ticker in ("QQQ", "SOXX") for day in MONTHS],
+        _rate_levels(),
+        SIGNAL_AT,
+    )
+    weights = rule(SIGNAL_AT, market)
+    assert abs(sum(weights.values()) - 1.0) <= 1e-9
+    assert weights == {"QQQ": 0.9, "SOXX": 0.1}
+    custom_hurdle = extracted_parse(
+        {"rule_id": "static", "core_targets": {"QQQ": 1.0}, "hurdle_rate_series": "dtb3"}
+    )
+    assert custom_hurdle.hurdle_rate_series == "DTB3"
+
+
+def _trend_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "rule_id": "trend_partial",
+        "core_targets": {"QQQ": 1.0},
+        "safe_asset": "CASH",
+        "signal_ticker": "QQQ",
+        "sma_months": 10,
+        "risk_on_fraction_when_off": 0.5,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _dual_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "rule_id": "dual_momentum_exit",
+        "core_targets": {"QQQ": 0.9, "SOXX": 0.1},
+        "safe_asset": "CASH",
+        "signal_ticker": "QQQ",
+        "sma_months": 10,
+        "momentum_months": [12],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _taa_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "rule_id": "taa_top_n",
+        "universe": ["QQQ", "SPY"],
+        "momentum_months": [12],
+        "top_n": 1,
+        "safe_asset": "IEF",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _vol_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "rule_id": "vol_target",
+        "core_targets": {"QQQ": 1.0},
+        "safe_asset": "CASH",
+        "signal_ticker": "QQQ",
+        "vol_target_annual": 0.15,
+        "vol_window_sessions": 60,
+    }
+    payload.update(overrides)
+    return payload
+
+
+_MALFORMED_VARIANTS: list[tuple[str, dict[str, object] | list[object], str]] = [
+    ("empty_core", {"rule_id": "static", "core_targets": {}}, "nonempty mapping"),
+    ("blank_ticker", {"rule_id": "static", "core_targets": {"  ": 1.0}}, "ticker must be non-blank"),
+    ("dup_ticker", {"rule_id": "static", "core_targets": {"QQQ": 0.5, "qqq": 0.5}}, "duplicate"),
+    ("non_numeric_weight", {"rule_id": "static", "core_targets": {"QQQ": "x"}}, "must be a number"),
+    ("non_finite_weight", {"rule_id": "static", "core_targets": {"QQQ": float("nan")}}, "finite nonnegative"),
+    ("off_simplex", {"rule_id": "static", "core_targets": {"QQQ": 0.5}}, "must sum to 1.0"),
+    ("fraction_type", _trend_payload(risk_on_fraction_when_off="x"), "must be a number"),
+    ("fraction_range", _trend_payload(risk_on_fraction_when_off=1.5), r"must lie in \[0, 1\]"),
+    ("window_type", _dual_payload(sma_months="x"), "positive integer"),
+    ("window_range", _dual_payload(sma_months=0), "must be >= 1"),
+    ("payload_not_mapping", [], "must be a mapping"),
+    ("core_not_mapping", {"rule_id": "static", "core_targets": ["QQQ"]}, "core_targets must be a mapping"),
+    ("blank_safe_asset", {"rule_id": "static", "core_targets": {"QQQ": 1.0}, "safe_asset": "  "}, "non-blank when set"),
+    ("universe_not_list", _taa_payload(universe="QQQ"), "must be a list of tickers"),
+    ("universe_blank", _taa_payload(universe=["  ", "SPY"]), "universe ticker must be non-blank"),
+    ("universe_dup", _taa_payload(universe=["QQQ", "qqq"]), "duplicate universe ticker"),
+    ("momentum_not_list", _dual_payload(momentum_months=12), "must be a list of positive integers"),
+    ("vol_target_type", _vol_payload(vol_target_annual="x"), "must be a number"),
+    ("vol_target_finite", _vol_payload(vol_target_annual=float("nan")), "must be finite"),
+    ("vol_target_positive", _vol_payload(vol_target_annual=-1.0), "must be positive"),
+    (
+        "blank_hurdle_series",
+        {"rule_id": "static", "core_targets": {"QQQ": 1.0}, "hurdle_rate_series": "  "},
+        "hurdle_rate_series must be non-blank",
+    ),
+]
+
+
+@pytest.mark.parametrize(("case_id", "payload", "message"), _MALFORMED_VARIANTS, ids=[case[0] for case in _MALFORMED_VARIANTS])
+def test_parse_rejects_malformed_field_variants(case_id: str, payload: object, message: str) -> None:
+    """Every malformed rule field fails closed with a ValueError naming the field."""
+    with pytest.raises(ValueError, match=message):
+        parse_after_tax_rule_spec(payload)  # type: ignore[arg-type]

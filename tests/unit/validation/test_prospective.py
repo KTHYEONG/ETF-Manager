@@ -234,3 +234,42 @@ def test_prosp_b_paper_reconcile(scenario_id: str, tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="targets_hash"):
         run_prospective_paper_forward(spec=spec, freeze=bad_freeze, settings=settings, runner=runner)
+
+
+def test_resolve_proxy_history_span_reads_pinned_snapshot(tmp_path, monkeypatch) -> None:
+    """The proxy span comes from the pinned PRICES partition at the decision instant."""
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    import polars as pl
+
+    from src.data.calendar import load_calendar
+    from src.data.pipeline import persist_ingest
+    from src.data.schema import Dataset, spec_for
+    from src.data.storage import RawPayload
+    from src.validation.prospective import resolve_proxy_history_span
+
+    monkeypatch.chdir(tmp_path)
+    settings = DataSettings(data_root="data")
+    retrieved_at = datetime(2024, 1, 5, 5, 0, tzinfo=UTC)
+    sessions = list(load_calendar("XNYS").sessions(date(2024, 1, 2), date(2024, 1, 31)))
+    persist_ingest(
+        pl.DataFrame(
+            {
+                "ticker": ["VT"] * len(sessions), "date": sessions,
+                "open": [100.0] * len(sessions), "high": [101.0] * len(sessions),
+                "low": [99.0] * len(sessions), "close": [100.0] * len(sessions),
+                "volume": [10_000] * len(sessions), "adjusted_close": [100.0] * len(sessions),
+                "dividend": [0.0] * len(sessions), "split_factor": [1.0] * len(sessions),
+                "source": ["synthetic"] * len(sessions), "retrieved_at": [retrieved_at] * len(sessions),
+            },
+            schema=dict(spec_for(Dataset.PRICES).columns),
+        ),
+        Dataset.PRICES,
+        RawPayload(provider="synthetic", endpoint="probe", request_params={},
+                   retrieved_at=retrieved_at, extension="json", content=b"{}"),
+        settings,
+    )
+    thesis = SimpleNamespace(historical_proxies=[SimpleNamespace(value="VT")])
+    as_of = load_calendar("XNYS").close_ts(sessions[-1])
+    assert resolve_proxy_history_span(settings=settings, thesis=thesis, as_of=as_of) == (sessions[0], sessions[-1])

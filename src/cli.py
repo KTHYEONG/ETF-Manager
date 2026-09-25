@@ -41,6 +41,7 @@ from src.data.nport_ingest import fetch_and_persist_nport_quarter, fetch_and_per
 from src.data.providers.base import ProviderError
 from src.data.secrets import load_provider_secrets
 from src.data.settings import DataSettings
+from src.data.storage import UntrustedDatasetError
 
 # Re-export for test monkeypatch compatibility
 __all__ = ["main"]
@@ -49,10 +50,13 @@ logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Parse ingest/run subcommands and dispatch to fetch or baseline runners.
+    """Parse and dispatch the public command surface with explicit failure reporting.
 
-    Exit codes: 0 on success, 2 on argparse usage errors, 1 on provider,
-    catalog, or value failures. Token values are never logged.
+    Args:
+        argv: Optional argument vector for programmatic or CLI use.
+
+    Returns:
+        Zero on success, two on usage error, and one on operational failure.
     """
     try:
         args = _build_parser().parse_args(argv)
@@ -60,74 +64,38 @@ def main(argv: list[str] | None = None) -> int:
     except _UsageError as exc:
         logger.error("[DATA] event=cli_usage_error reason=%s", exc)
         return 2
-    except (ProviderError, ValueError) as exc:
+    except UntrustedDatasetError as exc:
+        if "args" in locals() and getattr(args, "command", None) == "ingest":
+            logger.error(
+                "[DATA] event=cli_ingest_failed reason=%s repair=%s",
+                exc,
+                "inspect Silver health via 'maintain data' and repair Bronze/Silver before retrying",
+            )
+            return 1
+        raise
+    except (ProviderError, ValueError, OSError) as exc:
         logger.error("[DATA] event=cli_ingest_failed reason=%s", exc)
         return 1
 
 
 def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "maintain":
-        # subparsers.add_parser("run" anchor for wiring
-        _ = 'subparsers.add_parser("run"'
-        from src.data.retention import apply_prune, plan_prune
+        from src.cli_commands.maintenance import (
+            run_maintain_data_command,
+            run_maintain_prune_command,
+            run_maintain_recover_command,
+        )
 
-        _ = plan_prune
-        _ = apply_prune
         if getattr(args, "target", None) == "prune":
-            settings = DataSettings()
-            plan = plan_prune(
-                settings,
-                keep_latest_only=bool(getattr(args, "keep_latest_only", True)),
-                drop_nport_zip_mirrors=bool(getattr(args, "drop_nport_zip_mirrors", True)),
-                migrate_results_layout=bool(getattr(args, "migrate_results_layout", True)),
-            )
-            dry = not bool(getattr(args, "apply", False))
-            report = apply_prune(plan, dry_run=dry)
-            logger.info(
-                "[DATA] event=prune target=%s dry_run=%s to_delete=%d to_migrate=%d deleted=%d migrated=%d",
-                "prune",
-                dry,
-                len(plan.to_delete),
-                len(plan.to_migrate),
-                len(report.deleted),
-                len(report.migrated),
-            )
-            return 0
+            return run_maintain_prune_command(args, DataSettings())
         if getattr(args, "target", None) == "recover":
-            from src.data.merge import apply_history_recovery, plan_history_recovery
-            from src.data.schema import Dataset
-
-            recover_name = str(getattr(args, "dataset", ""))
-            try:
-                recover_dataset = Dataset(recover_name)
-            except ValueError:
-                raise _UsageError(f"unknown dataset {recover_name!r}") from None
-            recover_settings = DataSettings()
-            recovery_plan = plan_history_recovery(recover_settings, recover_dataset)
-            if recovery_plan is None:
-                logger.info("[DATA] event=recover_none dataset=%s", str(recover_dataset))
-                return 0
-            if not bool(getattr(args, "apply", False)):
-                logger.info(
-                    "[DATA] event=recover_plan dataset=%s latest_rows=%d recovered_rows=%d sources=%s",
-                    str(recover_dataset),
-                    recovery_plan.latest_rows,
-                    recovery_plan.recovered_rows,
-                    ",".join(recovery_plan.source_manifest_sha256s),
-                )
-                return 0
-            artifact = apply_history_recovery(recovery_plan, recover_settings)
-            logger.info(
-                "[DATA] event=recover_applied dataset=%s manifest=%s rows=%d",
-                str(recover_dataset),
-                artifact.manifest_path.stem,
-                artifact.manifest.row_count,
-            )
-            return 0
+            return run_maintain_recover_command(args, DataSettings())
         if getattr(args, "target", None) == "results":
             from src.cli_commands.results import run_results_command
 
             return run_results_command(args, DataSettings())
+        if getattr(args, "target", None) == "data":
+            return run_maintain_data_command(args, DataSettings())
         raise _UsageError(f"unsupported maintain target {getattr(args, 'target', None)!r}")
     if args.command == "run":
         return _dispatch_run(args)
@@ -135,8 +103,6 @@ def _dispatch(args: argparse.Namespace) -> int:
         raise _UsageError(f"unsupported command {args.command!r}")
     dataset: str = args.dataset
     if dataset == "nport":
-        # wiring for multi-quarter batch
-        _ = fetch_and_persist_nport_quarters
         fq = getattr(args, "filing_quarter", None)
         if not fq:
             raise _UsageError("ingest nport requires --filing-quarter like 2019q4")
@@ -152,8 +118,6 @@ def _dispatch(args: argparse.Namespace) -> int:
         from src.data.fetch import fetch_and_persist_static_dca_datasets
         from src.data.panel_freshness import THESIS_PANEL_TICKERS, iter_nport_quarters_for_panel
 
-        _ = fetch_and_persist_static_dca_datasets
-        _ = "thesis-panel"
         _panel_end: date = args.end if args.end is not None else date.today()
         _panel_start: date = args.start if args.start is not None else date(2006, 8, 31)
         _settings = DataSettings()
@@ -172,8 +136,12 @@ def _dispatch(args: argparse.Namespace) -> int:
         panel_quarters = iter_nport_quarters_for_panel(_panel_end, lookback_months=18)
         try:
             fetch_and_persist_nport_quarters(filing_quarters=list(panel_quarters), settings=_settings)
-        except Exception as exc:
-            logger.warning("[DATA] event=thesis_panel_nport_partial reason=%s", exc)
+        except (ProviderError, ValueError, OSError) as exc:
+            logger.warning(
+                "[DATA] event=thesis_panel_nport_partial command=ingest dataset=nport reason_type=%s repair=%s",
+                type(exc).__name__,
+                "rerun 'ingest nport --filing-quarter <qq>' or inspect Silver health via 'maintain data'",
+            )
         logger.info("[DATA] event=cli_ingest_done dataset=thesis-panel start=%s end=%s quarters=%s", _panel_start.isoformat(), _panel_end.isoformat(), ",".join(panel_quarters))
         return 0
     if dataset == "thesis-fundamentals":
@@ -181,7 +149,6 @@ def _dispatch(args: argparse.Namespace) -> int:
 
         from src.data.thesis_fundamentals import fetch_and_persist_thesis_fundamentals
 
-        _ = fetch_and_persist_thesis_fundamentals
         _fund_start: date = args.start if args.start is not None else date(2000, 1, 1)
         _fund_end: date = args.end if args.end is not None else _dt_for_fund.now(UTC).date()
         _fund_settings = DataSettings()
@@ -328,9 +295,6 @@ def _dispatch_run(args: argparse.Namespace) -> int:
     if args.target == "walk-forward":
         return run_walk_forward_command(config_path=str(args.config), settings=DataSettings())
     if args.target == "strategy-select":
-        # wiring: run_prospective_monitor_command invocation for lean_check
-        _ = run_prospective_monitor_command
-        _ = "run_prospective_monitor_command("
         return run_strategy_selection_command(config_path=str(args.config), settings=DataSettings())
     if args.target == "prospective-monitor":
         return run_prospective_monitor_command(
@@ -408,7 +372,6 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             seed=args.seed,
         )
     if args.target == "final-historical-campaign":
-        # wiring: run_final_historical_campaign_command invocation
         return run_final_historical_campaign_command(
             config_path=str(args.config),
             settings=DataSettings(),
@@ -452,9 +415,6 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             allow_stale=bool(getattr(args, "allow_stale", False)),
         )
     if args.target == "thesis-incremental":
-        from src.analytics.wave_d_exit import assess_wave_d_exit as _assess
-
-        _ = _assess
         return run_thesis_incremental_command(
             thesis_id=str(getattr(args, "thesis_id", "ai_compute")),
             as_of=str(args.as_of) if getattr(args, "as_of", None) else None,

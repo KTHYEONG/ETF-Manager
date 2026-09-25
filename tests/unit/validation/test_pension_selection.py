@@ -539,6 +539,7 @@ def test_run_selection_is_deterministic_and_writes_korean_report(
     assert payload["status"] == first.status
     assert payload["selected_kr_targets"] == dict(first.selected_kr_targets)
     assert payload["provenance"]["seed"] == "17"
+    assert payload["manifest_hashes"] == dict(first.manifest_hashes)
     markdown = path.with_suffix(".md").read_text(encoding="utf-8")
     assert "연금 ETF 선택 판정" in markdown
     assert "투자 권유가 아니다" in markdown
@@ -574,6 +575,52 @@ def test_missing_certified_market_data_fails_closed(
         run_pension_selection(spec, DataSettings(data_root=str(tmp_path / "empty")), seed=17)
 
 
+def test_selection_records_consumed_manifest_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Required inputs record the pinned Silver hash; never-published optional inputs record None."""
+    from src.data.catalog import latest_artifact
+    from tests.unit.validation.test_pension_campaign import _persist_proxy_lake
+
+    settings = DataSettings(data_root=str(tmp_path / "data"))
+    _persist_proxy_lake(settings, date(2021, 1, 1), date(2024, 12, 31))
+    _, spec = _runtime_config(tmp_path)
+    monkeypatch.setattr(pension_selection_module, "run_pension_campaign", _stub_campaign_reports)
+    report = run_pension_selection(spec, settings, seed=17)
+    assert report.manifest_hashes == {
+        str(Dataset.PRICES): latest_artifact(settings, Dataset.PRICES).manifest.normalized_sha256,
+        str(Dataset.FX_KRW_BASE): latest_artifact(settings, Dataset.FX_KRW_BASE).manifest.normalized_sha256,
+        str(Dataset.FX): None,
+        str(Dataset.CPI): None,
+    }
+
+
+@pytest.mark.parametrize("dataset_name", ["FX", "CPI"])
+def test_damaged_optional_source_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dataset_name: str
+) -> None:
+    """A published but unverifiable optional partition aborts instead of degrading to absence."""
+    from src.data.catalog import latest_artifact
+    from tests.unit.validation.test_pension_campaign import (
+        _persist_cpi_lake,
+        _persist_fx_fallback,
+        _persist_proxy_lake,
+    )
+
+    settings = DataSettings(data_root=str(tmp_path / "data"))
+    _persist_proxy_lake(settings, date(2021, 1, 1), date(2024, 12, 31))
+    dataset = Dataset[dataset_name]
+    if dataset is Dataset.FX:
+        _persist_fx_fallback(settings, (date(2023, 6, 1),))
+    else:
+        _persist_cpi_lake(settings)
+    Path(latest_artifact(settings, dataset).normalized_path).unlink()
+    _, spec = _runtime_config(tmp_path)
+    monkeypatch.setattr(pension_selection_module, "run_pension_campaign", _stub_campaign_reports)
+    with pytest.raises(PensionDataError, match="damaged"):
+        run_pension_selection(spec, settings, seed=17)
+
+
 def test_invalid_or_over_cap_fx_series_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -603,3 +650,109 @@ def test_invalid_or_over_cap_fx_series_fails_closed(
     monkeypatch.setattr(pension_selection_module, "build_krw_fx_series", over_cap)
     with pytest.raises(PensionDataError, match="fallback share"):
         run_pension_selection(spec, settings, seed=17)
+
+
+def test_load_pension_selection_spec_import_paths_agree(tmp_path: Path) -> None:
+    """Strict parser parity across the old and new import paths."""
+    from src.validation import pension_selection as legacy
+    from src.validation import pension_selection_config as extracted
+
+    assert legacy.load_pension_selection_spec(_CONFIG_PATH) == extracted.load_pension_selection_spec(_CONFIG_PATH)
+    assert legacy.load_pension_selection_spec(_write_config(tmp_path, _document())) == (
+        extracted.load_pension_selection_spec(_write_config(tmp_path, _document()))
+    )
+
+    def _rejected(document: dict[str, object], message: str) -> tuple[str, str]:
+        path = _write_config(tmp_path, document)
+        with pytest.raises(ValueError, match=message) as legacy_err:
+            legacy.load_pension_selection_spec(path)
+        with pytest.raises(ValueError, match=message) as extracted_err:
+            extracted.load_pension_selection_spec(path)
+        return str(legacy_err.value), str(extracted_err.value)
+
+    unknown_field = _document()
+    unknown_field["bogus"] = 1
+    legacy_msg, extracted_msg = _rejected(unknown_field, "unknown fields")
+    assert legacy_msg == extracted_msg
+    assert "unknown fields" in legacy_msg
+
+    bad_weights = _document()
+    bad_weights["arms"] = {"sp500_100": {"SPY": 0.5}}
+    legacy_msg, extracted_msg = _rejected(bad_weights, "must sum to 1")
+    assert legacy_msg == extracted_msg
+    assert "must sum to 1" in legacy_msg
+
+    bad_date = _document()
+    bad_date["estimation_start"] = "not-a-date"
+    legacy_msg, extracted_msg = _rejected(bad_date, "must be an ISO date")
+    assert legacy_msg == extracted_msg
+    assert "must be an ISO date" in legacy_msg
+
+    duplicate_path = tmp_path / "duplicate.json"
+    duplicate_path.write_text('{"name": "a", "name": "b"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate JSON key") as legacy_err:
+        legacy.load_pension_selection_spec(duplicate_path)
+    with pytest.raises(ValueError, match="duplicate JSON key") as extracted_err:
+        extracted.load_pension_selection_spec(duplicate_path)
+    assert str(legacy_err.value) == str(extracted_err.value)
+    assert "duplicate JSON key" in str(legacy_err.value)
+
+
+def test_write_pension_selection_report_paths_agree(tmp_path: Path) -> None:
+    """Gate and report parity across the old and new writer paths."""
+    from src.analytics.pension_selection import DeltaEstimate
+    from src.validation import pension_selection as legacy
+    from src.validation import pension_selection_report as extracted
+    from src.validation.pension_selection import PensionSelectionReport
+
+    spec, growth, tail, historical = _decision_inputs(
+        {"sp500_100": 0.01, "nasdaq_100": 0.01},
+        {"sp500_100": (1.1, 0.2), "nasdaq_100": (1.1, 0.2)},
+        {"sp500_100": 1.0, "nasdaq_100": 1.0},
+    )
+    verdicts, selected = decide_pension_selection(spec, growth, tail, historical)
+    delta = DeltaEstimate(
+        anchor_ticker=spec.anchor_ticker,
+        n_months=60,
+        sample_alpha_annual=0.01,
+        sample_alpha_se_annual=0.005,
+        prior_mean_annual=spec.delta_prior_mean_annual,
+        prior_sd_annual=spec.delta_prior_sd_annual,
+        posterior_mean_annual=0.008,
+        posterior_sd_annual=0.004,
+    )
+    report = PensionSelectionReport(
+        name=spec.name,
+        panel_start=spec.estimation_start,
+        panel_end=spec.estimation_end,
+        panel_months=60,
+        delta_estimate=delta,
+        growth_table=growth,
+        stress_delta=-0.02,
+        stress_tail=tail,
+        central_tail=tail,
+        historical_worst_ratios=historical,
+        verdicts=verdicts,
+        status="SELECTED" if selected is not None else "NO_SELECTION",
+        selected_arm_id=selected,
+        selected_kr_targets={},
+        fx_provenance={},
+    )
+    provenance = {"config_sha256": "a" * 64, "tax_regime_sha256": "b" * 64}
+    old_path = legacy.write_pension_selection_report(
+        report, DataSettings(data_root=tmp_path / "old" / "data"), experiment_id="parity", provenance=provenance
+    )
+    new_path = extracted.write_pension_selection_report(
+        report, DataSettings(data_root=tmp_path / "new" / "data"), experiment_id="parity", provenance=provenance
+    )
+    assert old_path.read_bytes() == new_path.read_bytes()
+    assert old_path.with_suffix(".md").read_bytes() == new_path.with_suffix(".md").read_bytes()
+    payload = json.loads(new_path.read_text(encoding="utf-8"))
+    assert payload["status"] == report.status
+    assert payload["selected_arm_id"] == selected
+    assert payload["provenance"] == provenance
+    assert [verdict["arm_id"] for verdict in payload["verdicts"]] == [verdict.arm_id for verdict in verdicts]
+    assert payload["verdicts"][0]["reasons"] == list(verdicts[0].reasons)
+    markdown = new_path.with_suffix(".md").read_text(encoding="utf-8")
+    assert "## Verdicts" in markdown
+    assert f"- status: `{report.status}`" in markdown
