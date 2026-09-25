@@ -22,7 +22,8 @@ from src.cli_commands.diagnose import (
 )
 from src.cli_commands.ingest import (
     _HISTORY_FX_PROVIDER, _SMOKE_DATA_ROOT, _SMOKE_END, _SMOKE_FX_PROVIDER,
-    _SMOKE_START, _SMOKE_TICKER, run_ingest_history, run_ingest_smoke, run_ingest_static_dca,
+    _SMOKE_START, _SMOKE_TICKER, run_ingest_history, run_ingest_macro_backfill, run_ingest_smoke,
+    run_ingest_static_dca,
 )
 from src.cli_commands.parser import _UsageError, _build_parser
 from src.cli_commands.resolvers import (
@@ -202,6 +203,9 @@ def _dispatch(args: argparse.Namespace) -> int:
             args.end.isoformat(),
         )
         return 0
+    if dataset == "macro-backfill":
+        requested = tuple(item.strip() for item in str(args.series_id or "").split(",") if item.strip())
+        return run_ingest_macro_backfill(series_ids=requested, start=args.start, settings=DataSettings(), secrets=load_provider_secrets())
     if dataset == "prices" and not args.tickers:
         raise _UsageError("ingest prices requires --tickers")
     if dataset == "fx" and args.provider is None:

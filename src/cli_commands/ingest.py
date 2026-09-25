@@ -24,6 +24,7 @@ from src.data.fetch import (
     fetch_and_persist_static_dca_datasets,
 )
 from src.data.etf_metadata_bootstrap import persist_bootstrap_etf_metadata
+from src.data.macro_backfill import fetch_and_persist_macro_backfill
 from src.data.providers.base import ProviderError
 from src.data.schema import Dataset
 from src.data.secrets import load_provider_secrets  # noqa: F401
@@ -276,5 +277,35 @@ def run_ingest_static_dca(
         merged.get("prices", 0),
         merged.get("fx", 0),
         merged.get("cpi", 0),
+    )
+    return 0
+
+
+def run_ingest_macro_backfill(
+    *,
+    series_ids: tuple[str, ...],
+    start: date | None,
+    settings: DataSettings,
+    secrets: ProviderSecrets,
+) -> int:
+    """Extend allowlisted unrevised MACRO series before their first ALFRED vintage.
+
+    Returns zero after the new MACRO partition is published. Domain rejections
+    (unlisted series, missing first vintage, untrusted prior) propagate so the CLI
+    facade reports the actionable reason and exits one.
+
+    Raises:
+        _UsageError: If no series id or no start date was given.
+    """
+    if not series_ids:
+        raise _UsageError("ingest macro-backfill requires --series-id")
+    if start is None:
+        raise _UsageError("ingest macro-backfill requires --start")
+    artifact = fetch_and_persist_macro_backfill(series_ids, start, secrets=secrets, settings=settings)
+    logger.info(
+        "[DATA] event=macro_backfill_ok command=ingest series_ids=%s start=%s rows=%d",
+        ",".join(series_ids),
+        start.isoformat(),
+        artifact.manifest.row_count,
     )
     return 0

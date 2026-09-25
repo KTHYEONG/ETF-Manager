@@ -269,6 +269,86 @@ def _return_outlier_finding(frame: pl.DataFrame, spec: DatasetSpec) -> QualityFi
     )
 
 
+@dataclass(frozen=True, slots=True)
+class RevertingPrintThresholds:
+    """Detection bounds for single-print bars that revert on the next session.
+
+    Vendor bars where open, high, low, and close are identical and the close jumps
+    away from the prior session and back on the next one are almost always a stray
+    print (for example the 2010-05-06 flash crash), not an economic move. Real crash
+    sessions such as 2020-03 have distinct OHLC and are not flagged.
+
+    Attributes:
+        min_abs_log_move: Minimum absolute log close return of the larger leg
+            (into or out of the bar).
+        min_abs_log_move_both_legs: Minimum absolute log close return required on
+            each leg; lower than the larger-leg bound so an asymmetric stray print
+            (e.g. +6% then -11%) is still caught.
+    """
+
+    min_abs_log_move: float = 0.10
+    min_abs_log_move_both_legs: float = 0.05
+
+
+REVERTING_PRINT_THRESHOLDS: Final[RevertingPrintThresholds] = RevertingPrintThresholds()
+
+
+def _reverting_flat_print_finding(frame: pl.DataFrame, spec: DatasetSpec) -> QualityFinding | None:
+    """Report single-print bars whose close fully reverts on the next session.
+
+    A candidate bar is ordered inside its own ticker only, so a panel boundary can
+    never be read as a reversal. Rows without an observable neighbour in the same
+    ticker, the first and last row, stay unflagged.
+
+    Args:
+        frame: Schema-valid, availability-stamped candidate rows.
+        spec: Dataset contract supplying the ticker identity and observation column.
+
+    Returns:
+        A WARN finding naming the flagged count and ascending samples, or None when
+        no bar reverts.
+    """
+    identifiers = [name for name in spec.key if name != spec.observation_column]
+    if not identifiers or frame.height < 2 or not set(_OHLC_COLUMNS).issubset(frame.columns):
+        return None
+    ordered = frame.sort([*identifiers, spec.observation_column])
+    close = pl.col("close")
+    previous_close = close.shift(1).over(identifiers)
+    next_close = close.shift(-1).over(identifiers)
+    entry_return = (close / previous_close).log()
+    exit_return = (next_close / close).log()
+    flat_bar = (pl.col("open") == close) & (pl.col("high") == close) & (pl.col("low") == close)
+    thresholds = REVERTING_PRINT_THRESHOLDS
+    reverting = (
+        flat_bar
+        & (previous_close > 0)
+        & (next_close > 0)
+        & (entry_return.abs() > thresholds.min_abs_log_move_both_legs)
+        & (exit_return.abs() > thresholds.min_abs_log_move_both_legs)
+        & (pl.max_horizontal(entry_return.abs(), exit_return.abs()) > thresholds.min_abs_log_move)
+        & (((entry_return > 0) & (exit_return < 0)) | ((entry_return < 0) & (exit_return > 0)))
+    )
+    flagged = ordered.filter(reverting)
+    if flagged.height == 0:
+        return None
+    samples = [
+        f"{ticker}@{session.isoformat()}"
+        for ticker, session in zip(
+            flagged.get_column(identifiers[0]).to_list(),
+            flagged.get_column(spec.observation_column).to_list(),
+            strict=True,
+        )
+    ]
+    preview = ", ".join(samples[:5])
+    suffix = "" if len(samples) <= 5 else ", ..."
+    return QualityFinding(
+        code="REVERTING_FLAT_PRINT",
+        severity=FindingSeverity.WARN,
+        message=f"flat bar reverts on next session over {flagged.height} row(s): {preview}{suffix}",
+        row_count=flagged.height,
+    )
+
+
 def _kr_etf_findings(frame: pl.DataFrame, spec: DatasetSpec) -> list[QualityFinding]:
     if spec.dataset is not Dataset.KR_ETF_PRICES:
         return []
@@ -348,6 +428,9 @@ def validate_frame(frame: pl.DataFrame, spec: DatasetSpec, calendar: TradingCale
         outlier_finding = _return_outlier_finding(frame, spec)
         if outlier_finding is not None:
             findings.append(outlier_finding)
+        reverting_finding = _reverting_flat_print_finding(frame, spec)
+        if reverting_finding is not None:
+            findings.append(reverting_finding)
     report = QualityReport(dataset=spec.dataset, findings=tuple(findings), checked_rows=frame.height)
     logger.info(
         "[DATA] event=frame_validated dataset=%s rows=%d errors=%d warnings=%d",

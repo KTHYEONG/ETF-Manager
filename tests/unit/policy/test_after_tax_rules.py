@@ -8,8 +8,10 @@ from datetime import UTC, date, datetime, timedelta
 import polars as pl
 import pytest
 
+from src.data.universe import MembershipEntry, UniverseMembership
 from src.features.pit_market import PitMarket
 from src.policy.after_tax_rules import AfterTaxRuleId, AfterTaxRuleSpec, build_weight_rule, parse_after_tax_rule_spec
+from src.policy.targets import PolicyError
 from src.policy.weight_rule import CASH_SLEEVE
 
 
@@ -66,6 +68,39 @@ MONTHS = _month_dates(date(2020, 8, 31), 13)
 
 def _rate_levels(value: float = 5.0) -> list[tuple[date, float]]:
     return [(day, value) for day in MONTHS]
+
+
+def _membership(last_trading_dates: dict[str, date | None] | None = None) -> UniverseMembership:
+    last_dates = last_trading_dates or {}
+    entries = {
+        ticker: MembershipEntry(
+            ticker=ticker,
+            listing_date=date(2010, 1, 1),
+            last_trading_date=last_dates.get(ticker),
+            evidence_url=f"https://example.com/{ticker}",
+        )
+        for ticker in ("QQQ", "SPY", "EFA", "IEF")
+    }
+    return UniverseMembership(entries=entries, sha256="test")
+
+
+def _taa_market() -> PitMarket:
+    entries = [("QQQ", day, 100.0 + 2.0 * index) for index, day in enumerate(MONTHS)]
+    entries += [("SPY", day, 100.0 + index) for index, day in enumerate(MONTHS)]
+    entries += [("EFA", day, 100.0 + 4.0 * index) for index, day in enumerate(MONTHS)]
+    return _market(entries, _rate_levels(), SIGNAL_AT)
+
+
+def _taa_spec() -> AfterTaxRuleSpec:
+    return parse_after_tax_rule_spec(
+        {
+            "rule_id": "taa_top_n",
+            "universe": ["QQQ", "SPY", "EFA"],
+            "momentum_months": [12],
+            "top_n": 2,
+            "safe_asset": "IEF",
+        }
+    )
 
 
 def test_dual_exit_risk_on_keeps_core() -> None:
@@ -197,6 +232,111 @@ def test_taa_replaces_failing_pick() -> None:
     )
     rule = build_weight_rule(spec, horizon_end=date(2031, 8, 30))
     assert dict(rule(SIGNAL_AT, market)) == {"QQQ": 0.5, "IEF": 0.5}
+
+
+def test_taa_excludes_delisted_highest_momentum_member() -> None:
+    membership = _membership({"EFA": date(2021, 8, 30)})
+    rule = build_weight_rule(
+        _taa_spec(),
+        horizon_end=date(2031, 8, 30),
+        membership=membership,
+    )
+
+    weights = dict(rule(SIGNAL_AT, _taa_market()))
+
+    assert "EFA" not in weights
+    assert weights == {"QQQ": 0.5, "SPY": 0.5}
+
+
+def test_future_delisting_is_invisible_to_taa() -> None:
+    spec = _taa_spec()
+    market = _taa_market()
+    unguarded = build_weight_rule(spec, horizon_end=date(2031, 8, 30))
+    guarded = build_weight_rule(
+        spec,
+        horizon_end=date(2031, 8, 30),
+        membership=_membership({"EFA": date(2021, 9, 30)}),
+    )
+
+    assert dict(guarded(SIGNAL_AT, market)) == dict(unguarded(SIGNAL_AT, market))
+
+
+def test_taa_with_fewer_eligible_members_remains_simplex() -> None:
+    membership = _membership({"SPY": date(2021, 8, 30), "EFA": date(2021, 8, 30)})
+    rule = build_weight_rule(
+        _taa_spec(),
+        horizon_end=date(2031, 8, 30),
+        membership=membership,
+    )
+
+    assert dict(rule(SIGNAL_AT, _taa_market())) == {"QQQ": 1.0}
+
+
+def test_no_eligible_universe_member_holds_safe_asset() -> None:
+    membership = _membership(
+        {
+            "QQQ": date(2021, 8, 30),
+            "SPY": date(2021, 8, 30),
+            "EFA": date(2021, 8, 30),
+        }
+    )
+    taa = build_weight_rule(
+        _taa_spec(),
+        horizon_end=date(2031, 8, 30),
+        membership=membership,
+    )
+    core_satellite_spec = parse_after_tax_rule_spec(
+        {
+            "rule_id": "core_satellite_taa",
+            "core_targets": {"QQQ": 1.0},
+            "universe": ["QQQ", "SPY", "EFA"],
+            "momentum_months": [12],
+            "top_n": 2,
+            "satellite_weight": 0.3,
+            "safe_asset": "IEF",
+        }
+    )
+    core_satellite = build_weight_rule(
+        core_satellite_spec,
+        horizon_end=date(2031, 8, 30),
+        membership=membership,
+    )
+    gem_spec = parse_after_tax_rule_spec(
+        {"rule_id": "gem", "signal_ticker": "SPY", "universe": ["SPY", "EFA"], "safe_asset": "IEF"}
+    )
+    gem = build_weight_rule(
+        gem_spec,
+        horizon_end=date(2031, 8, 30),
+        membership=membership,
+    )
+
+    assert dict(taa(SIGNAL_AT, _taa_market())) == {"IEF": 1.0}
+    assert dict(core_satellite(SIGNAL_AT, _taa_market())) == {"IEF": 1.0}
+    assert dict(gem(SIGNAL_AT, _taa_market())) == {"IEF": 1.0}
+
+
+def test_ineligible_safe_asset_fails_policy() -> None:
+    rule = build_weight_rule(
+        _taa_spec(),
+        horizon_end=date(2031, 8, 30),
+        membership=_membership({"IEF": date(2021, 8, 30)}),
+    )
+
+    with pytest.raises(PolicyError, match="safe asset 'IEF' is not eligible"):
+        rule(SIGNAL_AT, _taa_market())
+
+
+def test_gem_excludes_delisted_universe_member() -> None:
+    spec = parse_after_tax_rule_spec(
+        {"rule_id": "gem", "signal_ticker": "SPY", "universe": ["SPY", "EFA"], "safe_asset": "IEF"}
+    )
+    rule = build_weight_rule(
+        spec,
+        horizon_end=date(2031, 8, 30),
+        membership=_membership({"EFA": date(2021, 8, 30)}),
+    )
+
+    assert dict(rule(SIGNAL_AT, _taa_market())) == {"SPY": 1.0}
 
 
 def test_gem_hurdle_to_safety() -> None:

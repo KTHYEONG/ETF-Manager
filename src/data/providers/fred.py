@@ -158,6 +158,48 @@ class FredClient:
         )
         return _payload(series_id, merged_content, retrieved_at, lineage), frame
 
+    def fetch_latest_observations(self, series_id: str, start: date, end: date) -> tuple[RawPayload, pl.DataFrame]:
+        """Fetch latest-value FRED observations for a non-revised series.
+
+        No availability is stamped here: the caller owns the release instant, because
+        a backfill row's release depends on the series' own publication lag.
+
+        Args:
+            series_id: FRED series identifier.
+            start: First observation date.
+            end: Last observation date.
+
+        Returns:
+            Raw payload and a frame with `series_id`, `observation_date`, and nullable `value`;
+            FRED '.' placeholders become null rows.
+
+        Raises:
+            ProviderError: On HTTP failure or an empty observation list.
+        """
+        spec = spec_for(Dataset.MACRO)
+        retrieved_at = datetime.now(UTC)
+        lineage = {
+            "series_id": series_id,
+            "file_type": "json",
+            "observation_start": start.isoformat(),
+            "observation_end": end.isoformat(),
+        }
+        response, observations = self._get(lineage)
+        records: list[dict[str, object]] = []
+        for row in observations:
+            day, value = _observed(row)
+            records.append({"series_id": series_id, "observation_date": day, "value": value})
+        observed_columns = ("series_id", "observation_date", "value")
+        frame = pl.DataFrame(records).select(*observed_columns).cast(
+            pl.Schema({name: spec.columns[name] for name in observed_columns})
+        )
+        logger.info(
+            "[DATA] event=fetch dataset=macro provider=fred series=%s rows=%d values=latest",
+            series_id,
+            frame.height,
+        )
+        return _payload(series_id, response.content, retrieved_at, lineage), frame
+
     def _get(self, lineage: dict[str, str]) -> tuple[ProviderResponse, list[JSONValue]]:
         """GET one observations document; api_key rides the wire only."""
         response = get_json(

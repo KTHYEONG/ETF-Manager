@@ -8,8 +8,10 @@ import statistics
 from collections.abc import Mapping
 from datetime import date, datetime
 
+from src.data.universe import UniverseMembership, eligible_at
 from src.features.pit_market import PitMarket
 from src.policy.after_tax_rule_parse import AfterTaxRuleId, AfterTaxRuleSpec, parse_after_tax_rule_spec
+from src.policy.targets import PolicyError
 from src.policy.weight_rule import CASH_SLEEVE, WeightRule
 
 __all__ = [
@@ -56,24 +58,55 @@ def _realized_vol_annual(market: PitMarket, ticker: str, as_of: datetime, window
     return statistics.pstdev(returns) * math.sqrt(252.0)
 
 
-def _taa_weights(spec: AfterTaxRuleSpec, as_of: datetime, market: PitMarket) -> dict[str, float]:
+def _eligible_universe(
+    spec: AfterTaxRuleSpec, as_of: datetime, membership: UniverseMembership | None
+) -> tuple[str, ...]:
+    if membership is None:
+        return spec.universe
+    return eligible_at(membership, spec.universe, as_of.date())
+
+
+def _eligible_safe_asset(
+    spec: AfterTaxRuleSpec, as_of: datetime, membership: UniverseMembership | None
+) -> str:
+    assert spec.safe_asset is not None
+    if membership is None or spec.safe_asset == CASH_SLEEVE:
+        return spec.safe_asset
+    if spec.safe_asset not in membership.entries or not eligible_at(
+        membership, (spec.safe_asset,), as_of.date()
+    ):
+        raise PolicyError(
+            f"safe asset {spec.safe_asset!r} is not eligible on {as_of.date().isoformat()}"
+        )
+    return spec.safe_asset
+
+
+def _taa_weights(
+    spec: AfterTaxRuleSpec,
+    as_of: datetime,
+    market: PitMarket,
+    membership: UniverseMembership | None = None,
+) -> dict[str, float]:
     assert spec.safe_asset is not None
     assert spec.top_n is not None
-    assert spec.universe
     assert spec.momentum_months
+    universe = _eligible_universe(spec, as_of, membership)
+    safe_asset = _eligible_safe_asset(spec, as_of, membership)
+    if not universe:
+        return {safe_asset: 1.0}
     rate_pct = market.rate_percent(spec.hurdle_rate_series, as_of)
     mean_k = sum(spec.momentum_months) / len(spec.momentum_months)
     hurdle = (mean_k / 12.0) * (rate_pct / 100.0)
     scored: list[tuple[str, float]] = []
-    for ticker in spec.universe:
+    for ticker in universe:
         rets = [_k_month_return(market, ticker, as_of, k) for k in spec.momentum_months]
         scored.append((ticker, sum(rets) / len(rets)))
     scored.sort(key=lambda item: item[1], reverse=True)
     picks = scored[: spec.top_n]
     weights: dict[str, float] = {}
-    slot = 1.0 / float(spec.top_n)
+    slot = 1.0 / float(len(picks))
     for ticker, score in picks:
-        target = ticker if score >= hurdle else spec.safe_asset
+        target = ticker if score >= hurdle else safe_asset
         weights[target] = weights.get(target, 0.0) + slot
     return weights
 
@@ -81,11 +114,17 @@ def _taa_weights(spec: AfterTaxRuleSpec, as_of: datetime, market: PitMarket) -> 
 class _AfterTaxWeightRule:
     """Concrete PIT rule dispatching on a parsed spec."""
 
-    __slots__ = ("_horizon_end", "_spec")
+    __slots__ = ("_horizon_end", "_membership", "_spec")
 
-    def __init__(self, spec: AfterTaxRuleSpec, horizon_end: date) -> None:
+    def __init__(
+        self,
+        spec: AfterTaxRuleSpec,
+        horizon_end: date,
+        membership: UniverseMembership | None = None,
+    ) -> None:
         self._spec = spec
         self._horizon_end = horizon_end
+        self._membership = membership
 
     @property
     def tickers(self) -> frozenset[str]:
@@ -150,17 +189,20 @@ class _AfterTaxWeightRule:
             vol_weights[spec.safe_asset] = vol_weights.get(spec.safe_asset, 0.0) + (1.0 - scale)
             return vol_weights
         if spec.rule_id is AfterTaxRuleId.TAA_TOP_N:
-            return _taa_weights(spec, signal_at, market)
+            return _taa_weights(spec, signal_at, market, self._membership)
         if spec.rule_id is AfterTaxRuleId.GEM:
             assert spec.signal_ticker is not None
             assert spec.safe_asset is not None
-            assert spec.universe
+            universe = _eligible_universe(spec, signal_at, self._membership)
+            safe_asset = _eligible_safe_asset(spec, signal_at, self._membership)
+            if not universe:
+                return {safe_asset: 1.0}
             signal_ret = _k_month_return(market, spec.signal_ticker, signal_at, 12)
             if signal_ret < _hurdle_for(market, spec.hurdle_rate_series, signal_at, 12):
-                return {spec.safe_asset: 1.0}
-            best_ticker = spec.universe[0]
+                return {safe_asset: 1.0}
+            best_ticker = universe[0]
             best_ret = _k_month_return(market, best_ticker, signal_at, 12)
-            for ticker in spec.universe[1:]:
+            for ticker in universe[1:]:
                 ret = _k_month_return(market, ticker, signal_at, 12)
                 if ret > best_ret:
                     best_ret = ret
@@ -168,7 +210,10 @@ class _AfterTaxWeightRule:
             return {best_ticker: 1.0}
         if spec.rule_id is AfterTaxRuleId.CORE_SATELLITE_TAA:
             assert spec.satellite_weight is not None
-            satellite = _taa_weights(spec, signal_at, market)
+            universe = _eligible_universe(spec, signal_at, self._membership)
+            if not universe:
+                return {_eligible_safe_asset(spec, signal_at, self._membership): 1.0}
+            satellite = _taa_weights(spec, signal_at, market, self._membership)
             sat = spec.satellite_weight
             blended: dict[str, float] = {}
             for ticker, weight in spec.core_targets.items():
@@ -184,10 +229,17 @@ class _AfterTaxWeightRule:
         return {spec.safe_asset: 1.0}
 
 
-def build_weight_rule(spec: AfterTaxRuleSpec, *, horizon_end: date) -> WeightRule:
+def build_weight_rule(
+    spec: AfterTaxRuleSpec,
+    *,
+    horizon_end: date,
+    membership: UniverseMembership | None = None,
+) -> WeightRule:
     """Instantiate a PIT ``WeightRule`` for one cohort.
 
     ``horizon_end`` is the cohort's last calendar day; only GLIDE_PATH reads it.
+    When supplied, ``membership`` filters momentum universes at the signal date
+    without exposing later delisting events.
 
     Rule semantics (all signals from ``PitMarket`` at the month-end signal instant):
     - STATIC: always ``core_targets``.
@@ -209,6 +261,7 @@ def build_weight_rule(spec: AfterTaxRuleSpec, *, horizon_end: date) -> WeightRul
 
     Raises:
         ValueError: When required parameters are absent (defensive re-check).
+        PolicyError: When a non-cash safe asset is not eligible under membership.
     """
     if not isinstance(horizon_end, date):
         raise ValueError(f"horizon_end must be a date, got {horizon_end!r}")
@@ -258,4 +311,4 @@ def build_weight_rule(spec: AfterTaxRuleSpec, *, horizon_end: date) -> WeightRul
         raise ValueError("CORE_SATELLITE_TAA requires core, universe, momentum, top_n, satellite, and safe")
     if rule_id is AfterTaxRuleId.GLIDE_PATH and (spec.glide_months is None or spec.safe_asset is None):
         raise ValueError("GLIDE_PATH requires glide_months and safe_asset")
-    return _AfterTaxWeightRule(spec, horizon_end)
+    return _AfterTaxWeightRule(spec, horizon_end, membership)

@@ -77,6 +77,46 @@ def test_prices_persist_redacts_token(
     assert "wire-tiingo-token" not in manifest_document
 
 
+def test_prices_reject_rows_outside_supplied_membership(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    settings = _fresh_settings(monkeypatch, tmp_path)
+    membership_path = tmp_path / "membership.json"
+    membership_path.write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "ticker": "SPY",
+                        "listing_date": "2024-02-01",
+                        "last_trading_date": None,
+                        "evidence_url": "https://example.com/spy",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    body = (FIXTURES / "tiingo_spy_one_bar.json").read_bytes()
+
+    with _client_serving(body) as http, pytest.raises(
+        ValueError, match="outside its membership lifetime"
+    ) as exc_info:
+        fetch_and_persist_prices(
+            ("SPY",),
+            date(2024, 1, 30),
+            date(2024, 1, 31),
+            secrets=_SECRETS,
+            settings=settings,
+            client=http,
+            membership_path=membership_path,
+        )
+
+    assert "ticker='SPY'" in str(exc_info.value)
+    assert "date=2024-01-31" in str(exc_info.value)
+    assert "count=1" in str(exc_info.value)
+
+
 @pytest.mark.parametrize("scenario_id", ["FT-C08-fx-explicit-gap-persists"])
 def test_fx_gap_session_still_persists(
     scenario_id: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
