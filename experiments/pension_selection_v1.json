@@ -1,0 +1,72 @@
+{
+  "name": "pension_selection_v1",
+  "etf_identity_path": "configs/data/pension_etfs_2026.json",
+  "tax_regime_path": "configs/tax/kr_pension_2026.json",
+  "estimation_start": "2001-08-01",
+  "estimation_end": "2026-08-31",
+  "max_fx_age_days": 7,
+  "max_fx_fallback_share": 0.1,
+  "baseline_arm_id": "sp500_100",
+  "arms": {
+    "sp500_100": {
+      "SPY": 1.0
+    },
+    "nasdaq_100": {
+      "QQQ": 1.0
+    },
+    "qqq90_soxx10": {
+      "QQQ": 0.9,
+      "SOXX": 0.1
+    },
+    "qqq80_soxx20": {
+      "QQQ": 0.8,
+      "SOXX": 0.2
+    },
+    "sp50_nq50": {
+      "SPY": 0.5,
+      "QQQ": 0.5
+    },
+    "sp70_nq30": {
+      "SPY": 0.7,
+      "QQQ": 0.3
+    }
+  },
+  "capm": {
+    "market_weights": {
+      "SPY": 1.0
+    },
+    "anchor_ticker": "QQQ",
+    "risk_free_annual": 0.03,
+    "equity_risk_premium_annual": 0.05
+  },
+  "delta_prior": {
+    "mean_annual": 0.0,
+    "sd_annual": 0.01
+  },
+  "delta_grid": {
+    "z": 2.0,
+    "n_points": 17
+  },
+  "regret_tolerance_annual": 0.005,
+  "tail": {
+    "horizon_months": 240,
+    "n_paths": 2000,
+    "block_months": 24,
+    "pre_retirement_months": 60,
+    "quantile": 0.05,
+    "min_stress_terminal_multiple": 1.0,
+    "max_pre_retirement_drawdown": 0.5
+  },
+  "historical": {
+    "campaign_config_paths": [
+      "experiments/pension_campaign_v2_dotcom.json",
+      "experiments/pension_campaign_v2_semis.json"
+    ],
+    "horizons_months": [
+      120,
+      240
+    ],
+    "worst_ratio_floor": 0.9
+  },
+  "notes": "Normal prior mean 0 is anchored to 1926-2026 Ken French HiTec CAPM alpha +0.57%/y (SE approximately 1.0%/y) and 2000-2026 sample alpha -0.59%/y; the sample is too uncertain to dictate a fixed tech premium."
+}

@@ -259,6 +259,21 @@
       "status": "active",
       "kind": "pension",
       "notes": "personal-pension buy-only cohort campaign SP500/Nasdaq/semi 120/240m"
+    },
+    "pension_campaign_v2_dotcom.json": {
+      "status": "active",
+      "kind": "pension",
+      "notes": "standalone pension campaign incl. dot-com, SPY/QQQ blends 120/240m"
+    },
+    "pension_campaign_v2_semis.json": {
+      "status": "active",
+      "kind": "pension",
+      "notes": "standalone pension campaign from SOXX inception, QQQ/SOXX blends 120/240m"
+    },
+    "pension_selection_v1.json": {
+      "status": "active",
+      "kind": "pension",
+      "notes": "standalone pension ETF selection: delta-regret, stress tail, dot-com historical gates"
     }
   }
 }

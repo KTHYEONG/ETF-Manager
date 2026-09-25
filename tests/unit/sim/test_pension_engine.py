@@ -14,6 +14,7 @@ from src.sim.pension_engine import (
     PensionBacktestConfig,
     PensionDataError,
     PensionMarketMode,
+    proxy_krw_marks,
     run_pension_backtest,
 )
 from src.sim.pension_tax import (
@@ -272,6 +273,20 @@ def test_payout_eligibility_waits_for_birth_and_account_anniversaries() -> None:
         assert result.is_retirement_terminal is False
 
 
+def test_payout_waits_for_pension_commencement_date() -> None:
+    """A payout day before the commencement application takes effect stays an intermediate value."""
+    sessions = _xnys_sessions(date(2024, 1, 1), date(2024, 6, 30))
+    config = _config(
+        start=date(2024, 1, 1), end=date(2024, 6, 30),
+        cash={2024: 6_000_000}, dates={2024: (date(2024, 1, 15),)},
+        retirement=2024, withdrawals={2024: 1_000_000},
+    )
+    profile = _profile(birth=date(1960, 1, 1), opened=date(2000, 1, 1), years=(2024,), pension_start=date(2024, 12, 1))
+    result = run_pension_backtest(config, _us_prices(sessions), _fx(sessions), profile, _regime())
+    assert result.withdrawals == ()
+    assert result.is_retirement_terminal is False
+
+
 def test_contribution_requires_an_open_pension_account() -> None:
     """A funded contribution cannot precede the declared pension account opening date."""
     sessions = _xnys_sessions(date(2023, 1, 1), date(2023, 12, 31))
@@ -507,6 +522,9 @@ def test_zero_withholding_reproduces_adjusted_marks() -> None:
     fx = _fx(sessions)
     zero = replace(_regime(), foreign_dividend_withholding_rate=0.0)
     marks, withheld = _proxy_marks(prices, fx, 7, zero.foreign_dividend_withholding_rate)
+    assert proxy_krw_marks(
+        prices, fx, max_fx_age_days=7, withholding_rate=zero.foreign_dividend_withholding_rate
+    ) == marks
     by_date = {day: 400.0 + 0.1 * index for index, day in enumerate(sessions)}
     for day in sessions:
         assert marks[("SPY", day)] == pytest.approx(by_date[day] * 1300.0, rel=1e-12)

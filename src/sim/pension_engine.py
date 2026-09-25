@@ -30,6 +30,7 @@ __all__ = [
     "PensionDataError",
     "PensionMarketMode",
     "PensionSnapshot",
+    "proxy_krw_marks",
     "run_pension_backtest",
 ]
 
@@ -227,6 +228,36 @@ def _proxy_marks(
     return marks, withheld
 
 
+def proxy_krw_marks(
+    prices: pl.DataFrame,
+    fx: pl.DataFrame,
+    *,
+    max_fx_age_days: int,
+    withholding_rate: float,
+) -> dict[tuple[str, date], float]:
+    """Return the engine's net-of-withholding KRW marks for US proxy tickers.
+
+    Pension accounts cannot reclaim foreign dividend withholding, so every consumer that ranks
+    pension arms must see the same dividend drag the buy-only engine applies. Exposing the
+    engine's own mark construction keeps analytics and backtests on one definition.
+
+    Args:
+        prices: Certified ``Dataset.PRICES`` rows with ticker, date, close, adjusted close,
+            and dividend fields.
+        fx: As-of USD/KRW frame with date and quote fields.
+        max_fx_age_days: Maximum calendar-day age of the applicable FX quote.
+        withholding_rate: Foreign dividend withholding rate lost at source.
+
+    Returns:
+        Mapping from ticker and session date to the net-of-withholding KRW mark.
+
+    Raises:
+        PensionDataError: If required price, dividend, or applicable FX data is invalid.
+    """
+    marks, _ = _proxy_marks(prices, fx, max_fx_age_days, withholding_rate)
+    return marks
+
+
 def _live_marks(
     prices: pl.DataFrame,
 ) -> tuple[dict[tuple[str, date], float], dict[tuple[str, date], float], dict[tuple[str, date], date | None], dict[tuple[str, date], float]]:
@@ -263,7 +294,8 @@ def _is_eligible(withdrawal_day: date, profile: PensionTaxProfile, regime: Pensi
     account_years = withdrawal_day.year - profile.account_open_date.year
     if (withdrawal_day.month, withdrawal_day.day) < (profile.account_open_date.month, profile.account_open_date.day):
         account_years -= 1
-    return age >= regime.minimum_pension_age and account_years >= regime.minimum_account_years
+    commenced = profile.pension_start_date is not None and profile.pension_start_date <= withdrawal_day
+    return commenced and age >= regime.minimum_pension_age and account_years >= regime.minimum_account_years
 
 
 def run_pension_backtest(
