@@ -595,5 +595,8 @@
   },
   "src/validation/pension_household.py": {
     "testing": "tests/unit/validation/test_pension_household.py"
+  },
+  "src/data/merge.py": {
+    "testing": "tests/unit/data/test_merge.py"
   }
 }

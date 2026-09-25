@@ -11,18 +11,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
-import polars as pl
 
-from src.data.catalog import latest_artifact
+from src.data.merge import load_prior_partition, merge_incremental
 from src.data.paths import NPORT_SERIES_MAP_PATH
 from src.data.pipeline import persist_ingest
-from src.data.pit import AVAILABLE_AT
 from src.data.providers.base import ProviderError
-from src.data.providers.sec_nport import SecNportClient, normalize_nport_holdings
 from src.data.providers.sec_nport import _parse_raw_tables as _sec_parse_raw_tables
-from src.data.schema import Dataset, spec_for
+from src.data.providers.sec_nport import normalize_nport_holdings
+from src.data.schema import Dataset
 from src.data.settings import DataSettings
-from src.data.storage import DatasetArtifact, DataStore, RawPayload, UntrustedDatasetError
+from src.data.storage import DatasetArtifact, RawPayload
 
 logger = logging.getLogger(__name__)
 
@@ -47,20 +45,6 @@ def load_nport_series_map(path: Path = NPORT_SERIES_MAP_PATH) -> Mapping[str, st
     if not isinstance(doc, dict):
         raise ValueError(f"nport series map root must be object at {path}")
     return {str(k): str(v) for k, v in doc.items()}
-
-
-def _merge_holdings_frame(existing: pl.DataFrame, incoming: pl.DataFrame) -> pl.DataFrame:
-    """Concat prior ETF_HOLDINGS partition with a new quarter frame."""
-    spec = spec_for(Dataset.ETF_HOLDINGS)
-    merge_cols = list(spec.columns.keys())
-    if AVAILABLE_AT in existing.columns:
-        existing = existing.drop(AVAILABLE_AT)
-    aligned_existing = existing.select(merge_cols)
-    aligned_incoming = incoming.select(merge_cols)
-    return pl.concat([aligned_existing, aligned_incoming], how="vertical_relaxed").unique(
-        subset=list(spec.key),
-        keep="last",
-    )
 
 
 def _read_nport_pointer_zip(pointer_path: Path, data_root: Path) -> bytes | None:
@@ -142,24 +126,12 @@ def fetch_and_persist_nport_quarter(
     except zipfile.BadZipFile as exc:
         raise ProviderError(f"sec nport payload is not a valid ZIP for {fq}") from exc
 
-    # Parse and normalize (SecNportClient reference for orphan check)
-    # Note: raw bytes are stored content-addressed via persist_ingest (raw/sec/etf_holdings/<sha>/payload.zip);
-    # no second full ZIP is written under raw/sec/nport/. A pointer JSON may be created after persist.
-    raw_nport_path = (
-        settings.resolved_data_root() / Path("raw/sec/nport") / f"{fq}.json"
-    )  # anchor for wiring, pointer only
-    _ = SecNportClient
+    # Parse and normalize; raw bytes are stored content-addressed via persist_ingest.
     raw_tables = _sec_parse_raw_tables(content)
     frame = normalize_nport_holdings(raw_tables, series_map=series_map, retrieved_at=retrieved_at)
 
-    try:
-        store = DataStore(settings)
-        prior_holdings = store.read_normalized(
-            latest_artifact(settings, Dataset.ETF_HOLDINGS), spec_for(Dataset.ETF_HOLDINGS)
-        )
-        frame = _merge_holdings_frame(prior_holdings, frame)
-    except UntrustedDatasetError:
-        pass
+    prior = load_prior_partition(settings, Dataset.ETF_HOLDINGS)
+    frame = merge_incremental(prior, frame, Dataset.ETF_HOLDINGS)
 
     payload = RawPayload(
         provider="sec",
@@ -169,33 +141,20 @@ def fetch_and_persist_nport_quarter(
         extension="zip",
         content=content,
     )
-    artifact = persist_ingest(frame, Dataset.ETF_HOLDINGS, payload, settings)
+    artifact = persist_ingest(frame, Dataset.ETF_HOLDINGS, payload, settings, prior=prior)
     # Write optional pointer JSON under raw/sec/nport/<quarter>.json (<8 KiB) containing sha256 and content path.
     try:
         data_root = settings.resolved_data_root()
         pointer_path = data_root / Path("raw/sec/nport") / f"{fq}.json"
         pointer_path.parent.mkdir(parents=True, exist_ok=True)
         payload_sha = hashlib.sha256(content).hexdigest()
-        # Use artifact's raw relative path if available, else compute content-addressed path.
-        try:
-            rel = artifact.manifest.raw_artifact.relative_path.as_posix()
-        except Exception:
-            rel = f"raw/sec/etf_holdings/{payload_sha}/payload.zip"
+        rel = artifact.manifest.raw_artifact.relative_path.as_posix()
         doc = {"sha256": payload_sha, "relative_path": rel, "filing_quarter": fq}
         serialized = json.dumps(doc, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        # Ensure <8KiB
-        if len(serialized) < 8192 and (not pointer_path.exists() or pointer_path.read_bytes() != serialized):  # noqa: SIM102
+        if len(serialized) < 8192 and (not pointer_path.exists() or pointer_path.read_bytes() != serialized):
             pointer_path.write_bytes(serialized)
-        # Ensure no second ZIP mirror remains
-        zip_mirror = data_root / Path("raw/sec/nport") / f"{fq}.zip"
-        if zip_mirror.exists():
-            # Do not auto-delete here; prune handles mirrors. But ensure ingest does not create it.
-            pass
-        # Update anchor variable for wiring detection
-        raw_nport_path = pointer_path
-        _ = raw_nport_path
-    except Exception:  # noqa: S110
-        pass
+    except OSError:  # pragma: no cover
+        logger.warning("[DATA] event=nport_pointer_write_failed quarter=%s", fq)
     logger.info(
         "[DATA] event=fetch_persist dataset=%s provider=sec rows=%d",
         str(Dataset.ETF_HOLDINGS),

@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "refactor_data_merge",
+      "date": "2026-09-25",
+      "adr_id": "ADR_20260925_refactor_data_merge",
+      "domain": "data",
+      "title": "Non-shrinking incremental ingest with history recovery",
+      "why": "Fail-open prior-partition reads let a 385-row N-PORT slice replace the 4017-row etf_holdings latest partition without any error.",
+      "resolution": "Shared load_prior_partition/merge_incremental abort on untrusted priors and enforce key coverage, manifests carry prior_manifest_sha256, and maintain recover republishes the widest trusted history.",
+      "impact": "Incremental prices/rates/macro/etf_holdings ingest can no longer silently shrink a dataset; etf_holdings restored to 4017 rows.",
+      "caveat": "Recovery is explicit and dry-run by default; full-replace datasets keep the legacy row-ratio guard."
+    },
+    {
       "task_id": "REFACTOR_DATA",
       "date": "2026-09-25",
       "adr_id": "ADR_20260925_REFACTOR_DATA",
@@ -998,16 +1009,6 @@
       "why": "P2-A had ingest CLI but no run baseline command; SOPS decrypt lacked dotenv flags; operators could not verify live API pulls end-to-end.",
       "resolution": "Fixed load_provider_secrets sops argv; added ingest smoke (FRED FX + Tiingo prices required, ECOS CPI optional) and run baseline CLI wiring run_baseline_from_store; ECOS date-format fix for CPI requests.",
       "impact": "First operator workflow: ingest smoke then run baseline from catalog; unblocks extended historical ingest and P2-C multi-sleeve/tax extensions."
-    },
-    {
-      "task_id": "TASK_P2A_BASELINE_FAST",
-      "date": "2026-08-22",
-      "adr_id": "ADR_20260822_P2A_BASELINE_FAST",
-      "domain": "simulation",
-      "title": "Phase 2-A: Fast Baseline (B0/B1), Catalog, Ingest CLI",
-      "why": "P1-C could persist vendor data but there was no catalog read path, no cashflow-aware KRW DCA simulator, and no CLI to trigger ingest.",
-      "resolution": "Implemented manifest catalog with PIT load_visible, single-sleeve fast baseline (B0/B1) with delayed fills, FX conversion, integer lots, XIRR/MDD metrics, and ingest CLI dispatching fetch_and_persist_*.",
-      "impact": "Delivers the first runnable accumulation baseline on stored data; unblocks live data pull and P2-B multi-sleeve/tax extensions."
     }
   ]
 }

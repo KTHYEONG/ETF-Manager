@@ -76,6 +76,7 @@ class DatasetManifest:
     schema_version: str
     normalization_version: str
     quality_findings: tuple[QualityFinding, ...]
+    prior_manifest_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,7 +148,7 @@ def canonical_manifest_sha256(manifest: DatasetManifest) -> str:
 
 def _manifest_document(manifest: DatasetManifest) -> dict[str, JSONValue]:
     """Relative-path, credential-free JSON projection of a manifest."""
-    return {
+    document: dict[str, JSONValue] = {
         "dataset": str(manifest.dataset),
         "endpoint": manifest.endpoint,
         "normalization_version": manifest.normalization_version,
@@ -173,6 +174,9 @@ def _manifest_document(manifest: DatasetManifest) -> dict[str, JSONValue]:
         "row_count": manifest.row_count,
         "schema_version": manifest.schema_version,
     }
+    if manifest.prior_manifest_sha256 is not None:
+        document["prior_manifest_sha256"] = manifest.prior_manifest_sha256
+    return document
 
 
 class DataStore:
@@ -219,6 +223,7 @@ class DataStore:
         payload: RawPayload,
         report: QualityReport,
         normalization_version: str = "1",
+        prior_manifest_sha256: str | None = None,
     ) -> DatasetArtifact:
         """Publish a validated Silver frame with an independently addressed lineage record.
 
@@ -245,6 +250,8 @@ class DataStore:
             raise ValueError("refusing to persist an empty normalized frame")
         if AVAILABLE_AT not in frame.columns:
             raise ValueError(f"normalized frame misses {AVAILABLE_AT!r} column")
+        if prior_manifest_sha256 is not None and _HEX64_PATTERN.fullmatch(prior_manifest_sha256) is None:
+            raise ValueError("prior_manifest_sha256 must be 64 lowercase hex characters")
         latest_available_at = frame.get_column(AVAILABLE_AT).max()
         if not isinstance(latest_available_at, datetime):
             raise ValueError(f"{AVAILABLE_AT!r} column does not carry timestamps")
@@ -271,6 +278,7 @@ class DataStore:
             schema_version=spec.schema_version,
             normalization_version=normalization_version,
             quality_findings=report.findings,
+            prior_manifest_sha256=prior_manifest_sha256,
         )
 
         document = _manifest_document(manifest)

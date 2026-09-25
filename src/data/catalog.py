@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -182,6 +183,12 @@ def _reconstruct_manifest(document: dict[str, JSONValue], path: Path) -> Dataset
         raw_retrieved_at = datetime.fromisoformat(str(raw_section["retrieved_at"]))
         if retrieved_at.tzinfo is None or raw_retrieved_at.tzinfo is None:
             raise ValueError("retrieved_at timestamps must be timezone-aware")
+        prior_value = document.get("prior_manifest_sha256")
+        prior_sha: str | None = None
+        if prior_value is not None:
+            if not isinstance(prior_value, str) or re.fullmatch(r"[0-9a-f]{64}", prior_value) is None:
+                raise UntrustedDatasetError(f"manifest malformed at {path.as_posix()}: prior_manifest_sha256 invalid")
+            prior_sha = prior_value
         return DatasetManifest(
             dataset=Dataset(str(document["dataset"])),
             provider=str(document["provider"]),
@@ -199,6 +206,7 @@ def _reconstruct_manifest(document: dict[str, JSONValue], path: Path) -> Dataset
             schema_version=str(document["schema_version"]),
             normalization_version=str(document["normalization_version"]),
             quality_findings=tuple(_finding_from_item(item) for item in quality_items),
+            prior_manifest_sha256=prior_sha,
         )
     except UntrustedDatasetError:
         raise

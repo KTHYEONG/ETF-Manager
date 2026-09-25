@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
+from pathlib import Path
 
+import polars as pl
 import pytest
 
 from src import cli
@@ -214,3 +216,77 @@ def test_macro_cli_retains_other_series(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert code == 0
     assert seen.get("retain_other_series") is True
+
+
+def _seed_truncated_rates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> DataSettings:
+    """Persist a 10-row partition plus a newer truncated 3-row latest for recover tests."""
+    from src.data.pipeline import persist_ingest
+    from src.data.schema import spec_for
+    from src.data.storage import RawPayload
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ETF_MANAGER_DATA_ROOT", raising=False)
+    settings = DataSettings(data_root="data")
+    spec = spec_for(Dataset.RATES)
+    retrieved = datetime(2024, 2, 1, 5, 0, tzinfo=UTC)
+
+    def frame(days: range, base: float) -> pl.DataFrame:
+        rows = list(days)
+        return pl.DataFrame(
+            {
+                "series_id": ["X"] * len(rows),
+                "observation_date": [date(2024, 1, day) for day in rows],
+                "value": [base + day for day in rows],
+                "source": ["fred"] * len(rows),
+                "retrieved_at": [retrieved] * len(rows),
+            },
+            schema=dict(spec.columns),
+        )
+
+    def payload(content: bytes, at: datetime) -> RawPayload:
+        return RawPayload(
+            provider="synthetic",
+            endpoint="recover/test",
+            request_params={"format": "json"},
+            retrieved_at=at,
+            extension="json",
+            content=content,
+        )
+
+    persist_ingest(frame(range(1, 11), 1.0), Dataset.RATES, payload(b"full", datetime(2024, 3, 1, tzinfo=UTC)), settings)
+    persist_ingest(
+        frame(range(6, 9), 100.0), Dataset.RATES, payload(b"truncated", datetime(2024, 4, 1, tzinfo=UTC)), settings
+    )
+    return settings
+
+
+def _data_files(tmp_path: Path) -> set[str]:
+    root = tmp_path / "data"
+    return {path.relative_to(tmp_path).as_posix() for path in root.rglob("*")} if root.is_dir() else set()
+
+
+def test_recover_dry_run_writes_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Dry-run recover exits 0 without touching the data root."""
+    _seed_truncated_rates(monkeypatch, tmp_path)
+    before = _data_files(tmp_path)
+    assert main(["maintain", "recover", "rates"]) == 0
+    assert _data_files(tmp_path) == before
+
+
+def test_recover_apply_publishes_recovered_partition(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Apply publishes a new manifest and the catalog serves the recovered rows."""
+    from src.data.catalog import latest_artifact
+
+    settings = _seed_truncated_rates(monkeypatch, tmp_path)
+    assert main(["maintain", "recover", "rates", "--apply"]) == 0
+    selected = latest_artifact(settings, Dataset.RATES)
+    assert selected.manifest.row_count == 10
+    assert selected.manifest.prior_manifest_sha256 is not None
+
+
+def test_recover_unknown_dataset_rejected(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An unknown dataset name is a usage error with no writes."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ETF_MANAGER_DATA_ROOT", raising=False)
+    assert main(["maintain", "recover", "bogus"]) == 2
+    assert _data_files(tmp_path) == set()

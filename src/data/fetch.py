@@ -11,19 +11,20 @@ from typing import TYPE_CHECKING, Final
 import httpx
 import polars as pl
 
-from src.data.catalog import latest_artifact
+from src.data.merge import load_prior_partition, merge_incremental
 from src.data.nport_ingest import fetch_and_persist_nport_quarter
 from src.data.pipeline import persist_ingest
+from src.data.pit import AVAILABLE_AT
 from src.data.providers.base import DEFAULT_TIMEOUT_S, ProviderError
 from src.data.providers.ecos import EcosClient
 from src.data.providers.fred import FredClient
 from src.data.providers.french import FrenchClient
 from src.data.providers.quota import TIINGO_QUOTA, PacingGate
 from src.data.providers.tiingo import TiingoClient
-from src.data.schema import Dataset, spec_for
+from src.data.schema import Dataset
 from src.data.secrets import ProviderSecrets
 from src.data.settings import DataSettings
-from src.data.storage import DatasetArtifact, DataStore, RawPayload, UntrustedDatasetError
+from src.data.storage import DatasetArtifact, RawPayload
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -124,19 +125,14 @@ def fetch_and_persist_prices(
         gate = PacingGate(TIINGO_QUOTA)
         tiingo = TiingoClient(secrets.tiingo_api, session)
         if incremental:
-            spec = spec_for(Dataset.PRICES)
-            store = DataStore(settings)
-            try:
-                existing = store.read_normalized(latest_artifact(settings, Dataset.PRICES), spec)
-            except UntrustedDatasetError:
-                existing = None
+            prior = load_prior_partition(settings, Dataset.PRICES)
+            existing = prior.frame if prior is not None else None
             windows: dict[str, tuple[date, date] | None] = {}
             for t in tickers:
                 windows[t] = resolve_price_http_window(t, existing, start, end)
             # Collect fetches for windows that are not None
             bodies: list[bytes] = []
             frames: list[pl.DataFrame] = []
-            fetched_tickers: list[str] = []
             for ticker in tickers:
                 window = windows[ticker]
                 if window is None:
@@ -151,11 +147,12 @@ def fetch_and_persist_prices(
                     continue
                 bodies.append(payload.content)
                 frames.append(frame)
-                fetched_tickers.append(ticker)
             if not frames:
                 if existing is not None and all(v is None for v in windows.values()):
                     retrieved_at = datetime.now(UTC)
-                    merged = existing.select(*spec.columns).cast(pl.Schema(dict(spec.columns)))
+                    assert prior is not None
+                    base = prior.frame.drop(AVAILABLE_AT) if AVAILABLE_AT in prior.frame.columns else prior.frame
+                    merged = merge_incremental(prior, base, Dataset.PRICES)
                     payload = RawPayload(
                         provider="tiingo",
                         endpoint=f"daily/{'+'.join(tickers)}/prices",
@@ -170,26 +167,12 @@ def fetch_and_persist_prices(
                         extension="json",
                         content=b"{}",
                     )
-                    artifact = persist_ingest(merged, Dataset.PRICES, payload, settings)
+                    artifact = persist_ingest(merged, Dataset.PRICES, payload, settings, prior=prior)
                     _log_done("prices", "tiingo", artifact.manifest.row_count)
                     return artifact
                 raise ProviderError("tiingo returned no prices for any requested ticker")
             incoming = pl.concat(frames, how="vertical")
-            if existing is not None:
-                if fetched_tickers:
-                    kept = existing.select(*spec.columns).filter(~pl.col("ticker").is_in(fetched_tickers))
-                    prior_fetched = existing.select(*spec.columns).filter(pl.col("ticker").is_in(fetched_tickers))
-                    refreshed = (
-                        pl.concat([prior_fetched, incoming], how="vertical")
-                        .unique(subset=["ticker", "date"], keep="last")
-                        .sort(["ticker", "date"])
-                    )
-                    merged = pl.concat([kept, refreshed], how="vertical") if not kept.is_empty() else refreshed
-                else:
-                    merged = existing.select(*spec.columns)
-            else:
-                merged = incoming
-            merged = merged.select(*spec.columns).cast(pl.Schema(dict(spec.columns)))
+            merged = merge_incremental(prior, incoming, Dataset.PRICES)
             # Use last frame retrieved_at as payload time
             try:
                 _raw = frames[-1].get_column("retrieved_at").max()
@@ -210,7 +193,7 @@ def fetch_and_persist_prices(
                 extension="json",
                 content=b"\n".join(bodies),
             )
-            artifact = persist_ingest(merged, Dataset.PRICES, payload, settings)
+            artifact = persist_ingest(merged, Dataset.PRICES, payload, settings, prior=prior)
         else:
             payload, frame = tiingo.fetch_prices(tickers, start, end, gate=gate)
             artifact = persist_ingest(frame, Dataset.PRICES, payload, settings)
@@ -300,16 +283,10 @@ def fetch_and_persist_rates(
                 extension="json",
                 content=b"\n".join(bodies),
             )
-        spec = spec_for(Dataset.RATES)
-        store = DataStore(settings)
-        try:
-            prior = store.read_normalized(latest_artifact(settings, Dataset.RATES), spec)
-            kept = prior.select(*spec.columns).filter(~pl.col("series_id").is_in(ids))
-            if not kept.is_empty():
-                frame = pl.concat([kept, frame.select(*spec.columns)], how="vertical")
-        except UntrustedDatasetError:
-            pass
-        artifact = persist_ingest(frame, Dataset.RATES, payload, settings)
+        prior = load_prior_partition(settings, Dataset.RATES)
+        refreshed = pl.DataFrame({"series_id": list(ids)}, schema={"series_id": pl.String})
+        merged = merge_incremental(prior, frame, Dataset.RATES, refreshed=refreshed)
+        artifact = persist_ingest(merged, Dataset.RATES, payload, settings, prior=prior, refreshed=refreshed)
     _log_done("rates", "fred", artifact.manifest.row_count)
     return artifact
 
@@ -346,16 +323,12 @@ def fetch_and_persist_macro(
         else:
             payload, frame = _merge_macro_payloads(series_ids, fetched)
         if retain_other_series:
-            spec = spec_for(Dataset.MACRO)
-            store = DataStore(settings)
-            try:
-                prior = store.read_normalized(latest_artifact(settings, Dataset.MACRO), spec)
-                kept = prior.select(*spec.columns).filter(~pl.col("series_id").is_in(series_ids))
-                if not kept.is_empty():
-                    frame = pl.concat([kept, frame.select(*spec.columns)], how="vertical")
-            except UntrustedDatasetError:
-                pass
-        artifact = persist_ingest(frame, Dataset.MACRO, payload, settings)
+            prior = load_prior_partition(settings, Dataset.MACRO)
+            refreshed = pl.DataFrame({"series_id": list(series_ids)}, schema={"series_id": pl.String})
+            frame = merge_incremental(prior, frame, Dataset.MACRO, refreshed=refreshed)
+            artifact = persist_ingest(frame, Dataset.MACRO, payload, settings, prior=prior, refreshed=refreshed)
+        else:
+            artifact = persist_ingest(frame, Dataset.MACRO, payload, settings)
     _log_done("macro", "fred", artifact.manifest.row_count)
     return artifact
 
