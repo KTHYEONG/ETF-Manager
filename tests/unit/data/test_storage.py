@@ -371,3 +371,92 @@ def test_read_normalized_keeps_legacy_manifest_readable(
     assert store.read_normalized(legacy_artifact, spec).equals(
         store.read_normalized(artifact, spec)
     )
+
+
+def test_write_normalized_records_prior_manifest_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A write with prior_manifest_sha256 round-trips and changes manifest identity."""
+    import src.data.catalog as catalog_module
+
+    monkeypatch.chdir(tmp_path)
+    settings = DataSettings()
+    store = DataStore(settings)
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    frame = _stamped_prices(spec, calendar)
+    payload = _payload(b"prices-payload")
+    raw_artifact = store.store_raw(Dataset.PRICES, payload)
+    report = validate_frame(frame, spec, calendar)
+    plain = store.write_normalized(frame, spec, raw_artifact, payload, report)
+    assert plain.manifest.prior_manifest_sha256 is None
+
+    prior_sha = "ab" * 32
+    linked = store.write_normalized(frame, spec, raw_artifact, payload, report, "1", prior_sha)
+    assert linked.manifest.prior_manifest_sha256 == prior_sha
+    assert linked.manifest_path.name != plain.manifest_path.name
+    assert linked.manifest_path.is_file()
+
+    reloaded = catalog_module.latest_artifact(settings, Dataset.PRICES)
+    assert reloaded.manifest.prior_manifest_sha256 in (None, prior_sha)
+
+
+def test_write_normalized_legacy_manifest_hash_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A manifest written without the field keeps canonical hash equal to filename."""
+    monkeypatch.chdir(tmp_path)
+    store = DataStore(DataSettings())
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    assert artifact.manifest.prior_manifest_sha256 is None
+    assert artifact.manifest_path.name == f"{canonical_manifest_sha256(artifact.manifest)}.json"
+    document = json.loads(artifact.manifest_path.read_text(encoding="utf-8"))
+    assert "prior_manifest_sha256" not in document
+
+
+def test_write_normalized_rejects_malformed_prior_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-64-hex prior hash raises ValueError without creating files."""
+    monkeypatch.chdir(tmp_path)
+    settings = DataSettings()
+    store = DataStore(settings)
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    frame = _stamped_prices(spec, calendar)
+    payload = _payload(b"prices-payload")
+    raw_artifact = store.store_raw(Dataset.PRICES, payload)
+    report = validate_frame(frame, spec, calendar)
+    manifests_dir = tmp_path / "data" / "manifests" / "prices"
+    before = sorted(manifests_dir.glob("*.json")) if manifests_dir.is_dir() else []
+    with pytest.raises(ValueError, match="prior_manifest_sha256"):
+        store.write_normalized(frame, spec, raw_artifact, payload, report, "1", "not-hex")
+    assert (sorted(manifests_dir.glob("*.json")) if manifests_dir.is_dir() else []) == before
+
+
+def test_catalog_rejects_malformed_prior_hash_in_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A present but malformed prior_manifest_sha256 fails manifest reconstruction."""
+    import src.data.catalog as catalog_module
+
+    monkeypatch.chdir(tmp_path)
+    settings = DataSettings()
+    store = DataStore(settings)
+    spec = spec_for(Dataset.PRICES)
+    calendar = load_calendar("XNYS")
+
+    artifact = _publish_prices(store, spec, calendar, _payload(b"prices-payload"))
+    document = json.loads(artifact.manifest_path.read_text(encoding="utf-8"))
+    document["prior_manifest_sha256"] = "bad-value"
+    artifact.manifest_path.write_bytes(
+        json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+    catalog_module.clear_catalog_frame_cache()
+    with pytest.raises(UntrustedDatasetError, match="manifest malformed"):
+        catalog_module.latest_artifact(settings, Dataset.PRICES)

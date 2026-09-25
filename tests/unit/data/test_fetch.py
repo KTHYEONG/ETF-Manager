@@ -459,3 +459,205 @@ def test_rates_multi_series_merge_persists(monkeypatch: pytest.MonkeyPatch, tmp_
         )
     stored = DataStore(settings).read_normalized(artifact, spec_for(Dataset.RATES))
     assert set(stored.get_column("series_id").unique().to_list()) == {"AAA", "BBB"}
+
+
+def _synthetic_price_frame(rows: list[tuple[str, date]]) -> pl.DataFrame:
+    from src.data.schema import TS_DTYPE
+
+    return pl.DataFrame(
+        {
+            "ticker": [ticker for ticker, _day in rows],
+            "date": [day for _ticker, day in rows],
+            "open": [1.0] * len(rows),
+            "high": [1.0] * len(rows),
+            "low": [1.0] * len(rows),
+            "close": [1.0] * len(rows),
+            "volume": [100] * len(rows),
+            "adjusted_close": [1.0] * len(rows),
+            "dividend": [0.0] * len(rows),
+            "split_factor": [1.0] * len(rows),
+            "source": ["tiingo"] * len(rows),
+            "retrieved_at": [datetime(2024, 1, 30, tzinfo=UTC)] * len(rows),
+        }
+    ).cast({"retrieved_at": TS_DTYPE})
+
+
+def _tiingo_bar(day: str) -> bytes:
+    return json.dumps(
+        [
+            {
+                "date": f"{day}T00:00:00.000Z",
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 1000,
+                "adjClose": 10.5,
+                "divCash": 0.0,
+                "splitFactor": 1.0,
+            }
+        ]
+    ).encode()
+
+
+def test_prices_incremental_keeps_skipped_tickers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A 429 on B keeps B's prior rows while A gains new rows."""
+    from src.data.fetch import fetch_and_persist_prices
+    from src.data.pipeline import persist_ingest
+    from src.data.storage import RawPayload
+
+    settings = _fresh_settings(monkeypatch, tmp_path)
+    seed = _synthetic_price_frame([("A", date(2024, 1, 30)), ("B", date(2024, 1, 30))])
+    persist_ingest(
+        seed,
+        Dataset.PRICES,
+        RawPayload(
+            provider="tiingo",
+            endpoint="seed",
+            request_params={},
+            retrieved_at=datetime(2024, 1, 30, tzinfo=UTC),
+            extension="json",
+            content=b"seed",
+        ),
+        settings,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "/B/prices" in url:
+            return httpx.Response(429, content=b"rate limited")
+        return httpx.Response(200, content=_tiingo_bar("2024-01-31"))
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        artifact = fetch_and_persist_prices(
+            ("A", "B"),
+            date(2024, 1, 30),
+            date(2024, 1, 31),
+            secrets=_SECRETS,
+            settings=settings,
+            client=http,
+            incremental=True,
+        )
+    stored = DataStore(settings).read_normalized(artifact, spec_for(Dataset.PRICES))
+    a_dates = sorted(stored.filter(pl.col("ticker") == "A").get_column("date").to_list())
+    b_dates = sorted(stored.filter(pl.col("ticker") == "B").get_column("date").to_list())
+    assert b_dates == [date(2024, 1, 30)]
+    assert date(2024, 1, 30) in a_dates
+    assert date(2024, 1, 31) in a_dates
+    assert artifact.manifest.prior_manifest_sha256 is not None
+
+
+def test_rates_and_macro_replace_fetched_series_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Refreshing X replaces X while Y stays unchanged, with no key loss."""
+    import json as _json
+
+    import httpx
+
+    from src.data.fetch import fetch_and_persist_macro, fetch_and_persist_rates
+
+    settings = _fresh_settings(monkeypatch, tmp_path)
+    bodies = {
+        "X": _json.dumps({"observations": [{"date": "2024-01-02", "value": "1.0"}]}).encode(),
+        "Y": _json.dumps({"observations": [{"date": "2024-01-02", "value": "4.0"}]}).encode(),
+    }
+
+    def both_handler(request: httpx.Request) -> httpx.Response:
+        series = str(request.url.params.get("series_id", "X"))
+        return httpx.Response(200, content=bodies.get(series, bodies["X"]))
+
+    with httpx.Client(transport=httpx.MockTransport(both_handler)) as http:
+        fetch_and_persist_rates(
+            ("X", "Y"), date(2024, 1, 2), date(2024, 1, 2), secrets=_SECRETS, settings=settings, client=http
+        )
+    x_only = _json.dumps({"observations": [{"date": "2024-01-02", "value": "2.0"}]}).encode()
+    with _client_serving(x_only) as http:
+        artifact = fetch_and_persist_rates(
+            ("X",), date(2024, 1, 2), date(2024, 1, 2), secrets=_SECRETS, settings=settings, client=http
+        )
+    stored = DataStore(settings).read_normalized(artifact, spec_for(Dataset.RATES))
+    assert set(stored.get_column("series_id").unique().to_list()) == {"X", "Y"}
+    assert stored.filter(pl.col("series_id") == "X").get_column("value").to_list() == [2.0]
+    assert stored.filter(pl.col("series_id") == "Y").get_column("value").to_list() == [4.0]
+
+    def macro_both(request: httpx.Request) -> httpx.Response:
+        series = str(request.url.params.get("series_id", ""))
+        value = "3.0" if series == "X" else "4.0"
+        body = {
+            "observations": [
+                {"date": "2024-01-02", "value": value, "realtime_start": "2024-01-03", "realtime_end": "2024-01-03"}
+            ]
+        }
+        return httpx.Response(200, content=_json.dumps(body).encode())
+
+    with httpx.Client(transport=httpx.MockTransport(macro_both)) as http:
+        fetch_and_persist_macro(
+            ("X", "Y"),
+            date(2024, 1, 2),
+            date(2024, 1, 3),
+            secrets=_SECRETS,
+            settings=settings,
+            client=http,
+            retain_other_series=True,
+        )
+    refreshed_x = _json.dumps(
+        {"observations": [{"date": "2024-01-02", "value": "8.0", "realtime_start": "2024-01-04", "realtime_end": "2024-01-04"}]}
+    ).encode()
+    with _client_serving(refreshed_x) as http:
+        macro_art = fetch_and_persist_macro(
+            "X",
+            date(2024, 1, 2),
+            date(2024, 1, 4),
+            secrets=_SECRETS,
+            settings=settings,
+            client=http,
+            retain_other_series=True,
+        )
+    macro_stored = DataStore(settings).read_normalized(macro_art, spec_for(Dataset.MACRO))
+    assert set(macro_stored.get_column("series_id").unique().to_list()) == {"X", "Y"}
+
+
+def test_unreadable_prior_aborts_fetch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An untrusted prior prices partition aborts incremental ingest before writes."""
+    from src.data.catalog import clear_catalog_frame_cache, latest_artifact
+    from src.data.fetch import fetch_and_persist_prices
+    from src.data.merge import PriorPartitionUntrustedError
+    from src.data.pipeline import persist_ingest
+    from src.data.storage import RawPayload
+
+    settings = _fresh_settings(monkeypatch, tmp_path)
+    seed = _synthetic_price_frame([("A", date(2024, 1, 30))])
+    persist_ingest(
+        seed,
+        Dataset.PRICES,
+        RawPayload(
+            provider="tiingo",
+            endpoint="seed",
+            request_params={},
+            retrieved_at=datetime(2024, 1, 30, tzinfo=UTC),
+            extension="json",
+            content=b"seed",
+        ),
+        settings,
+    )
+    manifests_dir = tmp_path / "data" / "manifests" / "prices"
+    before_manifests = sorted(manifests_dir.glob("*.json"))
+    normalized_files = list((tmp_path / "data" / "normalized" / "prices").rglob("*.parquet"))
+    before_parquet = len(normalized_files)
+    trusted = latest_artifact(settings, Dataset.PRICES)
+    trusted.normalized_path.unlink()
+    clear_catalog_frame_cache()
+
+    with _client_serving(_tiingo_bar("2024-01-31")) as http, pytest.raises(PriorPartitionUntrustedError):
+        fetch_and_persist_prices(
+            ("A",),
+            date(2024, 1, 30),
+            date(2024, 1, 31),
+            secrets=_SECRETS,
+            settings=settings,
+            client=http,
+            incremental=True,
+        )
+    assert sorted(manifests_dir.glob("*.json")) == before_manifests
+    assert len(list((tmp_path / "data" / "normalized" / "prices").rglob("*.parquet"))) == before_parquet - 1

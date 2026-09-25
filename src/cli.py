@@ -93,6 +93,37 @@ def _dispatch(args: argparse.Namespace) -> int:
                 len(report.migrated),
             )
             return 0
+        if getattr(args, "target", None) == "recover":
+            from src.data.merge import apply_history_recovery, plan_history_recovery
+            from src.data.schema import Dataset
+
+            recover_name = str(getattr(args, "dataset", ""))
+            try:
+                recover_dataset = Dataset(recover_name)
+            except ValueError:
+                raise _UsageError(f"unknown dataset {recover_name!r}") from None
+            recover_settings = DataSettings()
+            recovery_plan = plan_history_recovery(recover_settings, recover_dataset)
+            if recovery_plan is None:
+                logger.info("[DATA] event=recover_none dataset=%s", str(recover_dataset))
+                return 0
+            if not bool(getattr(args, "apply", False)):
+                logger.info(
+                    "[DATA] event=recover_plan dataset=%s latest_rows=%d recovered_rows=%d sources=%s",
+                    str(recover_dataset),
+                    recovery_plan.latest_rows,
+                    recovery_plan.recovered_rows,
+                    ",".join(recovery_plan.source_manifest_sha256s),
+                )
+                return 0
+            artifact = apply_history_recovery(recovery_plan, recover_settings)
+            logger.info(
+                "[DATA] event=recover_applied dataset=%s manifest=%s rows=%d",
+                str(recover_dataset),
+                artifact.manifest_path.stem,
+                artifact.manifest.row_count,
+            )
+            return 0
         if getattr(args, "target", None) == "results":
             from src.cli_commands.results import run_results_command
 

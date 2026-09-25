@@ -210,3 +210,155 @@ def test_nport_reuses_pointer_zip_without_http(tmp_path: Path) -> None:
     assert from_cache is True
     assert loaded == zip_bytes
     assert len(requests) == 0
+
+
+def _holdings_frame(rows: list[tuple[str, date, str]]) -> pl.DataFrame:
+    spec = spec_for(Dataset.ETF_HOLDINGS)
+    retrieved = datetime.now(UTC)
+    filing = datetime(2020, 3, 15, 12, 0, tzinfo=UTC)
+    return pl.DataFrame(
+        {
+            "etf_ticker": [r[0] for r in rows],
+            "report_date": [r[1] for r in rows],
+            "filing_date": [filing] * len(rows),
+            "holding_id": [r[2] for r in rows],
+            "issuer_name": ["Issuer"] * len(rows),
+            "cusip": ["123456789"] * len(rows),
+            "isin": [None] * len(rows),
+            "lei": [None] * len(rows),
+            "weight_pct": [1.0] * len(rows),
+            "value_usd": [1e6] * len(rows),
+            "source": ["sec_nport"] * len(rows),
+            "retrieved_at": [retrieved] * len(rows),
+        }
+    ).cast(pl.Schema(dict(spec.columns)))
+
+
+def test_nport_unreadable_prior_aborts_and_writes_nothing(tmp_path: Path) -> None:
+    """2026-09-25 incident replay: missing Bronze aborts ingest without new manifests."""
+    from src.data.merge import PriorPartitionUntrustedError
+    from src.data.nport_ingest import fetch_and_persist_nport_quarter
+
+    settings = DataSettings(data_root=tmp_path / "data")
+    seed = _holdings_frame(
+        [
+            ("SOXX", date(2019, 3, 31), "H1"),
+            ("SOXX", date(2019, 6, 30), "H1"),
+            ("SOXX", date(2019, 9, 30), "H1"),
+            ("SOXX", date(2019, 12, 31), "H1"),
+        ]
+    )
+    payload = RawPayload(
+        provider="sec",
+        endpoint="seed",
+        request_params={},
+        retrieved_at=datetime.now(UTC),
+        extension="zip",
+        content=b"seed-zip-bytes",
+    )
+    persist_ingest(seed, Dataset.ETF_HOLDINGS, payload, settings)
+    manifests_dir = settings.resolved_data_root() / "manifests" / str(Dataset.ETF_HOLDINGS)
+    before = sorted(manifests_dir.glob("*.json"))
+    assert len(before) == 1
+
+    from src.data.catalog import latest_artifact
+
+    trusted = latest_artifact(settings, Dataset.ETF_HOLDINGS)
+    raw_path = settings.resolved_data_root().joinpath(*trusted.manifest.raw_artifact.relative_path.parts)
+    raw_path.unlink()
+
+    from src.data.catalog import clear_catalog_frame_cache
+
+    clear_catalog_frame_cache()
+    fixture = Path("tests/fixtures/nport/minimal_2019q4.zip")
+    zip_bytes = fixture.read_bytes()
+
+    class _FakeResponse:
+        status_code = 200
+        content = zip_bytes
+
+    class _FakeClient:
+        def get(self, url: str, **kwargs: object) -> _FakeResponse:
+            _ = url, kwargs
+            return _FakeResponse()
+
+    with pytest.raises(PriorPartitionUntrustedError):
+        fetch_and_persist_nport_quarter(filing_quarter="2020q1", settings=settings, client=_FakeClient())
+    assert sorted(manifests_dir.glob("*.json")) == before
+
+
+def test_nport_quarter_append_keeps_history(tmp_path: Path) -> None:
+    """A new quarter partition keeps Q1-Q2 keys and records the prior manifest hash."""
+    from src.data.nport_ingest import fetch_and_persist_nport_quarter
+
+    settings = DataSettings(data_root=tmp_path / "data")
+    seed = _holdings_frame([("SOXX", date(2019, 3, 31), "H1"), ("SOXX", date(2019, 6, 30), "H1")])
+    payload = RawPayload(
+        provider="sec",
+        endpoint="seed",
+        request_params={},
+        retrieved_at=datetime.now(UTC),
+        extension="zip",
+        content=b"seed-zip-bytes",
+    )
+    first = persist_ingest(seed, Dataset.ETF_HOLDINGS, payload, settings)
+
+    fixture = Path("tests/fixtures/nport/minimal_2019q4.zip")
+    zip_bytes = fixture.read_bytes()
+
+    class _FakeResponse:
+        status_code = 200
+        content = zip_bytes
+
+    class _FakeClient:
+        def get(self, url: str, **kwargs: object) -> _FakeResponse:
+            _ = url, kwargs
+            return _FakeResponse()
+
+    artifact = fetch_and_persist_nport_quarter(
+        filing_quarter="2019q4", settings=settings, client=_FakeClient()
+    )
+    assert artifact.manifest.prior_manifest_sha256 == first.manifest_path.stem
+    stored = DataStore(settings).read_normalized(artifact, spec_for(Dataset.ETF_HOLDINGS))
+    pairs = set(zip(stored.get_column("etf_ticker").to_list(), stored.get_column("report_date").to_list(), strict=True))
+    assert ("SOXX", date(2019, 3, 31)) in pairs
+    assert ("SOXX", date(2019, 6, 30)) in pairs
+    assert artifact.manifest.row_count > first.manifest.row_count
+
+
+def test_nport_reingest_same_quarter_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ingesting the same quarter twice keeps row count and normalized hash."""
+    from datetime import datetime as _real_datetime
+
+    from src.data.nport_ingest import fetch_and_persist_nport_quarter
+
+    fixed = _real_datetime(2020, 4, 1, 12, 0, tzinfo=UTC)
+
+    class _FrozenDatetime(_real_datetime):
+        @classmethod
+        def now(cls, tz: object = None) -> _real_datetime:
+            return fixed
+
+    monkeypatch.setattr("src.data.nport_ingest.datetime", _FrozenDatetime)
+
+    settings = DataSettings(data_root=tmp_path / "data")
+    fixture = Path("tests/fixtures/nport/minimal_2019q4.zip")
+    zip_bytes = fixture.read_bytes()
+
+    class _FakeResponse:
+        status_code = 200
+        content = zip_bytes
+
+    class _FakeClient:
+        def get(self, url: str, **kwargs: object) -> _FakeResponse:
+            _ = url, kwargs
+            return _FakeResponse()
+
+    first = fetch_and_persist_nport_quarter(
+        filing_quarter="2019q4", settings=settings, client=_FakeClient()
+    )
+    second = fetch_and_persist_nport_quarter(
+        filing_quarter="2019q4", settings=settings, client=_FakeClient()
+    )
+    assert second.manifest.row_count == first.manifest.row_count
+    assert second.manifest.normalized_sha256 == first.manifest.normalized_sha256

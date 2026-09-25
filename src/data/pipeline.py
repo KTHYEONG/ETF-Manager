@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import polars as pl
 
@@ -14,6 +15,9 @@ from src.data.quality import enforce, validate_frame
 from src.data.schema import AvailabilityKind, Dataset, spec_for
 from src.data.settings import DataSettings
 from src.data.storage import DatasetArtifact, DataStore, RawPayload
+
+if TYPE_CHECKING:
+    from src.data.merge import PriorPartition
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +59,8 @@ def persist_ingest(
     calendar_name: str = DEFAULT_CALENDAR_NAME,
     normalization_version: str = "1",
     allow_shrink: bool = False,
+    prior: PriorPartition | None = None,
+    refreshed: pl.DataFrame | None = None,
 ) -> DatasetArtifact:
     """Archive the raw payload, run :func:`ingest`, then persist the partition.
 
@@ -67,14 +73,24 @@ def persist_ingest(
         UntrustedDatasetError: When existing artifacts fail hash verification.
         ValueError: On invalid arguments or paths escaping the data root.
     """
+    from src.data.merge import assert_key_coverage
+
     store = DataStore(settings)
     raw_artifact = store.store_raw(dataset, payload)
     stamped = ingest(raw, dataset, calendar_name=calendar_name)
     spec = spec_for(dataset)
     calendar = load_calendar(calendar_name) if spec.availability.kind is AvailabilityKind.SESSION_CLOSE else None
     report = validate_frame(stamped, spec, calendar)
-    assert_safe_partition_replacement(dataset, stamped.height, settings, allow_shrink=allow_shrink)
-    artifact = store.write_normalized(stamped, spec, raw_artifact, payload, report, normalization_version)
+    prior_partition: PriorPartition | None = prior
+    if prior_partition is not None:
+        assert_key_coverage(prior_partition, stamped, dataset, refreshed=refreshed)
+        prior_sha: str | None = prior_partition.artifact.manifest_path.stem
+    else:
+        assert_safe_partition_replacement(dataset, stamped.height, settings, allow_shrink=allow_shrink)
+        prior_sha = None
+    artifact = store.write_normalized(
+        stamped, spec, raw_artifact, payload, report, normalization_version, prior_sha
+    )
     logger.info(
         "[DATA] event=persist_ingest dataset=%s rows=%d frame_sha256=%s",
         str(dataset),
