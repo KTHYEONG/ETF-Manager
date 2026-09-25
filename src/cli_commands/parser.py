@@ -369,6 +369,12 @@ def _build_parser() -> _Parser:
     )
     pension_campaign.add_argument("--config", required=True, help="Path to the pension campaign JSON")
     pension_campaign.add_argument("--seed", type=int, required=True, help="Campaign RNG seed")
+    pension_selection = run_targets.add_parser(
+        "pension-selection",
+        help="Standalone pension ETF selection (scenario regret, tail, historical gates)",
+    )
+    pension_selection.add_argument("--config", required=True, help="Path to the pension selection JSON")
+    pension_selection.add_argument("--seed", type=int, required=True, help="Bootstrap RNG seed")
     audit_feasibility = run_targets.add_parser(
         "audit-feasibility",
         help="Static DCA feasibility window audit (reporting only)",

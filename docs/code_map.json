@@ -52,6 +52,10 @@
     "family": "analytics",
     "testing": "tests/unit/analytics/test_overlap.py"
   },
+  "src/analytics/pension_selection.py": {
+    "family": "analytics",
+    "testing": "tests/unit/analytics/test_pension_selection.py"
+  },
   "src/analytics/purity_evidence.py": {
     "architecture": "docs/architecture/components.md",
     "family": "thesis",
@@ -539,6 +543,10 @@
     "architecture": "docs/architecture/components.md",
     "family": "validation",
     "testing": "tests/unit/validation/test_historical_campaign.py"
+  },
+  "src/validation/pension_selection.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_pension_selection.py"
   },
   "src/validation/prospective.py": {
     "family": "validation",
