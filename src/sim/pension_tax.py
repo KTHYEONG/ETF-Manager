@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from enum import StrEnum
 from fractions import Fraction
 from itertools import pairwise
 from pathlib import Path
@@ -15,12 +16,16 @@ from typing import Final, Literal
 
 __all__ = [
     "PensionCreditQuote",
+    "PensionExitKind",
+    "PensionExitQuote",
     "PensionTaxProfile",
     "PensionTaxRegime",
     "PensionWithdrawalQuote",
     "load_pension_tax_regime",
     "quote_annual_pension_credit",
     "quote_annual_pension_withdrawal",
+    "quote_pension_exit",
+    "years_to_draw_at_threshold",
 ]
 
 _EXPECTED_KEYS: Final[frozenset[str]] = frozenset(
@@ -41,6 +46,8 @@ _EXPECTED_KEYS: Final[frozenset[str]] = frozenset(
         "age_withholding_bands",
         "above_threshold_separate_rate",
         "non_pension_rate",
+        "foreign_dividend_withholding_rate",
+        "foreign_tax_credit_rate",
         "pension_limit_multiplier",
         "pension_limit_final_year",
     }
@@ -58,13 +65,19 @@ _RATE_KEYS: Final[tuple[str, ...]] = (
     "local_surcharge_rate",
     "above_threshold_separate_rate",
     "non_pension_rate",
+    "foreign_dividend_withholding_rate",
+    "foreign_tax_credit_rate",
 )
 _SUPPORTED_POLICY_YEAR: Final[int] = 2026
 
 
 @dataclass(frozen=True, slots=True)
 class PensionTaxRegime:
-    """Validated 2026-law parameters for the supported personal-pension scenario."""
+    """Validated 2026-law parameters for the supported personal-pension scenario.
+
+    Foreign-dividend withholding is lost at source inside the account; the credit rate
+    converts accumulated withheld tax into an exit-tax credit (0 disables it).
+    """
 
     regime_id: str
     policy_year: int
@@ -81,6 +94,10 @@ class PensionTaxRegime:
     age_withholding_bands: tuple[tuple[int, float], ...]
     above_threshold_separate_rate: float
     non_pension_rate: float
+    foreign_dividend_withholding_rate: float
+    """Withholding lost at source on foreign dividends held inside the account."""
+    foreign_tax_credit_rate: float
+    """Share of accumulated withheld foreign tax creditable against the exit tax (0 disables)."""
     pension_limit_multiplier: float
     pension_limit_final_year: int
     source_urls: tuple[str, ...]
@@ -233,6 +250,8 @@ def load_pension_tax_regime(path: str | Path) -> PensionTaxRegime:
         age_withholding_bands=_require_bands(document),
         above_threshold_separate_rate=rates["above_threshold_separate_rate"],
         non_pension_rate=rates["non_pension_rate"],
+        foreign_dividend_withholding_rate=rates["foreign_dividend_withholding_rate"],
+        foreign_tax_credit_rate=rates["foreign_tax_credit_rate"],
         pension_limit_multiplier=float(multiplier),
         pension_limit_final_year=final_year,
         source_urls=tuple(source_urls),
@@ -398,3 +417,87 @@ def quote_annual_pension_withdrawal(
         remaining_uncredited_principal_krw=uncredited - tax_free,
         remaining_credited_principal_krw=credited - min(taxable, credited),
     )
+
+
+class PensionExitKind(StrEnum):
+    """How the account balance leaves the tax wrapper at the valuation date."""
+
+    LUMP_SUM = "lump_sum"
+    ANNUITY_LOW = "annuity_low"
+    ANNUITY_HIGH = "annuity_high"
+
+
+@dataclass(frozen=True, slots=True)
+class PensionExitQuote:
+    """After-tax value of the whole balance under one exit convention."""
+
+    kind: PensionExitKind
+    balance_krw: int
+    tax_free_krw: int
+    taxable_krw: int
+    national_tax_krw: int
+    local_tax_krw: int
+    foreign_tax_credit_krw: int
+    net_krw: int
+
+
+def quote_pension_exit(
+    kind: PensionExitKind,
+    *,
+    valuation_date: date,
+    balance_krw: int,
+    uncredited_principal_krw: int,
+    foreign_tax_withheld_krw: int,
+    profile: PensionTaxProfile,
+    regime: PensionTaxRegime,
+) -> PensionExitQuote:
+    """Value the entire balance as if it left the pension wrapper under ``kind``.
+
+    Uncredited principal leaves first and tax-free; the remainder (credited principal and
+    all gains) is taxable. LUMP_SUM applies the non-pension (other-income) rate, which also
+    claws back the contribution credit. ANNUITY_LOW applies the age-band rate at the later of
+    the valuation age and the minimum pension age, i.e. it assumes the holder defers to
+    eligibility and draws within the private-pension threshold with no further return;
+    ANNUITY_HIGH applies the above-threshold separate rate. The foreign-tax credit is
+    ``foreign_tax_credit_rate`` times the withheld foreign tax, floored to won, and never
+    exceeds the exit tax.
+
+    Raises:
+        ValueError: On negative amounts or an unknown kind.
+    """
+    if not isinstance(kind, PensionExitKind):
+        raise ValueError(f"unknown pension exit kind {kind!r}")
+    balance = _require_quote_amount(balance_krw, "balance_krw", allow_zero=True)
+    uncredited = _require_quote_amount(uncredited_principal_krw, "uncredited_principal_krw", allow_zero=True)
+    withheld = _require_quote_amount(foreign_tax_withheld_krw, "foreign_tax_withheld_krw", allow_zero=True)
+    tax_free = min(balance, uncredited)
+    taxable = balance - tax_free
+    if kind is PensionExitKind.LUMP_SUM:
+        rate = regime.non_pension_rate
+    elif kind is PensionExitKind.ANNUITY_LOW:
+        age = max(_full_years_since(profile.birth_date, valuation_date), regime.minimum_pension_age)
+        rate = _age_rate(regime, age)
+    else:
+        rate = regime.above_threshold_separate_rate
+    national_tax = _won(taxable, rate)
+    local_tax = _won(national_tax, regime.local_surcharge_rate)
+    credit = min(national_tax + local_tax, _won(withheld, regime.foreign_tax_credit_rate))
+    return PensionExitQuote(
+        kind=kind,
+        balance_krw=balance,
+        tax_free_krw=tax_free,
+        taxable_krw=taxable,
+        national_tax_krw=national_tax,
+        local_tax_krw=local_tax,
+        foreign_tax_credit_krw=credit,
+        net_krw=balance - national_tax - local_tax + credit,
+    )
+
+
+def years_to_draw_at_threshold(taxable_krw: int, regime: PensionTaxRegime) -> int:
+    """Whole years needed to draw ``taxable_krw`` without exceeding the private-pension threshold (0 when nothing is taxable)."""
+    taxable = _require_quote_amount(taxable_krw, "taxable_krw", allow_zero=True)
+    if taxable == 0:
+        return 0
+    threshold = regime.private_pension_threshold_krw
+    return (taxable + threshold - 1) // threshold

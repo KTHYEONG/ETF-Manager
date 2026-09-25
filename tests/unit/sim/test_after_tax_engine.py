@@ -20,6 +20,7 @@ from src.sim.after_tax_engine import (
     AfterTaxConfig,
     AfterTaxDataError,
     ExecutionMode,
+    _check_scheduled_cash_before_final_execution,
     run_after_tax,
     run_after_tax_from_store,
 )
@@ -1075,3 +1076,161 @@ def test_harvest_exhaustion_stops_tickers() -> None:
     assert len(december_trades) == 1
     assert december_trades[0].ticker == "BIG"
     assert result.sell_count == 1
+
+
+def _decision_executions(start: date, end: date) -> tuple[date, ...]:
+    from src.data.schedule import build_decision_schedule
+
+    return tuple(
+        point.execution_session
+        for point in build_decision_schedule(start, end, frequency="monthly", fill_delay_sessions=1)
+    )
+
+
+def test_schedule_matching_monthly_reproduces_monthly_result() -> None:
+    """A schedule paying the monthly amount on each signal month traces the monthly path."""
+    from src.data.schedule import build_decision_schedule
+
+    window = _sessions(date(2024, 1, 2), date(2025, 12, 31))
+    closes = [100.0 + 0.05 * index for index in range(len(window))]
+    prices = _prices_frame(window, {"QQQ": closes})
+    fx = _fx_frame(window)
+    cpi = _cpi_frame()
+    monthly = run_after_tax(_config(), prices, fx, cpi)
+    points = build_decision_schedule(date(2024, 1, 15), date(2024, 12, 31), frequency="monthly", fill_delay_sessions=1)
+    scheduled = run_after_tax(
+        _config(
+            monthly_contribution_krw=0.0,
+            contribution_schedule_krw={point.signal_session: 1_300_000.0 for point in points},
+        ),
+        prices,
+        fx,
+        cpi,
+    )
+    assert [snapshot.session for snapshot in scheduled.snapshots] == [
+        snapshot.session for snapshot in monthly.snapshots
+    ]
+    assert scheduled.terminal_after_tax_krw == pytest.approx(monthly.terminal_after_tax_krw, rel=1e-9)
+    assert scheduled.xirr_after_tax_real == pytest.approx(monthly.xirr_after_tax_real, rel=1e-9)
+
+
+def test_scheduled_cash_waits_for_its_date() -> None:
+    """A single mid-run deposit leaves earlier steps empty and lands on its execution."""
+    window = _sessions(date(2024, 1, 2), date(2024, 12, 31))
+    prices = _prices_frame(window, {"QQQ": [100.0] * len(window)})
+    result = run_after_tax(
+        _config(
+            end=date(2024, 6, 28),
+            monthly_contribution_krw=0.0,
+            contribution_schedule_krw={date(2024, 3, 15): 6_000_000.0},
+        ),
+        prices,
+        _fx_frame(window),
+        _cpi_frame(),
+    )
+    executions = _decision_executions(date(2024, 1, 15), date(2024, 6, 28))
+    expected_session = min(session for session in executions if session >= date(2024, 3, 15))
+    funded = [snapshot for snapshot in result.snapshots if snapshot.contribution_krw > 0]
+    assert len(funded) == 1
+    assert funded[0].session == expected_session
+    assert funded[0].contribution_krw == 6_000_000.0
+    for snapshot in result.snapshots:
+        if snapshot.session < expected_session:
+            assert snapshot.contribution_krw == 0.0
+            assert all(shares == 0.0 for shares in snapshot.shares.values())
+
+
+def test_snapshot_contributions_sum_to_schedule_total() -> None:
+    """Irregular January/May deposits over two years reconcile exactly with snapshots."""
+    window = _sessions(date(2024, 1, 2), date(2026, 6, 30))
+    closes = [100.0 + 0.05 * index for index in range(len(window))]
+    prices = _prices_frame(window, {"QQQ": closes})
+    funding = {
+        date(2024, 1, 20): 6_000_000.0,
+        date(2024, 5, 31): 990_000.0,
+        date(2025, 1, 15): 6_000_000.0,
+        date(2025, 5, 31): 990_000.0,
+    }
+    result = run_after_tax(
+        _config(
+            end=date(2025, 12, 31),
+            monthly_contribution_krw=0.0,
+            contribution_schedule_krw=funding,
+        ),
+        prices,
+        _fx_frame(window),
+        _cpi_frame(),
+    )
+    assert sum(snapshot.contribution_krw for snapshot in result.snapshots) == sum(funding.values())
+
+
+def test_schedule_and_monthly_are_mutually_exclusive() -> None:
+    """A schedule requires monthly zero; monthly zero requires a schedule."""
+    window = _sessions(date(2024, 1, 2), date(2024, 6, 28))
+    prices = _prices_frame(window, {"QQQ": [100.0] * len(window)})
+    fx = _fx_frame(window)
+    cpi = _cpi_frame()
+    with pytest.raises(ValueError, match="when contribution_schedule_krw is set"):
+        run_after_tax(
+            _config(
+                end=date(2024, 6, 28),
+                monthly_contribution_krw=1_000_000.0,
+                contribution_schedule_krw={date(2024, 2, 1): 1_000_000.0},
+            ),
+            prices,
+            fx,
+            cpi,
+        )
+    with pytest.raises(ValueError, match="positive"):
+        run_after_tax(_config(end=date(2024, 6, 28), monthly_contribution_krw=0.0), prices, fx, cpi)
+
+
+def test_invalid_schedule_entries_rejected() -> None:
+    """Empty, non-positive, or misdated schedules fail closed with the offender named."""
+    window = _sessions(date(2024, 1, 2), date(2024, 6, 28))
+    prices = _prices_frame(window, {"QQQ": [100.0] * len(window)})
+    fx = _fx_frame(window)
+    cpi = _cpi_frame()
+    bad_schedules: list[tuple[dict[Any, Any], str]] = [
+        ({}, "non-empty"),
+        ({date(2024, 2, 1): 0.0}, "positive"),
+        ({date(2024, 2, 1): -100.0}, "positive"),
+        ({date(2024, 2, 1): float("nan")}, "positive"),
+        ({date(2024, 2, 1): float("inf")}, "positive"),
+        ({date(2024, 2, 1): True}, "positive"),
+        ({"2024-02-01": 1_000_000.0}, "must be a date"),
+        ({date(2024, 1, 1): 1_000_000.0}, "outside"),
+        ({date(2024, 7, 1): 1_000_000.0}, "outside"),
+    ]
+    for funding, match in bad_schedules:
+        with pytest.raises(ValueError, match=match):
+            run_after_tax(
+                _config(end=date(2024, 6, 28), monthly_contribution_krw=0.0, contribution_schedule_krw=funding),
+                prices,
+                fx,
+                cpi,
+            )
+
+
+def test_cash_after_final_execution_fails_closed() -> None:
+    """Cash dated after the final execution session can never be invested.
+
+    The monthly schedule always executes past ``end``, so a post-execution date
+    within ``[start, end]`` cannot arise end-to-end; the guard is exercised
+    directly, while cash dated on ``end`` itself still invests at the final fill.
+    """
+    with pytest.raises(AfterTaxDataError, match="falls after the final execution session"):
+        _check_scheduled_cash_before_final_execution({date(2024, 7, 10): 1_000_000.0}, date(2024, 7, 1))
+    _check_scheduled_cash_before_final_execution({date(2024, 7, 1): 1_000_000.0}, date(2024, 7, 1))
+    window = _sessions(date(2024, 1, 2), date(2024, 7, 31))
+    result = run_after_tax(
+        _config(
+            end=date(2024, 7, 15),
+            monthly_contribution_krw=0.0,
+            contribution_schedule_krw={date(2024, 7, 15): 1_000_000.0},
+        ),
+        _prices_frame(window, {"QQQ": [100.0] * len(window)}),
+        _fx_frame(window),
+        _cpi_frame(),
+    )
+    assert sum(snapshot.contribution_krw for snapshot in result.snapshots) == 1_000_000.0

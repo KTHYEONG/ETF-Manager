@@ -58,7 +58,10 @@ class KrwFxSeries:
     """Merged USD/KRW quote series with per-row source labels.
 
     ``frame`` has columns ``date`` (Date), ``usdkrw`` (Float64), ``source`` (Utf8),
-    unique ascending dates, all quotes finite and positive.
+    ``available_at`` (Datetime UTC), unique ascending dates, all quotes finite and
+    positive. The frame is directly usable as the general after-tax engine's ``fx``
+    input: primary rows keep the primary stamp and admitted fallback rows keep the
+    fallback stamp.
     """
 
     frame: pl.DataFrame
@@ -149,13 +152,17 @@ def _require_columns(frame: pl.DataFrame, required: tuple[str, ...], label: str)
         raise ValueError(f"{label} is missing required column(s) {missing}")
 
 
-def _quote_maps(frame: pl.DataFrame, label: str) -> tuple[dict[date, float], dict[date, str]]:
+def _quote_maps(
+    frame: pl.DataFrame, label: str
+) -> tuple[dict[date, float], dict[date, str], dict[date, datetime]]:
     dates: list[Any] = frame.get_column("date").to_list()
     quotes: list[Any] = frame.get_column("usdkrw").to_list()
     sources: list[Any] = frame.get_column("source").to_list()
+    stamps: list[Any] = frame.get_column("available_at").to_list()
     prices: dict[date, float] = {}
     labels: dict[date, str] = {}
-    for day, quote, source in zip(dates, quotes, sources, strict=True):
+    published: dict[date, datetime] = {}
+    for day, quote, source, stamp in zip(dates, quotes, sources, stamps, strict=True):
         if not isinstance(day, date) or isinstance(day, datetime):
             raise ValueError(f"{label} carries a non-date value {day!r}")
         if quote is None:
@@ -165,10 +172,14 @@ def _quote_maps(frame: pl.DataFrame, label: str) -> tuple[dict[date, float], dic
             raise ValueError(f"{label} carries a non-positive or non-finite quote on {day.isoformat()}")
         if not isinstance(source, str) or not source:
             raise ValueError(f"{label} carries a missing source on {day.isoformat()}")
+        if stamp is None or not isinstance(stamp, datetime):
+            raise ValueError(f"{label} carries a missing available_at on {day.isoformat()}")
+        aware = stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=UTC)
         assert isinstance(day, date)
         prices[day] = value
         labels[day] = source
-    return prices, labels
+        published[day] = aware.astimezone(UTC)
+    return prices, labels, published
 
 
 def _p99_linear(values: list[float]) -> float:
@@ -197,8 +208,8 @@ def build_krw_fx_series(primary: pl.DataFrame, fallback: pl.DataFrame | None) ->
     dates is measured and returned for disclosure.
 
     Args:
-        primary: Columns ``date``, ``usdkrw``, ``source``. Null quotes are treated as
-            unpublished dates.
+        primary: Columns ``date``, ``usdkrw``, ``source``, ``available_at`` (tz-aware).
+            Null quotes are treated as unpublished dates.
         fallback: ``None`` when the fallback dataset is unavailable; otherwise columns
             ``date``, ``usdkrw``, ``source``, ``available_at`` (tz-aware). Null quotes
             (vendor holiday gap rows) are treated as unpublished dates.
@@ -206,21 +217,26 @@ def build_krw_fx_series(primary: pl.DataFrame, fallback: pl.DataFrame | None) ->
     Returns:
         The merged series and its disclosure fields; status is ``UNAVAILABLE`` when
         ``fallback is None``, ``NOT_NEEDED`` when no fallback row was admitted, else ``APPLIED``.
+        The output ``frame`` carries ``available_at`` per row (primary rows keep the
+        primary stamp; admitted fallback rows keep the fallback stamp).
 
     Raises:
-        ValueError: A required column is missing; a non-null quote is non-finite or
+        ValueError: A required column is missing; an ``available_at`` column is not
+            tz-aware; a stamp is missing; a non-null quote is non-finite or
             non-positive; a source has duplicate dates; the primary has no quote; or the
             primary and fallback share a ``source`` label.
     """
-    _require_columns(primary, ("date", "usdkrw", "source"), "primary")
+    _require_columns(primary, ("date", "usdkrw", "source", "available_at"), "primary")
     if fallback is not None:
         _require_columns(fallback, ("date", "usdkrw", "source", "available_at"), "fallback")
     for label, frame in (("primary", primary), ("fallback", fallback)) if fallback is not None else (("primary", primary),):
         dates = frame.get_column("date").to_list()
         if len(set(dates)) != len(dates):
             raise ValueError(f"{label} carries duplicate dates")
+        if not isinstance(frame.schema["available_at"], pl.Datetime) or frame.schema["available_at"].time_zone is None:
+            raise ValueError(f"{label} available_at must be a tz-aware timestamp column")
 
-    primary_prices, primary_labels = _quote_maps(primary, "primary")
+    primary_prices, primary_labels, primary_stamps = _quote_maps(primary, "primary")
     if not primary_prices:
         raise ValueError("primary carries no quote")
     primary_source = _mode_label(list(primary_labels.values()))
@@ -235,8 +251,9 @@ def build_krw_fx_series(primary: pl.DataFrame, fallback: pl.DataFrame | None) ->
                 "date": ordered,
                 "usdkrw": [float(primary_prices[d]) for d in ordered],
                 "source": [primary_labels[d] for d in ordered],
+                "available_at": [primary_stamps[d] for d in ordered],
             },
-            schema={"date": pl.Date, "usdkrw": pl.Float64, "source": pl.String},
+            schema={"date": pl.Date, "usdkrw": pl.Float64, "source": pl.String, "available_at": pl.Datetime("us", "UTC")},
         )
         logger.info("[DATA] event=krw_fx_series status=%s fallback_rows=%d rejected_late=%d", "UNAVAILABLE", 0, 0)
         return KrwFxSeries(
@@ -249,10 +266,7 @@ def build_krw_fx_series(primary: pl.DataFrame, fallback: pl.DataFrame | None) ->
             basis=None,
         )
 
-    if not isinstance(fallback.schema["available_at"], pl.Datetime) or fallback.schema["available_at"].time_zone is None:
-        raise ValueError("fallback available_at must be a tz-aware timestamp column")
-
-    _, fallback_labels = _quote_maps(fallback, "fallback")
+    _, fallback_labels, fallback_stamps = _quote_maps(fallback, "fallback")
     primary_label_set = set(primary_labels.values())
     fallback_label_set_all = {str(v) for v in fallback.get_column("source").drop_nulls().to_list()}
     if primary_label_set & fallback_label_set_all:
@@ -263,20 +277,16 @@ def build_krw_fx_series(primary: pl.DataFrame, fallback: pl.DataFrame | None) ->
         if null_dropped.len():
             fallback_source = _mode_label([str(v) for v in null_dropped.to_list()])
 
-    available: list[Any] = fallback.get_column("available_at").to_list()
     fallback_dates: list[Any] = fallback.get_column("date").to_list()
     fallback_quotes: list[Any] = fallback.get_column("usdkrw").to_list()
     on_time: dict[date, float] = {}
     rejected_late_count = 0
-    for day, quote, ts in zip(fallback_dates, fallback_quotes, available, strict=True):
+    for day, quote in zip(fallback_dates, fallback_quotes, strict=True):
         if quote is None:
             continue
         assert isinstance(day, date)
         assert not isinstance(day, datetime)
-        if ts is None or not isinstance(ts, datetime):
-            raise ValueError(f"fallback carries a missing available_at on {day.isoformat()}")
-        stamp = ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
-        stamp_utc = stamp.astimezone(UTC)
+        stamp_utc = fallback_stamps[day]
         deadline = datetime(day.year, day.month, day.day, tzinfo=UTC) + timedelta(days=1)
         if stamp_utc >= deadline:
             rejected_late_count += 1
@@ -302,16 +312,19 @@ def build_krw_fx_series(primary: pl.DataFrame, fallback: pl.DataFrame | None) ->
     merged_dates = sorted(primary_dates | set(admitted))
     merged_prices: list[float] = []
     merged_sources: list[str] = []
+    merged_stamps: list[datetime] = []
     for day in merged_dates:
         if day in primary_prices:
             merged_prices.append(float(primary_prices[day]))
             merged_sources.append(primary_labels[day])
+            merged_stamps.append(primary_stamps[day])
         else:
             merged_prices.append(float(on_time[day]))
             merged_sources.append(fallback_labels[day])
+            merged_stamps.append(fallback_stamps[day])
     frame = pl.DataFrame(
-        {"date": merged_dates, "usdkrw": merged_prices, "source": merged_sources},
-        schema={"date": pl.Date, "usdkrw": pl.Float64, "source": pl.String},
+        {"date": merged_dates, "usdkrw": merged_prices, "source": merged_sources, "available_at": merged_stamps},
+        schema={"date": pl.Date, "usdkrw": pl.Float64, "source": pl.String, "available_at": pl.Datetime("us", "UTC")},
     )
     status = FxFallbackStatus.APPLIED if admitted else FxFallbackStatus.NOT_NEEDED
     logger.info(

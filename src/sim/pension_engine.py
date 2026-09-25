@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
-from typing import Final
+from typing import Final, cast
 
 import polars as pl
 
@@ -94,6 +94,9 @@ class PensionBacktestResult:
     after_tax_external_cashflows_krw: tuple[tuple[date, int], ...]
     is_retirement_terminal: bool
     market_mode: PensionMarketMode
+    terminal_credited_principal_krw: int
+    terminal_uncredited_principal_krw: int
+    foreign_tax_withheld_krw: int
 
 
 def _validate_config(config: PensionBacktestConfig) -> tuple[str, ...]:
@@ -147,10 +150,13 @@ def _validate_config(config: PensionBacktestConfig) -> tuple[str, ...]:
     return tuple(config.targets)
 
 
-def _proxy_marks(prices: pl.DataFrame, fx: pl.DataFrame | None, max_fx_age_days: int) -> dict[tuple[str, date], float]:
+def _proxy_marks(
+    prices: pl.DataFrame, fx: pl.DataFrame | None, max_fx_age_days: int, withholding_rate: float
+) -> tuple[dict[tuple[str, date], float], dict[tuple[str, date], float]]:
+    """Build net-of-withholding KRW marks and per-unit withheld tax for US proxies."""
     if fx is None:
         raise PensionDataError("US_PROXY mode requires an as-of USD/KRW frame")
-    for column in ("ticker", "date", "adjusted_close"):
+    for column in ("ticker", "date", "close", "adjusted_close", "dividend"):
         if column not in prices.columns:
             raise PensionDataError(f"US_PROXY prices miss required column {column!r}")
     for column in ("date", "usdkrw"):
@@ -163,19 +169,62 @@ def _proxy_marks(prices: pl.DataFrame, fx: pl.DataFrame | None, max_fx_age_days:
         raise PensionDataError("US_PROXY fx carries a missing or nonpositive quote")
     fx_dates = [row["date"] for row in fx_rows]
     fx_values = [float(row["usdkrw"]) for row in fx_rows]
-    marks: dict[tuple[str, date], float] = {}
-    for row in prices.select("ticker", "date", "adjusted_close").to_dicts():
-        quote = row["adjusted_close"]
-        if quote is None or quote <= 0:
-            raise PensionDataError(f"US_PROXY price for {row['ticker']!r} on {row['date']!r} is missing or zero")
-        day = row["date"]
+
+    def _fx_at(day: date) -> float:
         position = bisect.bisect_right(fx_dates, day) - 1
         if position < 0:
             raise PensionDataError(f"US_PROXY fx is missing on or before {day.isoformat()}")
         if (day - fx_dates[position]).days > max_fx_age_days:
-            raise PensionDataError(f"US_PROXY fx quote on {fx_dates[position].isoformat()} is stale for {day.isoformat()}")
-        marks[(str(row["ticker"]), day)] = float(quote) * fx_values[position]
-    return marks
+            raise PensionDataError(
+                f"US_PROXY fx quote on {fx_dates[position].isoformat()} is stale for {day.isoformat()}"
+            )
+        return fx_values[position]
+
+    marks: dict[tuple[str, date], float] = {}
+    withheld: dict[tuple[str, date], float] = {}
+    rows = prices.select("ticker", "date", "close", "adjusted_close", "dividend").to_dicts()
+    by_ticker: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        by_ticker.setdefault(str(row["ticker"]), []).append(row)
+    for ticker, ticker_rows in by_ticker.items():
+        ordered = sorted(ticker_rows, key=lambda row: row["date"])  # type: ignore[arg-type,return-value]
+        index: float | None = None
+        prev_close = 0.0
+        prev_index = 0.0
+        prev_quote = 0.0
+        for row in ordered:
+            day = cast("date", row["date"])
+            close = row["close"]
+            quote = row["adjusted_close"]
+            dividend = row["dividend"]
+            if isinstance(close, bool) or not isinstance(close, float | int):
+                raise PensionDataError(f"US_PROXY close for {ticker!r} on {day!r} is missing or zero")
+            if not math.isfinite(close) or close <= 0:
+                raise PensionDataError(f"US_PROXY close for {ticker!r} on {day!r} is missing or zero")
+            if isinstance(quote, bool) or not isinstance(quote, float | int):
+                raise PensionDataError(f"US_PROXY price for {ticker!r} on {day!r} is missing or zero")
+            if not math.isfinite(quote) or quote <= 0:
+                raise PensionDataError(f"US_PROXY price for {ticker!r} on {day!r} is missing or zero")
+            if isinstance(dividend, bool) or not isinstance(dividend, float | int):
+                raise PensionDataError(f"US_PROXY dividend for {ticker!r} on {day!r} is missing")
+            if not math.isfinite(dividend) or dividend < 0:
+                raise PensionDataError(f"US_PROXY dividend for {ticker!r} on {day!r} is missing")
+            fx_rate = _fx_at(day)
+            if index is None:
+                index = float(quote)
+            else:
+                ratio = float(quote) / prev_quote
+                drag = withholding_rate * float(dividend) / prev_close
+                index = prev_index * (ratio - drag)
+                if float(dividend) > 0:
+                    withheld[(ticker, day)] = (
+                        withholding_rate * float(dividend) / prev_close * prev_index * fx_rate
+                    )
+            marks[(ticker, day)] = index * fx_rate
+            prev_quote = float(quote)
+            prev_close = float(close)
+            prev_index = index
+    return marks, withheld
 
 
 def _live_marks(
@@ -248,8 +297,11 @@ def run_pension_backtest(
     live_distributions: dict[tuple[str, date], float] = {}
     live_pay_dates: dict[tuple[str, date], date | None] = {}
     live_splits: dict[tuple[str, date], float] = {}
+    withheld_per_unit_krw: dict[tuple[str, date], float] = {}
     if config.market_mode is PensionMarketMode.US_PROXY:
-        base_marks = _proxy_marks(window, fx, config.max_fx_age_days)
+        base_marks, withheld_per_unit_krw = _proxy_marks(
+            window, fx, config.max_fx_age_days, regime.foreign_dividend_withholding_rate
+        )
     else:
         if fx is not None:
             raise ValueError("KR_LIVE mode takes no fx frame; Korean closes are already KRW")
@@ -381,9 +433,14 @@ def run_pension_backtest(
     opening_nav_by_year: dict[int, int] = {}
     uncredited_basis = 0
     credited_basis = 0
+    foreign_tax_withheld = 0.0
     attempted = 0
 
     for day in sessions:
+        for ticker in tickers:
+            per_unit = withheld_per_unit_krw.get((ticker, day))
+            if per_unit is not None:
+                foreign_tax_withheld += units[ticker] * per_unit
         if config.market_mode is PensionMarketMode.KR_LIVE:
             for ticker in tickers:
                 factor = live_splits.get((ticker, day))
@@ -499,4 +556,7 @@ def run_pension_backtest(
         after_tax_external_cashflows_krw=tuple(external),
         is_retirement_terminal=attempted > 0 and attempted == len(payout_years) and not payout_shortfalls and result_nav == 0,
         market_mode=config.market_mode,
+        terminal_credited_principal_krw=credited_basis,
+        terminal_uncredited_principal_krw=uncredited_basis,
+        foreign_tax_withheld_krw=int(foreign_tax_withheld),
     )

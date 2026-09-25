@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
 import pytest
 
 from src.sim.pension_tax import (
+    PensionExitKind,
     PensionTaxProfile,
     PensionTaxRegime,
     load_pension_tax_regime,
     quote_annual_pension_credit,
     quote_annual_pension_withdrawal,
+    quote_pension_exit,
+    years_to_draw_at_threshold,
 )
 
 _SHIPPED = Path("configs/tax/kr_pension_2026.json")
@@ -277,3 +281,164 @@ def test_quote_inputs_fail_closed() -> None:
             _profile(birth=date(1960, 1, 1), opened=date(2010, 1, 1), year=2025),
             regime,
         )
+
+
+def test_exit_lump_sum_taxes_credited_principal_and_gains() -> None:
+    """A fully credited 10m balance pays 1.5m national plus 150k local tax."""
+    quote = quote_pension_exit(
+        PensionExitKind.LUMP_SUM,
+        valuation_date=date(2025, 6, 1),
+        balance_krw=10_000_000,
+        uncredited_principal_krw=0,
+        foreign_tax_withheld_krw=0,
+        profile=_profile(),
+        regime=_regime(),
+    )
+    assert quote.taxable_krw == 10_000_000
+    assert quote.national_tax_krw == 1_500_000
+    assert quote.local_tax_krw == 150_000
+    assert quote.foreign_tax_credit_krw == 0
+    assert quote.net_krw == 8_350_000
+
+
+def test_exit_uncredited_principal_leaves_tax_free() -> None:
+    """Uncredited principal leaves first; only the remainder is taxable."""
+    quote = quote_pension_exit(
+        PensionExitKind.LUMP_SUM,
+        valuation_date=date(2025, 6, 1),
+        balance_krw=10_000_000,
+        uncredited_principal_krw=4_000_000,
+        foreign_tax_withheld_krw=0,
+        profile=_profile(),
+        regime=_regime(),
+    )
+    assert quote.tax_free_krw == 4_000_000
+    assert quote.taxable_krw == 6_000_000
+    assert quote.national_tax_krw == 900_000
+    assert quote.local_tax_krw == 90_000
+
+
+def test_exit_uncredited_principal_above_balance_caps_at_balance() -> None:
+    """Uncredited basis above the balance leaves the whole balance untaxed."""
+    quote = quote_pension_exit(
+        PensionExitKind.LUMP_SUM,
+        valuation_date=date(2025, 6, 1),
+        balance_krw=3_000_000,
+        uncredited_principal_krw=4_000_000,
+        foreign_tax_withheld_krw=0,
+        profile=_profile(),
+        regime=_regime(),
+    )
+    assert quote.tax_free_krw == 3_000_000
+    assert quote.taxable_krw == 0
+    assert quote.net_krw == 3_000_000
+
+
+def test_exit_annuity_low_uses_deferred_eligibility_age_band() -> None:
+    """A 40-year-old is valued at the age-55 band; a 72-year-old at the 70+ band."""
+    regime = _regime()
+    young = quote_pension_exit(
+        PensionExitKind.ANNUITY_LOW,
+        valuation_date=date(2025, 6, 1),
+        balance_krw=10_000_000,
+        uncredited_principal_krw=0,
+        foreign_tax_withheld_krw=0,
+        profile=_profile(birth=date(1985, 6, 1)),
+        regime=regime,
+    )
+    assert young.national_tax_krw == 500_000
+    senior = quote_pension_exit(
+        PensionExitKind.ANNUITY_LOW,
+        valuation_date=date(2025, 6, 1),
+        balance_krw=10_000_000,
+        uncredited_principal_krw=0,
+        foreign_tax_withheld_krw=0,
+        profile=_profile(birth=date(1953, 6, 1)),
+        regime=regime,
+    )
+    assert senior.national_tax_krw == 400_000
+
+
+def test_exit_convention_ordering() -> None:
+    """Annuity-low nets most, lump-sum nets least, for identical inputs."""
+    regime = _regime()
+    profile = _profile()
+    kinds = (PensionExitKind.ANNUITY_LOW, PensionExitKind.ANNUITY_HIGH, PensionExitKind.LUMP_SUM)
+    nets = [
+        quote_pension_exit(
+            kind,
+            valuation_date=date(2025, 6, 1),
+            balance_krw=10_000_000,
+            uncredited_principal_krw=0,
+            foreign_tax_withheld_krw=0,
+            profile=profile,
+            regime=regime,
+        ).net_krw
+        for kind in kinds
+    ]
+    assert nets[0] >= nets[1] >= nets[2]
+
+
+def test_exit_foreign_tax_credit_bounded_by_exit_tax() -> None:
+    """A large withheld balance with a 0.5 credit rate wipes out, but never exceeds, the exit tax."""
+    regime = replace(_regime(), foreign_tax_credit_rate=0.5)
+    quote = quote_pension_exit(
+        PensionExitKind.LUMP_SUM,
+        valuation_date=date(2025, 6, 1),
+        balance_krw=10_000_000,
+        uncredited_principal_krw=0,
+        foreign_tax_withheld_krw=100_000_000,
+        profile=_profile(),
+        regime=regime,
+    )
+    assert quote.foreign_tax_credit_krw == quote.national_tax_krw + quote.local_tax_krw
+    assert quote.net_krw == quote.balance_krw
+
+
+def test_exit_zero_credit_rate_disables_credit() -> None:
+    """The shipped zero credit rate yields no credit whatever was withheld."""
+    quote = quote_pension_exit(
+        PensionExitKind.LUMP_SUM,
+        valuation_date=date(2025, 6, 1),
+        balance_krw=10_000_000,
+        uncredited_principal_krw=0,
+        foreign_tax_withheld_krw=100_000_000,
+        profile=_profile(),
+        regime=_regime(),
+    )
+    assert _regime().foreign_tax_credit_rate == 0.0
+    assert quote.foreign_tax_credit_krw == 0
+
+
+def test_exit_negative_amounts_rejected() -> None:
+    """Negative balance, uncredited basis, withheld tax, or an unknown kind fails closed."""
+    profile = _profile()
+    regime = _regime()
+    with pytest.raises(ValueError, match="positive"):
+        quote_pension_exit(
+            PensionExitKind.LUMP_SUM, valuation_date=date(2025, 6, 1), balance_krw=-1,
+            uncredited_principal_krw=0, foreign_tax_withheld_krw=0, profile=profile, regime=regime,
+        )
+    with pytest.raises(ValueError, match="positive"):
+        quote_pension_exit(
+            PensionExitKind.LUMP_SUM, valuation_date=date(2025, 6, 1), balance_krw=1,
+            uncredited_principal_krw=-1, foreign_tax_withheld_krw=0, profile=profile, regime=regime,
+        )
+    with pytest.raises(ValueError, match="positive"):
+        quote_pension_exit(
+            PensionExitKind.LUMP_SUM, valuation_date=date(2025, 6, 1), balance_krw=1,
+            uncredited_principal_krw=0, foreign_tax_withheld_krw=-1, profile=profile, regime=regime,
+        )
+    with pytest.raises(ValueError, match="unknown pension exit kind"):
+        quote_pension_exit(
+            "lump_sum", valuation_date=date(2025, 6, 1), balance_krw=1,  # type: ignore[arg-type]
+            uncredited_principal_krw=0, foreign_tax_withheld_krw=0, profile=profile, regime=regime,
+        )
+
+
+def test_years_to_draw_at_threshold() -> None:
+    """45,000,001 KRW needs four threshold-sized years; nothing taxable needs none."""
+    regime = _regime()
+    assert years_to_draw_at_threshold(45_000_001, regime) == 4
+    assert years_to_draw_at_threshold(15_000_000, regime) == 1
+    assert years_to_draw_at_threshold(0, regime) == 0

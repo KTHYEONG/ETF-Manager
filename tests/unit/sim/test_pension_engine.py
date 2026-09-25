@@ -59,7 +59,8 @@ def _us_prices(sessions: list[date], tickers: tuple[str, ...] = ("SPY",)) -> pl.
     for ticker in tickers:
         base = 400.0 if ticker == "SPY" else 300.0
         for index, day in enumerate(sessions):
-            rows.append({"ticker": ticker, "date": day, "adjusted_close": base + 0.1 * index})
+            price = base + 0.1 * index
+            rows.append({"ticker": ticker, "date": day, "close": price, "adjusted_close": price, "dividend": 0.0})
     return pl.DataFrame(rows)
 
 
@@ -477,6 +478,169 @@ def test_split_on_purchase_session_changes_only_preexisting_units() -> None:
     on_split = next(snap for snap in result.snapshots if snap.session == split_day)
     assert on_split.units_by_ticker["379800"] == math.floor(6_000_000 / split_close)
     assert result.snapshots[-1].units_by_ticker["379800"] == on_split.units_by_ticker["379800"]
+
+
+def _us_dividend_prices(
+    sessions: list[date], *, div_on: date | None = None, div_rate: float = 0.01
+) -> pl.DataFrame:
+    rows = []
+    base = 400.0
+    for index, day in enumerate(sessions):
+        price = base + 0.1 * index
+        rows.append({
+            "ticker": "SPY",
+            "date": day,
+            "close": price,
+            "adjusted_close": price,
+            "dividend": div_rate * price if div_on is not None and day == div_on else 0.0,
+        })
+    return pl.DataFrame(rows)
+
+
+def test_zero_withholding_reproduces_adjusted_marks() -> None:
+    """With rate 0.0 and dividends present, marks equal adjusted_close x fx and nothing is withheld."""
+    from src.sim.pension_engine import _proxy_marks
+
+    sessions = _xnys_sessions(date(2023, 1, 1), date(2023, 12, 31))
+    div_on = sessions[len(sessions) // 2]
+    prices = _us_dividend_prices(sessions, div_on=div_on)
+    fx = _fx(sessions)
+    zero = replace(_regime(), foreign_dividend_withholding_rate=0.0)
+    marks, withheld = _proxy_marks(prices, fx, 7, zero.foreign_dividend_withholding_rate)
+    by_date = {day: 400.0 + 0.1 * index for index, day in enumerate(sessions)}
+    for day in sessions:
+        assert marks[("SPY", day)] == pytest.approx(by_date[day] * 1300.0, rel=1e-12)
+    assert all(value == 0.0 for value in withheld.values())
+    config = _config(start=date(2023, 1, 1), end=date(2023, 12, 31),
+                     cash={2023: 6_000_000}, dates={2023: (date(2023, 1, 15),)})
+    result = run_pension_backtest(config, prices, fx, _profile(years=(2023,)), zero)
+    assert result.foreign_tax_withheld_krw == 0
+
+
+def test_withholding_lowers_nav_and_accrues_foreign_tax() -> None:
+    """A 1% dividend held at rate 0.15 lowers NAV and accrues 15% of the dividend value."""
+    from src.sim.pension_engine import _proxy_marks
+
+    sessions = _xnys_sessions(date(2023, 1, 1), date(2023, 12, 31))
+    div_on = sessions[len(sessions) // 2]
+    div_index = sessions.index(div_on)
+    prices = _us_dividend_prices(sessions, div_on=div_on)
+    fx = _fx(sessions)
+    config = _config(start=date(2023, 1, 1), end=date(2023, 12, 31),
+                     cash={2023: 6_000_000}, dates={2023: (date(2023, 1, 15),)})
+    zero = replace(_regime(), foreign_dividend_withholding_rate=0.0)
+    plain = run_pension_backtest(config, prices, fx, _profile(years=(2023,)), zero)
+    gross = run_pension_backtest(config, prices, fx, _profile(years=(2023,)), _regime())
+    assert _regime().foreign_dividend_withholding_rate == pytest.approx(0.15)
+    assert gross.terminal_nav_krw < plain.terminal_nav_krw
+    assert gross.foreign_tax_withheld_krw > 0
+    _, withheld_per_unit = _proxy_marks(prices, fx, 7, 0.15)
+    div_price = 400.0 + 0.1 * div_index
+    assert withheld_per_unit[("SPY", div_on)] == pytest.approx(0.15 * (0.01 * div_price) * 1300.0, rel=1e-9)
+    units_before = plain.snapshots[div_index - 1].units_by_ticker["SPY"]
+    expected = units_before * 0.15 * (0.01 * div_price) * 1300.0
+    assert gross.foreign_tax_withheld_krw == pytest.approx(expected, abs=2.0)
+
+
+def test_dividend_before_first_purchase_accrues_nothing() -> None:
+    """A dividend paid before any units are held leaves no withheld tax."""
+    sessions = _xnys_sessions(date(2023, 1, 1), date(2023, 12, 31))
+    prices = _us_dividend_prices(sessions, div_on=sessions[0])
+    config = _config(start=date(2023, 1, 1), end=date(2023, 12, 31),
+                     cash={2023: 6_000_000}, dates={2023: (date(2023, 6, 15),)})
+    result = run_pension_backtest(config, prices, _fx(sessions), _profile(years=(2023,)), _regime())
+    assert result.foreign_tax_withheld_krw == 0
+
+
+def test_proxy_dividend_columns_fail_closed() -> None:
+    """Missing close/dividend columns or a null dividend aborts the arm."""
+    sessions = _xnys_sessions(date(2023, 1, 1), date(2023, 12, 31))
+    prices = _us_dividend_prices(sessions)
+    fx = _fx(sessions)
+    config = _config(start=date(2023, 1, 1), end=date(2023, 12, 31),
+                     cash={2023: 6_000_000}, dates={2023: (date(2023, 1, 15),)})
+    profile = _profile(years=(2023,))
+    with pytest.raises(PensionDataError, match="required column"):
+        run_pension_backtest(config, prices.drop("dividend"), fx, profile, _regime())
+    with pytest.raises(PensionDataError, match="required column"):
+        run_pension_backtest(config, prices.drop("close"), fx, profile, _regime())
+    null_div = prices.with_columns(
+        pl.when(pl.col("date") == sessions[10])
+        .then(None)
+        .otherwise(pl.col("dividend"))
+        .alias("dividend")
+    )
+    with pytest.raises(PensionDataError, match="dividend"):
+        run_pension_backtest(config, null_div, fx, profile, _regime())
+    null_close = prices.with_columns(
+        pl.when(pl.col("date") == sessions[10])
+        .then(None)
+        .otherwise(pl.col("close"))
+        .alias("close")
+    )
+    with pytest.raises(PensionDataError, match="missing or zero"):
+        run_pension_backtest(config, null_close, fx, profile, _regime())
+    zero_close = prices.with_columns(
+        pl.when(pl.col("date") == sessions[10])
+        .then(0.0)
+        .otherwise(pl.col("close"))
+        .alias("close")
+    )
+    with pytest.raises(PensionDataError, match="missing or zero"):
+        run_pension_backtest(config, zero_close, fx, profile, _regime())
+    text_quote = prices.with_columns(pl.lit("x").alias("adjusted_close"))
+    with pytest.raises(PensionDataError, match="missing or zero"):
+        run_pension_backtest(config, text_quote, fx, profile, _regime())
+    negative_div = prices.with_columns(
+        pl.when(pl.col("date") == sessions[10])
+        .then(-5.0)
+        .otherwise(pl.col("dividend"))
+        .alias("dividend")
+    )
+    with pytest.raises(PensionDataError, match="dividend"):
+        run_pension_backtest(config, negative_div, fx, profile, _regime())
+
+
+def test_future_dividend_perturbation_invariance() -> None:
+    """Dividends after T leave every snapshot dated on or before T identical."""
+    sessions = _xnys_sessions(date(2023, 1, 1), date(2023, 12, 31))
+    cutoff = sessions[len(sessions) // 2]
+    base = _us_dividend_prices(sessions)
+    shocked = base.with_columns(
+        pl.when(pl.col("date") > cutoff)
+        .then(50.0)
+        .otherwise(pl.col("dividend"))
+        .alias("dividend")
+    )
+    config = _config(start=date(2023, 1, 1), end=date(2023, 12, 31),
+                     cash={2023: 6_000_000}, dates={2023: (date(2023, 1, 15),)})
+    profile = _profile(years=(2023,))
+    first = run_pension_backtest(config, base, _fx(sessions), profile, _regime())
+    second = run_pension_backtest(config, shocked, _fx(sessions), profile, _regime())
+    assert [snap for snap in first.snapshots if snap.session <= cutoff] == [
+        snap for snap in second.snapshots if snap.session <= cutoff
+    ]
+
+
+def test_principal_bases_reported() -> None:
+    """Without withdrawals the terminal bases reconcile with cumulative contributions."""
+    sessions = _xnys_sessions(date(2023, 1, 1), date(2023, 12, 31))
+    config = _config(start=date(2023, 1, 1), end=date(2023, 12, 31),
+                     cash={2023: 6_000_000}, dates={2023: (date(2023, 1, 15),)})
+    result = run_pension_backtest(config, _us_prices(sessions), _fx(sessions), _profile(years=(2023,)), _regime())
+    assert (
+        result.terminal_credited_principal_krw + result.terminal_uncredited_principal_krw
+        == result.snapshots[-1].cumulative_contributions_krw == 6_000_000
+    )
+
+
+def test_kr_live_reports_zero_withheld() -> None:
+    """The live fixture accrues no foreign withholding."""
+    live_sessions = _xkrx_sessions(date(2023, 1, 1), date(2023, 12, 31))
+    config = _config(start=date(2023, 1, 1), end=date(2023, 12, 31), mode=PensionMarketMode.KR_LIVE,
+                     targets={"379800": 1.0}, cash={2023: 6_000_000}, dates={2023: (date(2023, 1, 10),)})
+    result = run_pension_backtest(config, _kr_prices(live_sessions), None, _profile(years=(2023,)), _regime())
+    assert result.foreign_tax_withheld_krw == 0
 
 
 def test_engine_inputs_fail_closed() -> None:

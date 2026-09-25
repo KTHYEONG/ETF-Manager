@@ -38,7 +38,7 @@ def _payload() -> RawPayload:
 
 
 def _persist_proxy_lake(settings: DataSettings) -> None:
-    sessions = list(load_calendar("XNYS").sessions(date(2023, 1, 1), date(2024, 12, 31)))
+    sessions = list(load_calendar("XNYS").sessions(date(2023, 1, 1), date(2025, 12, 31)))
     rows = []
     for ticker, base in (("SPY", 400.0), ("QQQ", 300.0)):
         for index, day in enumerate(sessions):
@@ -118,7 +118,7 @@ def _campaign_config(mode: str, tax_path: str, identity_path: str) -> dict[str, 
 
 @pytest.fixture
 def workspace(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[DataSettings, Path, Path]:
-    for name in ("kr_pension_2026.json",):
+    for name in ("kr_pension_2026.json", "kr_overseas_equity.json"):
         target = tmp_path / "configs" / "tax" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text((_REPO / "configs" / "tax" / name).read_text(encoding="utf-8"), encoding="utf-8")
@@ -249,3 +249,51 @@ def test_missing_fallback_tolerated_when_unneeded(
     reports = sorted((results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
     payload = json.loads(reports[0].read_text(encoding="utf-8"))
     assert payload["fx_provenance"]["fallback_status"] == "UNAVAILABLE"
+
+
+def _persist_cpi_lake(settings: DataSettings) -> None:
+    frame = pl.DataFrame(
+        {
+            "period_end": [date(2022, 10, 31), date(2024, 10, 31)],
+            "value": [100.0, 110.0],
+            "source": ["synthetic", "synthetic"],
+            "retrieved_at": [_RETRIEVED_AT, _RETRIEVED_AT],
+        },
+        schema=dict(spec_for(Dataset.CPI).columns),
+    )
+    persist_ingest(frame, Dataset.CPI, _payload(), settings)
+
+
+def test_digest_includes_general_regime(
+    workspace: tuple[DataSettings, Path, Path], tmp_path: Path,
+) -> None:
+    """Two runs differing only in the general regime file content get different ids."""
+    settings, proxy_path, _ = workspace
+    _persist_proxy_lake(settings)
+    _persist_cpi_lake(settings)
+    household_path = tmp_path / "household.json"
+    household_path.write_text(
+        json.dumps({
+            **_campaign_config("us_proxy", "configs/tax/kr_pension_2026.json", "configs/data/pension_etfs_2026.json"),
+            "household_view": {
+                "general_tax_regime_path": "configs/tax/kr_overseas_equity.json",
+                "commission_bps": 10.0,
+                "fx_spread_bps": 20.0,
+                "harvest_gains": True,
+                "fractional_shares": False,
+            },
+        }),
+        encoding="utf-8",
+    )
+    assert campaign_mod.run_pension_campaign_command(config_path=str(household_path), settings=settings, seed=7) == 0
+    first = sorted(p.name for p in (results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
+    assert len(first) == 1
+    assert json.loads((results_root(settings) / "pension_cli_smoke" / first[0]).read_text())["provenance"][
+        "general_tax_regime_sha256"
+    ]
+    regime_path = tmp_path / "configs" / "tax" / "kr_overseas_equity.json"
+    regime_path.write_text(regime_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    assert campaign_mod.run_pension_campaign_command(config_path=str(household_path), settings=settings, seed=7) == 0
+    second = sorted(p.name for p in (results_root(settings) / "pension_cli_smoke").glob("pension_*.json"))
+    assert len(second) == 2
+    assert set(second) != set(first)

@@ -500,5 +500,12 @@
   },
   "max_fx_age_days": 7,
   "max_fx_fallback_share": 0.1,
-  "max_cpi_age_days": 75
+  "max_cpi_age_days": 75,
+  "household_view": {
+    "general_tax_regime_path": "configs/tax/kr_overseas_equity.json",
+    "commission_bps": 10.0,
+    "fx_spread_bps": 20.0,
+    "harvest_gains": true,
+    "fractional_shares": false
+  }
 }
