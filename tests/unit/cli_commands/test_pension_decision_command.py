@@ -548,9 +548,12 @@ def _splice_research_frame(*, with_proxy: bool = True) -> pl.DataFrame:
 
 
 def _install_splice(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, captured: dict[str, object], *, with_proxy: bool = True
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, captured: dict[str, object], *, with_proxy: bool = True, prices_end: date | None = None
 ) -> None:
-    frames = {"prices": _splice_prices_frame(), "research_monthly": _splice_research_frame(with_proxy=with_proxy)}
+    prices = _splice_prices_frame()
+    if prices_end is not None:
+        prices = prices.filter(pl.col("date") <= prices_end)
+    frames = {"prices": prices, "research_monthly": _splice_research_frame(with_proxy=with_proxy)}
     snapshot = SimpleNamespace(
         artifacts={
             Dataset.PRICES: SimpleNamespace(manifest_path="/m/prices.json"),
@@ -631,6 +634,55 @@ def test_pension_decision_missing_proxy_series_fails_closed(
     _install_splice(tmp_path, monkeypatch, captured, with_proxy=False)
     code = campaign_mod.run_pension_decision_command(
         config_path=_splice_config(tmp_path),
+        settings=DataSettings(data_root=str(tmp_path / "data")),
+        seed=11,
+    )
+    assert code == 1
+    assert "payload" not in captured
+
+
+def _realized_config(tmp_path: Path) -> str:
+    path = _splice_config(tmp_path)
+    document = json.loads(Path(path).read_text(encoding="utf-8"))
+    document["realized_horizons_years"] = [1]
+    Path(path).write_text(json.dumps(document), encoding="utf-8")
+    return path
+
+
+def test_pension_decision_realized_panel_wired_and_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A splice plus realized horizons exits zero with the realized window in the payload."""
+    captured: dict[str, object] = {}
+    _install_splice(tmp_path, monkeypatch, captured)
+    code = campaign_mod.run_pension_decision_command(
+        config_path=_realized_config(tmp_path),
+        settings=DataSettings(data_root=str(tmp_path / "data")),
+        seed=11,
+    )
+    assert code == 0
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    assert payload["realized_window"] == {
+        "start": "2001-01-31",
+        "end": "2002-06-30",
+        "months": 18,
+    }
+    by_tier = payload["dominance_min_ratio_by_tier"]
+    assert isinstance(by_tier, dict)
+    assert "realized" in by_tier
+    assert isinstance(captured["markdown"], str)
+    assert "realized" in captured["markdown"]
+
+
+def test_pension_decision_realized_window_without_prices_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Prices ending before the window fail the command with no result file."""
+    captured: dict[str, object] = {}
+    _install_splice(tmp_path, monkeypatch, captured, prices_end=date(2001, 6, 30))
+    code = campaign_mod.run_pension_decision_command(
+        config_path=_realized_config(tmp_path),
         settings=DataSettings(data_root=str(tmp_path / "data")),
         seed=11,
     )

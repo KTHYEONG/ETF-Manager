@@ -66,6 +66,7 @@ class PensionDecisionReport:
     manifest_hashes: Mapping[str, str]
     trial_count: int
     dominance_min_ratio: Mapping[str, float]
+    dominance_min_ratio_by_tier: Mapping[str, Mapping[str, float]]
     guard_excluded_ids: tuple[str, ...]
     control_scores: Mapping[str, float]
     control_vs_reference: Mapping[str, float]
@@ -128,6 +129,7 @@ def evaluate_pension_decision(
     *,
     seed: int,
     incumbent_id: str | None = None,
+    realized: MonthlyReturnPanel | None = None,
 ) -> PensionDecisionReport:
     """Choose the pension holding that maximizes robust long-run growth versus the benchmark.
 
@@ -149,19 +151,32 @@ def evaluate_pension_decision(
     tier alone, never enter the robust minimum, the bootstrap, or the selection, and exist to
     record why an allocation without a century proxy was not adopted.
 
+    When ``spec.realized_horizons_years`` is non-empty a third tier, built only from actual ETF
+    prices, is scored for candidates over those horizons. Its cells enter the robust minimum and
+    the dominance guard exactly like the other tiers, so months filled by a research proxy can
+    score a candidate but can never be the only evidence that lets it replace the reference. Among
+    candidates within the equivalence band of the best eligible score, selection prefers the mildest
+    pre-retirement drawdown, then the lowest start-weighted fee drag, then the reference, then the
+    lexicographically smallest id, so exactly one holding is returned.
+
     Args:
         spec: Pre-registered decision config.
         modern: Tradable ETF tier panel.
         century: Century research tier panel.
         seed: Bootstrap seed.
         incumbent_id: Currently held candidate from a frozen record, if any.
+        realized: Realized-ETF tier panel (tier ``realized``), required exactly when
+            ``spec.realized_horizons_years`` is non-empty.
 
     Returns:
         Scores for every candidate, the selection, and the verdict with reasons.
 
     Raises:
         ValueError: If a panel lacks a sleeve required by any candidate, the incumbent id is unknown,
-            or the drag map names a sleeve no candidate or control uses.
+            the drag map names a sleeve no candidate or control uses, ``realized`` is missing while
+            realized horizons are declared, ``realized`` is provided while no realized horizon is
+            declared, the realized tier label is not ``realized``, the realized panel lacks a
+            candidate sleeve, or a realized horizon does not fit the realized panel.
     """
     candidate_ids = tuple(spec.candidates)
     if incumbent_id is not None and incumbent_id not in spec.candidates:
@@ -182,6 +197,17 @@ def evaluate_pension_decision(
     unknown_drags = sorted(set(spec.annual_drag_by_sleeve) - candidate_sleeves - control_sleeves)
     if unknown_drags:
         raise ValueError(f"pension annual_drag_by_sleeve names unknown sleeves: {unknown_drags}")
+    realized_horizons = tuple(spec.realized_horizons_years)
+    if realized_horizons:
+        if realized is None:
+            raise ValueError("pension realized panel is required while realized_horizons_years is non-empty")
+        if realized.tier != "realized":
+            raise ValueError(f"pension realized panel tier must be 'realized', got {realized.tier!r}")
+        realized_missing = sorted(candidate_sleeves - set(realized.returns))
+        if realized_missing:
+            raise ValueError(f"pension realized panel lacks sleeves required by candidates: {realized_missing}")
+    elif realized is not None:
+        raise ValueError("pension realized panel is provided while realized_horizons_years is empty")
     schedules = dict(spec.candidates)
 
     scores: list[CandidateScore] = []
@@ -195,9 +221,20 @@ def evaluate_pension_decision(
     tier_drawdown: dict[str, dict[str, list[float]]] = {
         candidate_id: {} for candidate_id in candidate_ids
     }
-    for tier, panel in (("modern", modern), ("century", century)):
-        for horizon in spec.horizons_years:
+    guard_by_tier: dict[str, dict[str, list[float]]] = {}
+    tiers: tuple[tuple[str, MonthlyReturnPanel, tuple[int, ...]], ...] = (
+        ("modern", modern, spec.horizons_years),
+        ("century", century, spec.horizons_years),
+    )
+    if realized is not None:
+        tiers += (("realized", realized, realized_horizons),)
+    for tier, panel, horizons in tiers:
+        for horizon in horizons:
             if horizon * _MONTHS_PER_YEAR > len(panel.months):
+                if tier == "realized":
+                    raise ValueError(
+                        f"pension realized horizon {horizon}y exceeds {len(panel.months)} realized months"
+                    )
                 logger.info(
                     "[PORTFOLIO] event=pension_decision_skip tier=%s horizon_years=%d panel_months=%d",
                     tier,
@@ -243,9 +280,11 @@ def evaluate_pension_decision(
             ref_terms = terminals[reference_id] if reference_id is not None else None
             if ref_terms is not None:
                 for candidate_id in candidate_ids:
-                    guard_lists[candidate_id].append(
-                        _ce_ratio(_paired_ratios(terminals[candidate_id], ref_terms), spec.primary_gamma)
+                    guard_ratio = _ce_ratio(
+                        _paired_ratios(terminals[candidate_id], ref_terms), spec.primary_gamma
                     )
+                    guard_lists[candidate_id].append(guard_ratio)
+                    guard_by_tier.setdefault(tier, {}).setdefault(candidate_id, []).append(guard_ratio)
             if have_controls and tier == "modern":
                 base_terms = terminals[spec.benchmark_id]
                 for control_id in spec.controls:
@@ -308,11 +347,16 @@ def evaluate_pension_decision(
     win_share = {candidate_id: wins[candidate_id] / len(boot_panels) for candidate_id in candidate_ids}
 
     dominance_min_ratio: dict[str, float] = {}
+    dominance_min_ratio_by_tier: dict[str, dict[str, float]] = {}
     guard_excluded: tuple[str, ...] = ()
     if need_guard:
         assert reference_id is not None
         dominance_min_ratio = {
             candidate_id: min(values) for candidate_id, values in guard_lists.items()
+        }
+        dominance_min_ratio_by_tier = {
+            tier: {candidate_id: min(values) for candidate_id, values in per_tier.items()}
+            for tier, per_tier in guard_by_tier.items()
         }
         threshold = 1.0 - spec.equivalence_band
         guard_excluded = tuple(
@@ -335,7 +379,22 @@ def evaluate_pension_decision(
         candidate: min(statistics.median(drawdowns) for drawdowns in tier_drawdown[candidate].values())
         for candidate in equivalent
     }
-    selection = min(equivalent, key=lambda candidate: (-worst_tier_drawdown[candidate], candidate))
+    fee_drag = {
+        candidate: math.fsum(
+            schedules[candidate].start_weights[sleeve] * spec.annual_drag_by_sleeve.get(sleeve, 0.0)
+            for sleeve in schedules[candidate].start_weights
+        )
+        for candidate in equivalent
+    }
+    selection = min(
+        equivalent,
+        key=lambda candidate: (
+            -worst_tier_drawdown[candidate],
+            fee_drag[candidate],
+            0 if candidate == reference_id else 1,
+            candidate,
+        ),
+    )
 
     reasons: list[str] = []
     status: PensionDecisionStatus
@@ -354,11 +413,18 @@ def evaluate_pension_decision(
         status, selected_id = "ADOPT_CANDIDATE", selection
     if need_guard:
         unguarded_best = max(robust_scores.values())
-        if any(
-            candidate_id in excluded_set and value == unguarded_best
+        best_excluded = [
+            candidate_id
             for candidate_id, value in robust_scores.items()
-        ):
+            if candidate_id in excluded_set and value == unguarded_best
+        ]
+        if best_excluded:
             reasons.append("DOMINANCE_GUARD")
+        if best_excluded and realized is not None:
+            realized_mins = dominance_min_ratio_by_tier.get("realized", {})
+            threshold = 1.0 - spec.equivalence_band
+            if any(realized_mins.get(candidate_id, threshold) < threshold for candidate_id in best_excluded):
+                reasons.append("REALIZED_VETO")
     trial_count_raw = spec.lineage.get("related_trial_count", 0)
     if isinstance(trial_count_raw, bool) or not isinstance(trial_count_raw, int):
         raise ValueError("pension lineage.related_trial_count must be a non-negative integer")
@@ -384,6 +450,7 @@ def evaluate_pension_decision(
         manifest_hashes={},
         trial_count=trial_count,
         dominance_min_ratio=dominance_min_ratio,
+        dominance_min_ratio_by_tier=dominance_min_ratio_by_tier,
         guard_excluded_ids=guard_excluded,
         control_scores=control_scores,
         control_vs_reference=control_vs_reference,

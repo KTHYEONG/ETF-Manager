@@ -60,6 +60,7 @@ def _spec(cutoff: date = date(2020, 1, 31)) -> PensionDecisionSpec:
         sleeve_products={},
         dominance_reference_id=None,
         controls={},
+        realized_horizons_years=(),
     )
 
 
@@ -78,6 +79,7 @@ def _report(status: str = "ADOPT_CANDIDATE", selected: str | None = _INC) -> Pen
         manifest_hashes={"prices": "p", "research_monthly": "r"},
         trial_count=3,
         dominance_min_ratio={},
+        dominance_min_ratio_by_tier={},
         guard_excluded_ids=(),
         control_scores={},
         control_vs_reference={},

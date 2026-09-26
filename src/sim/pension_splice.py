@@ -5,7 +5,7 @@ from __future__ import annotations
 import calendar as _calendar
 import logging
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Final
@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "SpliceRecord",
     "SpliceRule",
+    "realized_panel_from_prices",
+    "realized_window_start",
     "splice_modern_panel",
 ]
 
@@ -88,6 +90,58 @@ class SpliceRecord:
     proxy_last_month: date
     etf_first_month: date
     proxy_weights: Mapping[str, float]
+
+
+def realized_window_start(
+    splices: Mapping[str, SpliceRule],
+    candidate_sleeves: Collection[str],
+    modern_start: date,
+) -> date:
+    """First month-end at which every candidate sleeve is sourced from its own ETF prices.
+
+    A sleeve with a splice rule is real only from ``etf_first_month``; a sleeve without one is
+    real from ``modern_start``. Splices on non-candidate sleeves (report-only controls) do not
+    shorten the window.
+
+    Args:
+        splices: Sleeve id to splice rule.
+        candidate_sleeves: Sleeve ids held by any selectable candidate.
+        modern_start: First month-end of the modern tier.
+
+    Returns:
+        The latest of ``modern_start`` and the ``etf_first_month`` of every candidate splice.
+    """
+    latest = modern_start
+    for sleeve in candidate_sleeves:
+        rule = splices.get(sleeve)
+        if rule is not None and rule.etf_first_month > latest:
+            latest = rule.etf_first_month
+    return latest
+
+
+def realized_panel_from_prices(
+    prices: pl.DataFrame,
+    sleeves: Sequence[str],
+    as_of: datetime,
+    start: date,
+    end: date,
+) -> MonthlyReturnPanel:
+    """Build the realized tier: month-end ETF total returns only, tier label ``realized``.
+
+    Identical construction to the modern tier without any research proxy, so a cohort inside
+    this panel can only reflect prices a holder of the actual funds could have observed.
+
+    Raises:
+        ValueError: On the same conditions as ``panel_from_prices``.
+    """
+    base = panel_from_prices(prices, sleeves, as_of, start, end)
+    panel = MonthlyReturnPanel(tier="realized", months=base.months, returns=dict(base.returns))
+    logger.info(
+        "[DATA] event=pension_realized_panel months=%d sleeves=%d",
+        len(panel.months),
+        len(panel.returns),
+    )
+    return panel
 
 
 def splice_modern_panel(
