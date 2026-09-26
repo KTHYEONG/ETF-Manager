@@ -10,7 +10,7 @@ from datetime import date
 from pathlib import Path
 
 from src.sim.pension_monthly import WeightSchedule
-from src.sim.pension_splice import SpliceRule
+from src.sim.pension_splice import SpliceRule, realized_window_start
 
 __all__ = [
     "PensionDecisionSpec",
@@ -73,6 +73,7 @@ class PensionDecisionSpec:
     sleeve_products: Mapping[str, SleeveProduct]
     dominance_reference_id: str | None
     controls: Mapping[str, WeightSchedule]
+    realized_horizons_years: tuple[int, ...]
 
 
 def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -198,8 +199,9 @@ def load_pension_decision_spec(path: str | Path) -> PensionDecisionSpec:
         "dominance_reference_id",
         "controls",
         "notes",
+        "realized_horizons_years",
     }
-    missing = sorted(allowed - {"notes", "modern_splices", "sleeve_products", "dominance_reference_id", "controls"} - set(document))
+    missing = sorted(allowed - {"notes", "modern_splices", "sleeve_products", "dominance_reference_id", "controls", "realized_horizons_years"} - set(document))
     if missing:
         raise ValueError(f"pension decision config missing fields: {missing}")
     extra = sorted(set(document) - allowed)
@@ -354,6 +356,19 @@ def load_pension_decision_spec(path: str | Path) -> PensionDecisionSpec:
     splices = _parse_modern_splices(
         document.get("modern_splices", {}), known_sleeves, modern_start, modern_end
     )
+    realized_horizons = _parse_realized_horizons(document.get("realized_horizons_years", []))
+    if realized_horizons:
+        realized_start = realized_window_start(splices, candidate_sleeves, modern_start)
+        window_months = (modern_end.year * 12 + modern_end.month) - (
+            realized_start.year * 12 + realized_start.month
+        ) + 1
+        for horizon in realized_horizons:
+            if horizon * 12 > window_months:
+                raise ValueError(
+                    f"realized_horizons_years horizon {horizon} does not fit the realized window"
+                    f" [{realized_start.isoformat()}, {modern_end.isoformat()}]"
+                    f" ({window_months} months)"
+                )
     products = _parse_sleeve_products(document.get("sleeve_products", {}))
     if products:
         uncovered = sorted(known_sleeves - set(products))
@@ -397,7 +412,23 @@ def load_pension_decision_spec(path: str | Path) -> PensionDecisionSpec:
         sleeve_products=products,
         dominance_reference_id=dominance_reference_id,
         controls=controls,
+        realized_horizons_years=realized_horizons,
     )
+
+
+def _parse_realized_horizons(value: object) -> tuple[int, ...]:
+    """Parse the optional realized-tier horizons; absent or empty disables the tier."""
+    if isinstance(value, list) and not value:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError("realized_horizons_years must be an array")
+    horizons = tuple(
+        _positive_int(entry, name=f"realized_horizons_years[{index}]")
+        for index, entry in enumerate(value)
+    )
+    if len(set(horizons)) != len(horizons):
+        raise ValueError("realized_horizons_years must be unique")
+    return horizons
 
 
 def _parse_modern_splices(

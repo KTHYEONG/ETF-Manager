@@ -9,7 +9,13 @@ import polars as pl
 import pytest
 
 from src.sim.pension_monthly import panel_from_prices
-from src.sim.pension_splice import SpliceRecord, SpliceRule, splice_modern_panel
+from src.sim.pension_splice import (
+    SpliceRecord,
+    SpliceRule,
+    realized_panel_from_prices,
+    realized_window_start,
+    splice_modern_panel,
+)
 
 _AS_OF = datetime(2001, 1, 1, tzinfo=UTC)
 
@@ -370,3 +376,70 @@ def test_splice_modern_panel_missing_research_column_fails_closed() -> None:
         splice_modern_panel(
             prices, research, ["SPY"], {"SPY": rule}, _AS_OF, date(2000, 1, 31), date(2000, 2, 29)
         )
+
+
+def test_realized_window_start_uses_latest_candidate_listing() -> None:
+    """The window opens at the latest candidate etf_first_month."""
+    splices = {
+        "A": SpliceRule(sleeve="A", proxy_weights={"a": 1.0}, etf_first_month=date(2011, 11, 30)),
+        "B": SpliceRule(sleeve="B", proxy_weights={"b": 1.0}, etf_first_month=date(2008, 7, 31)),
+    }
+
+    assert (
+        realized_window_start(splices, {"A", "B"}, date(1999, 4, 30)) == date(2011, 11, 30)
+    )
+
+
+def test_realized_window_start_ignores_control_splice() -> None:
+    """A splice on a sleeve no candidate holds leaves the window unaffected."""
+    splices = {
+        "A": SpliceRule(sleeve="A", proxy_weights={"a": 1.0}, etf_first_month=date(2011, 11, 30)),
+        "CTRL": SpliceRule(
+            sleeve="CTRL", proxy_weights={"a": 1.0}, etf_first_month=date(2020, 1, 31)
+        ),
+    }
+
+    assert realized_window_start(splices, {"A"}, date(1999, 4, 30)) == date(2011, 11, 30)
+
+
+def test_realized_window_start_without_splices_returns_modern_start() -> None:
+    """With no candidate splice the realized window opens at modern_start."""
+    assert realized_window_start({}, {"A"}, date(1999, 4, 30)) == date(1999, 4, 30)
+
+
+def test_realized_panel_has_no_proxy_months() -> None:
+    """The realized panel starts at the listing month with price-derived returns."""
+    months = _month_ends(2000, 1, 6)
+    sessions = [("SCHD", date(1999, 12, 31), 200.0)]
+    sessions.extend(("SCHD", month, 200.0 + 10.0 * index) for index, month in enumerate(months))
+    prices = _prices_frame(sessions)
+    research = _research_frame(
+        [
+            ("ff_dp_hi30_monthly", date(2000, 1, 31), 0.01),
+            ("ff_dp_hi30_monthly", date(2000, 2, 29), 0.02),
+            ("ff_dp_hi30_monthly", date(2000, 3, 31), 0.03),
+        ]
+    )
+    del research
+
+    panel = realized_panel_from_prices(
+        prices, ["SCHD"], _AS_OF, date(2000, 4, 30), date(2000, 6, 30)
+    )
+    expected = panel_from_prices(prices, ["SCHD"], _AS_OF, date(2000, 4, 30), date(2000, 6, 30))
+
+    assert panel.tier == "realized"
+    assert list(panel.months) == [date(2000, 4, 30), date(2000, 5, 31), date(2000, 6, 30)]
+    assert panel.returns["SCHD"] == pytest.approx(expected.returns["SCHD"])
+
+
+def test_realized_panel_without_prior_close_fails_closed() -> None:
+    """Prices starting inside the first requested month fail with ValueError."""
+    prices = _prices_frame(
+        [
+            ("SCHD", date(2000, 4, 30), 110.0),
+            ("SCHD", date(2000, 5, 31), 121.0),
+        ]
+    )
+
+    with pytest.raises(ValueError, match="prior month-end close"):
+        realized_panel_from_prices(prices, ["SCHD"], _AS_OF, date(2000, 4, 30), date(2000, 5, 31))

@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_PENSION_DECISION_V3",
+      "date": "2026-09-26",
+      "adr_id": "ADR_20260926_PENSION_DECISION_V3",
+      "domain": "validation",
+      "title": "Pension decision v3: realized-ETF veto and deterministic tie-break",
+      "why": "v2 adopted a dividend tilt whose modern-tier evidence was about half research proxy months while real ETF prices showed it losing.",
+      "resolution": "Added a realized tier built only from actual ETF prices to the robust minimum and dominance guard, a per-tier veto report, a fee-then-reference tie-break, and the v3 config.",
+      "impact": "Proxy months can score a candidate but never alone let it replace the reference, and the decision always returns exactly one holding.",
+      "caveat": "The rule was added after seeing v2 results, so lineage records the post-hoc disclosure; the realized tier has only about five 10-year cohorts."
+    },
+    {
       "task_id": "TASK_PENSION_UNIVERSE_V2",
       "date": "2026-09-26",
       "adr_id": "ADR_20260926_PENSION_UNIVERSE_V2",
@@ -1004,16 +1015,6 @@
       "why": "Phase 6 converted every month's investable KRW in full at execution FX; next.md Phase 7 requires baseline conversion with optional bounded defer and explicit trading vs economic currency separation.",
       "resolution": "Added trailing_fx_percentile (L2), CurrencyConfig and conversion_fraction with bounded defer on expensive FX percentile, trading_currency/economic_currency labels, wired run_allocation to apply currency after overlay with cash_krw debit by spent KRW only, and CLI --fx-max-defer / --fx-expensive-percentile; currency=None preserves Phase 6 identity.",
       "impact": "Closes Phase 7 spot conversion policy under I6 no-extra-cashflow; unblocks Phase 8 ETF mapping and FX hedge challengers without changing external cashflows."
-    },
-    {
-      "task_id": "TASK_P6_DYNAMIC_OVERLAY",
-      "date": "2026-08-23",
-      "adr_id": "ADR_20260823_P6_DYNAMIC_OVERLAY",
-      "domain": "policy",
-      "title": "Phase 6: Bounded dynamic overlay (trend / vol / drawdown / optional VIX)",
-      "why": "Phase 5 buy-only rebalancing had no time-varying bounded overlay after tilt; next.md Phase 6 requires trend, vol, drawdown, and optional VIX de-risk without selling or leverage.",
-      "resolution": "Added trailing_compound_return and trailing_price_drawdown (L2), OverlayConfig and apply_bounded_overlay (trend/vol/drawdown/VIX bounded scales), wired run_allocation to apply overlay after tilt before allocate_contribution with cash residual when sum(weights)<1, MACRO load when vix_threshold set, and CLI --overlay-max-shift / --vix-threshold; overlay=None preserves Phase 5 identity.",
-      "impact": "Closes Phase 6 bounded overlay path under I7 cash residual and buy-only I5; unblocks Phase 7 currency overlay and later contrarian challenger without changing external cashflows."
     }
   ]
 }

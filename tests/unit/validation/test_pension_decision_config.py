@@ -396,3 +396,77 @@ def test_load_rejects_invalid_splice_and_product_fields(
     document = _nested(_document_with_splices_and_products(), keys, value)
     with pytest.raises(ValueError, match=match):
         load_pension_decision_spec(_write(tmp_path, document))
+
+
+def _document_with_realized_window(
+    tmp_path: Path, horizons: object, *, etf_first_month: str = "2011-11-30"
+) -> str:
+    document = _document()
+    document["modern_start"] = "1999-04-30"
+    document["modern_end"] = "2026-08-31"
+    document["modern_splices"] = {
+        "SPY": {"proxy_weights": {"ff_mkt_monthly": 1.0}, "etf_first_month": etf_first_month},
+    }
+    document["realized_horizons_years"] = horizons
+    return _write(tmp_path, document)
+
+
+def test_load_without_realized_field_disables_tier(tmp_path: Path) -> None:
+    """A config without the realized field loads with an empty tuple."""
+    spec = load_pension_decision_spec(_write(tmp_path, _document()))
+
+    assert spec.realized_horizons_years == ()
+
+
+def test_load_accepts_feasible_realized_horizon(tmp_path: Path) -> None:
+    """A 10-year horizon fits the 2011-11 to 2026-08 realized window."""
+    spec = load_pension_decision_spec(_document_with_realized_window(tmp_path, [10]))
+
+    assert spec.realized_horizons_years == (10,)
+
+
+def test_load_rejects_infeasible_realized_horizon(tmp_path: Path) -> None:
+    """A 20-year horizon names the horizon when it exceeds the realized window."""
+    with pytest.raises(ValueError, match="20"):
+        load_pension_decision_spec(_document_with_realized_window(tmp_path, [20]))
+
+
+def test_load_rejects_duplicate_or_non_positive_realized_horizons(tmp_path: Path) -> None:
+    """Duplicate and non-positive realized horizons fail closed."""
+    with pytest.raises(ValueError, match="unique"):
+        load_pension_decision_spec(_document_with_realized_window(tmp_path, [10, 10]))
+    with pytest.raises(ValueError, match="positive integer"):
+        load_pension_decision_spec(_document_with_realized_window(tmp_path, [0]))
+
+
+def test_load_rejects_non_array_realized_horizons(tmp_path: Path) -> None:
+    """A non-array realized horizons declaration fails closed."""
+    with pytest.raises(ValueError, match="must be an array"):
+        load_pension_decision_spec(_document_with_realized_window(tmp_path, "10"))
+
+
+_V3_CONFIG_PATH = _REPO / "experiments" / "pension_decision_v3.json"
+
+
+def test_shipped_v3_config_loads_with_realized_tier(tmp_path: Path) -> None:
+    """The shipped v3 config declares the 10-year realized tier over the v2 universe."""
+    del tmp_path
+    spec = load_pension_decision_spec(_V3_CONFIG_PATH)
+    assert spec.name == "pension_decision_v3"
+    assert spec.realized_horizons_years == (10,)
+    assert spec.dominance_reference_id == "spy20_qqq80"
+    v2 = load_pension_decision_spec(_V2_CONFIG_PATH)
+    assert set(spec.candidates) == set(v2.candidates)
+    assert set(spec.controls) == set(v2.controls)
+
+
+def test_v3_differs_from_v2_only_in_declared_fields(tmp_path: Path) -> None:
+    """Candidates, controls, splices, products, and drags equal v2's."""
+    del tmp_path
+    v3 = load_pension_decision_spec(_V3_CONFIG_PATH)
+    v2 = load_pension_decision_spec(_V2_CONFIG_PATH)
+    assert v3.candidates == v2.candidates
+    assert v3.controls == v2.controls
+    assert v3.modern_splices == v2.modern_splices
+    assert v3.sleeve_products == v2.sleeve_products
+    assert v3.annual_drag_by_sleeve == v2.annual_drag_by_sleeve

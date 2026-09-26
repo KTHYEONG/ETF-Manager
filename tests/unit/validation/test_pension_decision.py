@@ -52,6 +52,7 @@ def _spec(
     controls: dict[str, WeightSchedule] | None = None,
     lineage: int = 2,
     benchmark: str = _BENCH,
+    realized_horizons: tuple[int, ...] = (),
 ) -> PensionDecisionSpec:
     return PensionDecisionSpec(
         name="probe",
@@ -81,6 +82,7 @@ def _spec(
         sleeve_products={},
         dominance_reference_id=reference,
         controls=dict(controls) if controls else {},
+        realized_horizons_years=realized_horizons,
     )
 
 
@@ -331,6 +333,7 @@ def _neutrality_report() -> PensionDecisionReport:
         manifest_hashes={},
         trial_count=4,
         dominance_min_ratio={},
+        dominance_min_ratio_by_tier={},
         guard_excluded_ids=(),
         control_scores={},
         control_vs_reference={},
@@ -563,6 +566,7 @@ def test_no_reference_reproduces_v1_verdict() -> None:
     assert set(report.equivalent_ids) == {_BENCH, "spy50_qqq50", "spy20_qqq80", "spy0_qqq100"}
     assert report.selected_id == "spy0_qqq100"
     assert report.dominance_min_ratio == {}
+    assert report.dominance_min_ratio_by_tier == {}
     assert report.guard_excluded_ids == ()
     assert report.control_scores == {}
     assert report.control_vs_reference == {}
@@ -711,3 +715,262 @@ def test_evaluation_rejects_unknown_reference_and_century_gap() -> None:
     spec = _spec({_BENCH: _mix(1.0, 0.0), "spy50_qqq50": _mix(0.5, 0.5)}, {_BENCH: ["spy50_qqq50"], "spy50_qqq50": [_BENCH]})
     with pytest.raises(ValueError, match="century panel lacks"):
         evaluate_pension_decision(spec, modern, thin_century, seed=11)
+
+
+def _veto_spec() -> PensionDecisionSpec:
+    return _spec(
+        {
+            "bench": _mix(0.0, 1.0),
+            "ref": _mix(1.0, 0.0),
+            "tilt": _alt_mix(1.0),
+        },
+        {"bench": [], "ref": [], "tilt": []},
+        horizons=(1,),
+        paths=10,
+        reference="ref",
+        benchmark="bench",
+        realized_horizons=(1,),
+    )
+
+
+def _veto_panels(realized_alt: float) -> tuple[MonthlyReturnPanel, MonthlyReturnPanel, MonthlyReturnPanel]:
+    months = _months(24)
+    modern = _panel(
+        months,
+        {"SPY": (0.006,) * 24, "QQQ": (0.001,) * 24, "ALT": (0.010,) * 24},
+        "modern",
+    )
+    century = _panel(
+        months,
+        {"SPY": (0.004,) * 24, "QQQ": (0.002,) * 24, "ALT": (0.011,) * 24},
+        "century",
+    )
+    realized = _panel(
+        months,
+        {"SPY": (0.006,) * 24, "QQQ": (0.001,) * 24, "ALT": (realized_alt,) * 24},
+        "realized",
+    )
+    return modern, century, realized
+
+
+def test_realized_veto_blocks_proxy_only_winner() -> None:
+    """A challenger winning the proxy tiers but losing the realized tier is vetoed."""
+    modern, century, realized = _veto_panels(0.0036)
+    report = evaluate_pension_decision(_veto_spec(), modern, century, seed=11, realized=realized)
+    assert "tilt" in report.guard_excluded_ids
+    assert report.selected_id == "ref"
+    assert report.status == "ADOPT_CANDIDATE"
+    assert "DOMINANCE_GUARD" in report.reasons
+    assert "REALIZED_VETO" in report.reasons
+    assert report.dominance_min_ratio_by_tier["realized"]["tilt"] < 0.995
+    assert report.dominance_min_ratio["tilt"] < 0.995
+
+
+def test_realized_cells_enter_robust_minimum() -> None:
+    """A candidate whose only weak cell is realized scores that cell as its robust."""
+    months = _months(24)
+    spec = _spec(
+        {_BENCH: _mix(1.0, 0.0), "spy0_qqq100": _mix(0.0, 1.0)},
+        {_BENCH: [], "spy0_qqq100": []},
+        horizons=(1,),
+        paths=10,
+        realized_horizons=(1,),
+    )
+    sleeves = {"SPY": (0.004,) * 24, "QQQ": (0.008,) * 24}
+    modern = _panel(months, dict(sleeves), "modern")
+    century = _panel(months, dict(sleeves), "century")
+    realized = _panel(months, {"SPY": (0.005,) * 24, "QQQ": (0.006,) * 24}, "realized")
+    report = evaluate_pension_decision(spec, modern, century, seed=11, realized=realized)
+    realized_cell = next(
+        item for item in report.scores if item.candidate_id == "spy0_qqq100" and item.tier == "realized"
+    )
+    assert report.robust_scores["spy0_qqq100"] == pytest.approx(realized_cell.ce_ratio)
+    assert report.dominance_min_ratio_by_tier == {}
+
+
+def test_challenger_winning_every_tier_is_adopted() -> None:
+    """A challenger at or above the reference in all three tiers stays eligible and wins."""
+    modern, century, realized = _veto_panels(0.008)
+    report = evaluate_pension_decision(_veto_spec(), modern, century, seed=11, realized=realized)
+    assert "tilt" not in report.guard_excluded_ids
+    assert report.selected_id == "tilt"
+    assert report.status == "ADOPT_CANDIDATE"
+    assert "DOMINANCE_GUARD" not in report.reasons
+    assert "REALIZED_VETO" not in report.reasons
+
+
+def test_realized_required_when_declared() -> None:
+    """Declared realized horizons without a realized panel fail closed."""
+    months = _months(24)
+    spec = _spec(
+        {_BENCH: _mix(1.0, 0.0), "spy0_qqq100": _mix(0.0, 1.0)},
+        {_BENCH: [], "spy0_qqq100": []},
+        horizons=(1,),
+        paths=10,
+        realized_horizons=(1,),
+    )
+    modern = _flat_panel(months, 0.005, 0.0052, "modern")
+    century = _flat_panel(months, 0.005, 0.0052, "century")
+    with pytest.raises(ValueError, match="realized panel is required"):
+        evaluate_pension_decision(spec, modern, century, seed=11)
+
+
+def test_realized_rejected_when_undeclared() -> None:
+    """A realized panel without declared realized horizons fails closed."""
+    months = _months(24)
+    spec = _spec(
+        {_BENCH: _mix(1.0, 0.0), "spy0_qqq100": _mix(0.0, 1.0)},
+        {_BENCH: [], "spy0_qqq100": []},
+        horizons=(1,),
+        paths=10,
+    )
+    modern = _flat_panel(months, 0.005, 0.0052, "modern")
+    century = _flat_panel(months, 0.005, 0.0052, "century")
+    realized = _flat_panel(months, 0.005, 0.0052, "realized")
+    with pytest.raises(ValueError, match="while realized_horizons_years is empty"):
+        evaluate_pension_decision(spec, modern, century, seed=11, realized=realized)
+
+
+def test_infeasible_realized_horizon_fails_closed() -> None:
+    """A realized horizon longer than the realized panel raises instead of skipping."""
+    months = _months(24)
+    spec = _spec(
+        {_BENCH: _mix(1.0, 0.0), "spy0_qqq100": _mix(0.0, 1.0)},
+        {_BENCH: [], "spy0_qqq100": []},
+        horizons=(1,),
+        paths=10,
+        realized_horizons=(2,),
+    )
+    modern = _flat_panel(months, 0.005, 0.0052, "modern")
+    century = _flat_panel(months, 0.005, 0.0052, "century")
+    short = _flat_panel(_months(12), 0.005, 0.0052, "realized")
+    with pytest.raises(ValueError, match="realized horizon"):
+        evaluate_pension_decision(spec, modern, century, seed=11, realized=short)
+    mistiered = _flat_panel(months, 0.005, 0.0052, "modern")
+    with pytest.raises(ValueError, match="must be 'realized'"):
+        evaluate_pension_decision(spec, modern, century, seed=11, realized=mistiered)
+    thin = _panel(months, {"SPY": (0.005,) * 24}, "realized")
+    with pytest.raises(ValueError, match="realized panel lacks"):
+        evaluate_pension_decision(spec, modern, century, seed=11, realized=thin)
+
+
+def test_controls_skip_realized_tier() -> None:
+    """A control sleeve absent from the realized panel scores modern only without error."""
+    months = _months(24)
+    modern = _panel(
+        months, {"SPY": (0.005,) * 24, "QQQ": (0.006,) * 24, "VT": (0.006,) * 24}, "modern"
+    )
+    century = _flat_panel(months, 0.005, 0.006, "century")
+    realized = _flat_panel(months, 0.005, 0.006, "realized")
+    control = WeightSchedule(start_weights={"VT": 1.0}, end_weights={"VT": 1.0}, glide_years=0)
+    spec = _spec(
+        {"bench": _mix(1.0, 0.0)},
+        {"bench": []},
+        horizons=(1,),
+        paths=10,
+        reference="bench",
+        benchmark="bench",
+        controls={"world": control},
+        realized_horizons=(1,),
+    )
+    report = evaluate_pension_decision(spec, modern, century, seed=11, realized=realized)
+    assert report.control_scores["world"] == pytest.approx(report.control_vs_reference["world"])
+    assert "world" not in report.robust_scores
+    assert {score.tier for score in report.scores} == {"modern", "century", "realized"}
+
+
+def test_without_realized_tier_reports_match_prior_behavior() -> None:
+    """Without realized horizons the verdict equals the pre-change expectations."""
+    months = _months(48)
+    spec = _spec(
+        {
+            _BENCH: _mix(1.0, 0.0),
+            "spy50_qqq50": _mix(0.5, 0.5),
+            "spy20_qqq80": _mix(0.2, 0.8),
+            "spy0_qqq100": _mix(0.0, 1.0),
+        },
+        {
+            _BENCH: ["spy50_qqq50"],
+            "spy50_qqq50": [_BENCH, "spy20_qqq80"],
+            "spy20_qqq80": ["spy50_qqq50", "spy0_qqq100"],
+            "spy0_qqq100": ["spy20_qqq80"],
+        },
+        horizons=(2, 3),
+        paths=20,
+    )
+    modern = _flat_panel(months, 0.005, 0.0052, "modern")
+    century = _flat_panel(months, 0.005, 0.0052, "century")
+    report = evaluate_pension_decision(spec, modern, century, seed=11)
+    assert report.status == "ADOPT_CANDIDATE"
+    assert set(report.equivalent_ids) == {_BENCH, "spy50_qqq50", "spy20_qqq80", "spy0_qqq100"}
+    assert report.selected_id == "spy0_qqq100"
+    assert report.trial_count == 6
+    assert report.dominance_min_ratio_by_tier == {}
+    assert all(score.tier in {"modern", "century"} for score in report.scores)
+
+
+def test_fee_drag_breaks_exact_drawdown_ties() -> None:
+    """Tied drawdowns within the band select the candidate with the lowest fee drag.
+
+    Fee drags price into net wealth, so exactly equal scores with different drags are
+    unreachable; instead the high-gross/high-fee leader stays within the band of the
+    low-fee runner-up, drawdowns tie exactly at zero, and the fee level flips the
+    selection away from the lexicographically smallest id.
+    """
+    from dataclasses import replace as _replace
+
+    months = _months(24)
+    alt_half = WeightSchedule(
+        start_weights={"SPY": 0.5, "ALT": 0.5},
+        end_weights={"SPY": 0.5, "ALT": 0.5},
+        glide_years=0,
+    )
+    spec = _replace(
+        _spec(
+            {
+                "bench": _mix(1.0, 0.0),
+                "aaa": alt_half,
+                "zzz": _mix(0.5, 0.5),
+            },
+            {"bench": [], "aaa": [], "zzz": []},
+            horizons=(1,),
+            paths=10,
+            pre=0,
+            benchmark="bench",
+        ),
+        annual_drag_by_sleeve={"SPY": 0.001, "QQQ": 0.001, "ALT": 0.02},
+    )
+    sleeves = {"SPY": (0.005,) * 24, "QQQ": (0.006,) * 24, "ALT": (0.008,) * 24}
+    modern = _panel(months, dict(sleeves), "modern")
+    century = _panel(months, dict(sleeves), "century")
+    report = evaluate_pension_decision(spec, modern, century, seed=11)
+    assert report.robust_scores["aaa"] > report.robust_scores["zzz"] > 1.0
+    assert report.robust_scores["aaa"] - report.robust_scores["zzz"] < 0.005
+    assert report.selected_id == "zzz"
+    assert report.status == "ADOPT_CANDIDATE"
+
+
+def test_reference_wins_full_ties() -> None:
+    """Identical score, drawdown, and drag resolve to the reference holding."""
+    months = _months(24)
+    spec = _spec(
+        {
+            "bench": _mix(1.0, 0.0),
+            "ref": _mix(1.0, 0.0),
+            "twin": _mix(0.0, 1.0),
+        },
+        {"bench": [], "ref": [], "twin": []},
+        horizons=(1,),
+        paths=10,
+        pre=0,
+        floor=0.0,
+        reference="ref",
+        benchmark="bench",
+    )
+    sleeves = {"SPY": (0.005,) * 24, "QQQ": (0.005,) * 24}
+    modern = _panel(months, dict(sleeves), "modern")
+    century = _panel(months, dict(sleeves), "century")
+    report = evaluate_pension_decision(spec, modern, century, seed=11)
+    assert report.guard_excluded_ids == ()
+    assert report.selected_id == "ref"
+    assert "DOMINANCE_GUARD" not in report.reasons

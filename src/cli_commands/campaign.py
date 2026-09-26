@@ -585,11 +585,17 @@ def _decision_markdown(report: PensionDecisionReport, trial_count: int, dominanc
         f"- 기준 후보: {dominance_reference_id or '없음'}",
         f"- 제외 후보: {', '.join(report.guard_excluded_ids) if report.guard_excluded_ids else '없음'}",
         "",
-        "| 후보 | 기준 대비 최소 비율 |",
-        "| --- | --- |",
+    ]
+    guard_tiers = [tier for tier in ("modern", "century", "realized") if tier in report.dominance_min_ratio_by_tier]
+    lines += [
+        "| 후보 | 기준 대비 최소 비율" + "".join(f" | {tier}" for tier in guard_tiers) + " |",
+        "| --- | --- |" + "".join(" --- |" for _ in guard_tiers),
     ]
     for candidate_id in sorted(report.dominance_min_ratio):
-        lines.append(f"| {candidate_id} | {report.dominance_min_ratio[candidate_id]:.6f} |")
+        row = f"| {candidate_id} | {report.dominance_min_ratio[candidate_id]:.6f} |"
+        for tier in (tier for tier in ("modern", "century", "realized") if tier in report.dominance_min_ratio_by_tier):
+            row += f" {report.dominance_min_ratio_by_tier[tier][candidate_id]:.6f} |"
+        lines.append(row)
     lines += [
         "",
         "## 컨트롤",
@@ -618,7 +624,7 @@ def run_pension_decision_command(*, config_path: str, settings: DataSettings, se
     from src.data.result_store import ResultKind, write_result
     from src.sim.pension_engine import PensionDataError
     from src.sim.pension_monthly import panel_from_research
-    from src.sim.pension_splice import splice_modern_panel
+    from src.sim.pension_splice import realized_panel_from_prices, realized_window_start, splice_modern_panel
     from src.validation.pension_campaign import load_pension_campaign_spec, run_pension_campaign
     from src.validation.pension_decision import assert_tax_rank_neutrality, evaluate_pension_decision
     from src.validation.pension_decision_config import load_pension_decision_spec
@@ -642,6 +648,9 @@ def run_pension_decision_command(*, config_path: str, settings: DataSettings, se
             {sleeve for schedule in spec.candidates.values() for sleeve in schedule.start_weights}
             | {sleeve for schedule in spec.controls.values() for sleeve in schedule.start_weights}
         )
+        candidate_sleeves = {
+            sleeve for schedule in spec.candidates.values() for sleeve in schedule.start_weights
+        }
         modern, splice_records = splice_modern_panel(
             modern_frame,
             research_frame_at_as_of,
@@ -651,6 +660,25 @@ def run_pension_decision_command(*, config_path: str, settings: DataSettings, se
             spec.modern_start,
             spec.modern_end,
         )
+        if spec.realized_horizons_years:
+            realized_start = realized_window_start(
+                spec.modern_splices, candidate_sleeves, spec.modern_start
+            )
+            realized = realized_panel_from_prices(
+                modern_frame,
+                sorted(candidate_sleeves),
+                modern_as_of,
+                realized_start,
+                spec.modern_end,
+            )
+            realized_window: dict[str, object] | None = {
+                "start": realized_start.isoformat(),
+                "end": spec.modern_end.isoformat(),
+                "months": len(realized.months),
+            }
+        else:
+            realized = None
+            realized_window = None
         century = panel_from_research(century_frame, spec.century_series, modern_as_of)
         if century.months[0] != spec.century_start or century.months[-1] != spec.century_end:
             raise ValueError(
@@ -658,7 +686,7 @@ def run_pension_decision_command(*, config_path: str, settings: DataSettings, se
                 f"config requires {spec.century_start.isoformat()}..{spec.century_end.isoformat()} "
                 f"visible at {modern_as_of.isoformat()}"
             )
-        report = evaluate_pension_decision(spec, modern, century, seed=seed, incumbent_id=incumbent_id)
+        report = evaluate_pension_decision(spec, modern, century, seed=seed, incumbent_id=incumbent_id, realized=realized)
         consumed = {
             str(dataset): Path(snapshot.artifacts[dataset].manifest_path).stem
             for dataset in (Dataset.PRICES, Dataset.RESEARCH_MONTHLY)
@@ -721,6 +749,10 @@ def run_pension_decision_command(*, config_path: str, settings: DataSettings, se
             "manifest_hashes": dict(report.manifest_hashes),
             "dominance_reference_id": spec.dominance_reference_id,
             "dominance_min_ratio": dict(report.dominance_min_ratio),
+            "dominance_min_ratio_by_tier": {
+                tier: dict(per_tier) for tier, per_tier in report.dominance_min_ratio_by_tier.items()
+            },
+            "realized_window": realized_window,
             "guard_excluded_ids": list(report.guard_excluded_ids),
             "control_scores": dict(report.control_scores),
             "control_vs_reference": dict(report.control_vs_reference),
