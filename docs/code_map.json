@@ -1208,5 +1208,8 @@
   "src/validation/windows.py": {
     "family": "validation",
     "testing": "tests/unit/validation/test_windows.py"
+  },
+  "src/validation/pension_decision.py": {
+    "testing": "tests/unit/validation/test_pension_decision.py"
   }
 }

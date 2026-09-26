@@ -1,6 +1,17 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_PENSION_DECISION",
+      "date": "2026-09-26",
+      "adr_id": "ADR_20260926_PENSION_DECISION",
+      "domain": "portfolio",
+      "title": "Pension decision framework: century monthly data, monthly DCA simulator, log-utility robust evaluation, decision record and annual review",
+      "why": "Pension ETF selection sat on a knife-edge gate and gamma-dependent ranking, so no reproducible decision existed unlike the general account.",
+      "resolution": "RESEARCH_MONTHLY century data, monthly pension DCA simulator, gamma-1 CE evaluation over ETF-era and century tiers with plateau and bootstrap checks, frozen decision record with annual review.",
+      "impact": "The pension holding is chosen by pre-registered growth-oriented rules with hysteresis and PIT-consistent evidence instead of ad hoc threshold sensitivity.",
+      "caveat": "No real research_monthly data is ingested yet, so no live decision exists; SOXX excluded for lack of a century proxy."
+    },
+    {
       "task_id": "TASK_RESEARCH_DATA_READINESS",
       "date": "2026-09-25",
       "adr_id": "ADR_20260925_RESEARCH_DATA_READINESS",

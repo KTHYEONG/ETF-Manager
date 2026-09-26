@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -15,6 +15,7 @@ from src.data.fetch import (
     fetch_and_persist_fx,
     fetch_and_persist_macro,
     fetch_and_persist_prices,
+    fetch_and_persist_research_monthly,
     fetch_and_persist_static_dca_datasets,
     resolve_price_http_window,
 )
@@ -22,7 +23,7 @@ from src.data.pit import AVAILABLE_AT
 from src.data.schema import Dataset, MissingPolicy, spec_for
 from src.data.secrets import ProviderSecrets
 from src.data.settings import DataSettings
-from src.data.storage import DataStore
+from src.data.storage import DataStore, RawPayload
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "providers"
 _SECRETS = ProviderSecrets(tiingo_api="wire-tiingo-token", fred_api="wire-fred-key", ecos_api="wire-ecos-key")
@@ -177,6 +178,64 @@ def test_cpi_monthly_persists_with_fixed_lag(
     stored = DataStore(settings).read_normalized(artifact, spec_for(Dataset.CPI))
     assert stored.get_column("period_end").to_list() == [date(2023, 12, 31)]
     assert stored.get_column(AVAILABLE_AT).to_list()[0] == datetime(2024, 2, 14, tzinfo=UTC)
+
+
+def test_research_monthly_persists_with_lagged_availability(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Monthly research rows are persisted with a deterministic 60-day lag."""
+    import src.data.fetch as fetch_module
+
+    settings = _fresh_settings(monkeypatch, tmp_path)
+    retrieved_at = datetime(2026, 8, 1, tzinfo=UTC)
+    period_ends = [date(2026, 6, 30), date(2026, 7, 31)]
+    frame = pl.DataFrame(
+        {
+            "series_id": ["ff_mkt_monthly", "ff_hitec_monthly"],
+            "period_end": period_ends,
+            "simple_return": [0.01, 0.02],
+            "label": ["research_proxy", "research_proxy"],
+            "source": ["ken_french", "ken_french"],
+            "retrieved_at": [retrieved_at, retrieved_at],
+        }
+    )
+    payload = RawPayload(
+        provider="ken_french",
+        endpoint="ken_french/monthly_research_returns",
+        request_params={"start": "2026-06-30", "end": "2026-07-31"},
+        retrieved_at=retrieved_at,
+        extension="zip",
+        content=b"test-archive",
+    )
+
+    class FakeFrenchClient:
+        def __init__(self, client: httpx.Client) -> None:
+            self.client = client
+
+        def fetch_monthly_research_returns(
+            self, start: date, end: date
+        ) -> tuple[RawPayload, pl.DataFrame]:
+            assert self.client is not None
+            assert (start, end) == (date(2026, 6, 30), date(2026, 7, 31))
+            return payload, frame
+
+    monkeypatch.setattr(fetch_module, "FrenchClient", FakeFrenchClient)
+    with httpx.Client() as http:
+        artifact = fetch_and_persist_research_monthly(
+            period_ends[0],
+            period_ends[1],
+            settings=settings,
+            client=http,
+        )
+
+    assert artifact.manifest_path.is_file()
+    assert artifact.manifest.dataset is Dataset.RESEARCH_MONTHLY
+    stored = DataStore(settings).read_normalized(artifact, spec_for(Dataset.RESEARCH_MONTHLY))
+    assert stored.get_column("period_end").to_list() == period_ends
+    assert stored.get_column(AVAILABLE_AT).to_list() == [
+        datetime.combine(period_end + timedelta(days=60), datetime.min.time(), tzinfo=UTC)
+        for period_end in period_ends
+    ]
 
 
 @pytest.mark.parametrize("scenario_id", ["WAV2-ING-static-dca"])

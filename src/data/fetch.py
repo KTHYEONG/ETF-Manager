@@ -445,6 +445,21 @@ def fetch_and_persist_research_returns(
     return artifact
 
 
+def fetch_and_persist_research_monthly(
+    start: date,
+    end: date,
+    *,
+    settings: DataSettings,
+    client: httpx.Client | None = None,
+) -> DatasetArtifact:
+    """Fetch monthly Ken French research proxies and persist Dataset.RESEARCH_MONTHLY."""
+    with _http(client) as session:
+        payload, frame = FrenchClient(session).fetch_monthly_research_returns(start, end)
+        artifact = persist_ingest(frame, Dataset.RESEARCH_MONTHLY, payload, settings)
+    _log_done("research_monthly", "ken_french", artifact.manifest.row_count)
+    return artifact
+
+
 def fetch_and_persist_static_dca_datasets(
     *,
     start: date,

@@ -88,6 +88,31 @@ def test_spec_c_research_returns_schema(scenario_id: str) -> None:
     assert spec.schema_version == "1"
 
 
+def test_research_monthly_schema_uses_month_end_and_fixed_lag() -> None:
+    """Monthly research rows use month-end identity and the Ken French publication lag."""
+    spec = spec_for(Dataset.RESEARCH_MONTHLY)
+
+    assert spec.key == ("series_id", "period_end")
+    assert set(spec.columns) == {
+        "series_id",
+        "period_end",
+        "simple_return",
+        "label",
+        "source",
+        "retrieved_at",
+    }
+    assert spec.columns["period_end"] == pl.Date()
+    assert spec.columns["simple_return"] == pl.Float64()
+    assert spec.observation_column == "period_end"
+    assert spec.availability.kind is AvailabilityKind.FIXED_LAG
+    assert spec.availability.lag == timedelta(days=60)
+    assert spec.missing_policy is MissingPolicy.FAIL
+    assert spec.nullable_columns == frozenset()
+    assert spec.revisable is False
+    assert spec.total_return_source is TotalReturnSource.NOT_APPLICABLE
+    assert spec.schema_version == "1"
+
+
 @pytest.mark.parametrize("scenario_id", ["SPEC-M01-etf-metadata-schema"])
 def test_spec_m01_etf_metadata_schema(scenario_id: str) -> None:
     """SPEC-M01-etf-metadata-schema"""

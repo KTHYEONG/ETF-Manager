@@ -10,7 +10,7 @@ from datetime import UTC, date
 from src.cli_commands.campaign import (
     run_ablation_command, run_accumulation_cohort_command, run_after_tax_campaign_command,
     run_audit_feasibility_command, run_cadence_robustness_command, run_final_historical_campaign_command,
-    run_pension_campaign_command, run_pension_selection_command, run_prospective_monitor_command,
+    run_pension_campaign_command, run_pension_decision_command, run_pension_review_command, run_pension_selection_command, run_prospective_monitor_command,
     run_strategy_selection_command, run_validate_command, run_walk_forward_command, run_walk_forward_costs_command, run_walk_forward_proxy_command,
 )
 from src.cli_commands.diagnose import (
@@ -36,7 +36,8 @@ from src.cli_commands.thesis import (
 )
 from src.data.fetch import (
     fetch_and_persist_cpi, fetch_and_persist_factors, fetch_and_persist_fx,
-    fetch_and_persist_macro, fetch_and_persist_prices, fetch_and_persist_research_returns,
+    fetch_and_persist_macro, fetch_and_persist_prices, fetch_and_persist_research_monthly,
+    fetch_and_persist_research_returns,
 )
 from src.data.nport_ingest import fetch_and_persist_nport_quarter, fetch_and_persist_nport_quarters
 from src.data.providers.base import ProviderError
@@ -188,9 +189,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             raise _UsageError("ingest factors requires --start and --end")
         fetch_and_persist_factors(args.start, args.end, settings=DataSettings())
         logger.info(
-            "[DATA] event=cli_ingest_done dataset=factors start=%s end=%s",
-            args.start.isoformat(),
-            args.end.isoformat(),
+            "[DATA] event=cli_ingest_done dataset=factors start=%s end=%s", args.start.isoformat(), args.end.isoformat()
         )
         return 0
     if dataset == "research-returns":
@@ -198,9 +197,15 @@ def _dispatch(args: argparse.Namespace) -> int:
             raise _UsageError("ingest research-returns requires --start and --end")
         fetch_and_persist_research_returns(args.start, args.end, settings=DataSettings())
         logger.info(
-            "[DATA] event=cli_ingest_done dataset=research_returns start=%s end=%s",
-            args.start.isoformat(),
-            args.end.isoformat(),
+            "[DATA] event=cli_ingest_done dataset=research_returns start=%s end=%s", args.start.isoformat(), args.end.isoformat()
+        )
+        return 0
+    if dataset == "research-monthly":
+        if args.start is None or args.end is None:
+            raise _UsageError("ingest research-monthly requires --start and --end")
+        fetch_and_persist_research_monthly(args.start, args.end, settings=DataSettings())
+        logger.info(
+            "[DATA] event=cli_ingest_done dataset=research_monthly start=%s end=%s", args.start.isoformat(), args.end.isoformat()
         )
         return 0
     if dataset == "macro-backfill":
@@ -386,6 +391,20 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         return run_after_tax_campaign_command(config_path=str(args.config), settings=DataSettings(), seed=int(args.seed))
     if args.target in {"pension-campaign", "pension-selection"}:
         return (run_pension_campaign_command if args.target == "pension-campaign" else run_pension_selection_command)(config_path=str(args.config), settings=DataSettings(), seed=int(args.seed))
+    if args.target == "pension-decision":
+        return run_pension_decision_command(
+            config_path=str(args.config),
+            settings=DataSettings(),
+            seed=int(args.seed),
+            incumbent_record=str(args.incumbent_record) if getattr(args, "incumbent_record", None) else None,
+            freeze=bool(getattr(args, "freeze", False)),
+        )
+    if args.target == "pension-review":
+        return run_pension_review_command(
+            record_path=str(args.record),
+            as_of=args.as_of,
+            settings=DataSettings(),
+        )
     if args.target == "audit-feasibility":
         return run_audit_feasibility_command(
             config_path=str(args.config),

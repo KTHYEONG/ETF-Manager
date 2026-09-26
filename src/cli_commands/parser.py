@@ -58,7 +58,7 @@ def _build_parser() -> _Parser:
     parser = _Parser(prog="etf-manager", description="ETF research ingest CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
     ingest = subparsers.add_parser("ingest", help="Fetch and persist one vendor dataset")
-    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "macro-backfill", "cpi", "factors", "research-returns", "smoke", "history", "static-dca", "nport", "thesis-panel", "thesis-fundamentals"))
+    ingest.add_argument("dataset", choices=("prices", "fx", "macro", "macro-backfill", "cpi", "factors", "research-returns", "research-monthly", "smoke", "history", "static-dca", "nport", "thesis-panel", "thesis-fundamentals"))
     ingest.add_argument("--tickers", nargs="+", default=None, help="Price tickers (prices/smoke only)")
     ingest.add_argument("--provider", choices=("fred", "ecos"), default=None, help="FX vendor (fx/smoke only)")
     ingest.add_argument("--series-id", default=None, help="FRED series identifier, comma list for macro-backfill (macro only)")
@@ -373,6 +373,20 @@ def _build_parser() -> _Parser:
     )
     pension_selection.add_argument("--config", required=True, help="Path to the pension selection JSON")
     pension_selection.add_argument("--seed", type=int, required=True, help="Bootstrap RNG seed")
+    pension_decision = run_targets.add_parser(
+        "pension-decision",
+        help="Robust pension holding decision across evidence tiers and horizons",
+    )
+    pension_decision.add_argument("--config", required=True, help="Path to the pension decision JSON")
+    pension_decision.add_argument("--seed", type=int, required=True, help="Bootstrap RNG seed")
+    pension_decision.add_argument("--incumbent-record", default=None, help="Frozen decision record holding the incumbent id")
+    pension_decision.add_argument("--freeze", action="store_true", help="Freeze the decision record (governed separately)")
+    pension_review = run_targets.add_parser(
+        "pension-review",
+        help="Review a frozen pension decision against post-cutoff prices",
+    )
+    pension_review.add_argument("--record", required=True, help="Path to the frozen decision record JSON")
+    pension_review.add_argument("--as-of", required=True, type=_iso_date, help="ISO date for review as-of")
     audit_feasibility = run_targets.add_parser(
         "audit-feasibility",
         help="Static DCA feasibility window audit (reporting only)",
