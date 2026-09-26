@@ -10,11 +10,36 @@ from datetime import date
 from pathlib import Path
 
 from src.sim.pension_monthly import WeightSchedule
+from src.sim.pension_splice import SpliceRule
 
 __all__ = [
     "PensionDecisionSpec",
+    "SleeveProduct",
     "load_pension_decision_spec",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class SleeveProduct:
+    """Tradable product backing one modern sleeve.
+
+    Attributes:
+        krx_code: Six-character alphanumeric KRX listing code.
+        name: Human-readable product name.
+        listing_date: First trading date of the product.
+        total_expense_ratio: Annual fee share in [0, 0.02].
+        currency_hedged: Must be false; hedged products break the USD paired-ratio invariance.
+        source_url: HTTP(S) address of the listing/fee source.
+        source_checked_date: Date the source was last verified.
+    """
+
+    krx_code: str
+    name: str
+    listing_date: date
+    total_expense_ratio: float
+    currency_hedged: bool
+    source_url: str
+    source_checked_date: date
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +69,10 @@ class PensionDecisionSpec:
     tax_crosscheck_arm_map: Mapping[str, str]
     review_every_months: int
     lineage: Mapping[str, object]
+    modern_splices: Mapping[str, SpliceRule]
+    sleeve_products: Mapping[str, SleeveProduct]
+    dominance_reference_id: str | None
+    controls: Mapping[str, WeightSchedule]
 
 
 def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -164,9 +193,13 @@ def load_pension_decision_spec(path: str | Path) -> PensionDecisionSpec:
         "tax_crosscheck_arm_map",
         "review_every_months",
         "lineage",
+        "modern_splices",
+        "sleeve_products",
+        "dominance_reference_id",
+        "controls",
         "notes",
     }
-    missing = sorted(allowed - {"notes"} - set(document))
+    missing = sorted(allowed - {"notes", "modern_splices", "sleeve_products", "dominance_reference_id", "controls"} - set(document))
     if missing:
         raise ValueError(f"pension decision config missing fields: {missing}")
     extra = sorted(set(document) - allowed)
@@ -183,6 +216,22 @@ def load_pension_decision_spec(path: str | Path) -> PensionDecisionSpec:
     for raw_id, raw_schedule in raw_candidates.items():
         candidate_id = _nonblank_string(raw_id, name="candidate id")
         candidates[candidate_id] = _parse_schedule(raw_schedule, name=f"candidates[{candidate_id!r}]")
+    raw_controls = document.get("controls", {})
+    if not isinstance(raw_controls, dict):
+        raise ValueError("controls must be an object")
+    controls: dict[str, WeightSchedule] = {}
+    for raw_id, raw_schedule in raw_controls.items():
+        control_id = _nonblank_string(raw_id, name="control id")
+        if control_id in candidates:
+            raise ValueError(f"control id {control_id!r} collides with a candidate id")
+        controls[control_id] = _parse_schedule(raw_schedule, name=f"controls[{control_id!r}]")
+    raw_reference = document.get("dominance_reference_id")
+    if raw_reference is None:
+        dominance_reference_id = None
+    else:
+        dominance_reference_id = _nonblank_string(raw_reference, name="dominance_reference_id")
+        if dominance_reference_id not in candidates:
+            raise ValueError(f"dominance_reference_id {dominance_reference_id!r} is not among candidates")
     benchmark_id = _nonblank_string(document["benchmark_id"], name="benchmark_id")
     if benchmark_id not in candidates:
         raise ValueError(f"benchmark_id {benchmark_id!r} is not among candidates")
@@ -200,6 +249,8 @@ def load_pension_decision_spec(path: str | Path) -> PensionDecisionSpec:
         declared: list[str] = []
         for entry in raw_list:
             neighbor_id = _nonblank_string(entry, name=f"neighbors[{candidate_id!r}] entry")
+            if neighbor_id in controls:
+                raise ValueError(f"neighbors[{candidate_id!r}] references control {neighbor_id!r}")
             if neighbor_id not in candidates:
                 raise ValueError(f"neighbors[{candidate_id!r}] references unknown id {neighbor_id!r}")
             if neighbor_id == candidate_id:
@@ -296,6 +347,28 @@ def load_pension_decision_spec(path: str | Path) -> PensionDecisionSpec:
     if isinstance(trial_count, bool) or not isinstance(trial_count, int) or trial_count < 0:
         raise ValueError("lineage.related_trial_count must be a non-negative integer")
 
+    candidate_sleeves = {sleeve for schedule in candidates.values() for sleeve in schedule.start_weights}
+    known_sleeves = set(candidate_sleeves) | {
+        sleeve for schedule in controls.values() for sleeve in schedule.start_weights
+    }
+    splices = _parse_modern_splices(
+        document.get("modern_splices", {}), known_sleeves, modern_start, modern_end
+    )
+    products = _parse_sleeve_products(document.get("sleeve_products", {}))
+    if products:
+        uncovered = sorted(known_sleeves - set(products))
+        if uncovered:
+            raise ValueError(f"sleeve_products must cover every candidate or control sleeve, missing: {uncovered}")
+        for sleeve_id, product in products.items():
+            if product.currency_hedged:
+                raise ValueError(f"sleeve_products[{sleeve_id!r}] must not be currency-hedged")
+            sleeve_drag = drags.get(sleeve_id, 0.0)
+            if sleeve_drag < product.total_expense_ratio:
+                raise ValueError(
+                    f"annual_drag_by_sleeve[{sleeve_id!r}] {sleeve_drag!r} understates the expense ratio"
+                    f" {product.total_expense_ratio!r}"
+                )
+
     return PensionDecisionSpec(
         name=name,
         benchmark_id=benchmark_id,
@@ -320,4 +393,103 @@ def load_pension_decision_spec(path: str | Path) -> PensionDecisionSpec:
         tax_crosscheck_arm_map=arm_map,
         review_every_months=review_every,
         lineage=dict(lineage),
+        modern_splices=splices,
+        sleeve_products=products,
+        dominance_reference_id=dominance_reference_id,
+        controls=controls,
+    )
+
+
+def _parse_modern_splices(
+    value: object, known_sleeves: set[str], modern_start: date, modern_end: date
+) -> dict[str, SpliceRule]:
+    """Parse optional sleeve-to-rule splice declarations into validated rules."""
+    if not isinstance(value, dict):
+        raise ValueError("modern_splices must be an object")
+    splices: dict[str, SpliceRule] = {}
+    for raw_sleeve, raw_rule in value.items():
+        sleeve_id = _nonblank_string(raw_sleeve, name="modern_splices sleeve")
+        if sleeve_id not in known_sleeves:
+            raise ValueError(f"modern_splices[{sleeve_id!r}] is not a sleeve used by any candidate or control")
+        if not isinstance(raw_rule, dict):
+            raise ValueError(f"modern_splices[{sleeve_id!r}] must be an object")
+        extra = sorted(set(raw_rule) - {"proxy_weights", "etf_first_month"})
+        if extra:
+            raise ValueError(f"modern_splices[{sleeve_id!r}] has unknown fields: {extra}")
+        for field in ("proxy_weights", "etf_first_month"):
+            if field not in raw_rule:
+                raise ValueError(f"modern_splices[{sleeve_id!r}] missing field: {field}")
+        weights = _parse_share_map(
+            raw_rule["proxy_weights"], name=f"modern_splices[{sleeve_id!r}].proxy_weights"
+        )
+        first_month = _parse_date(
+            raw_rule["etf_first_month"], name=f"modern_splices[{sleeve_id!r}].etf_first_month"
+        )
+        if not (modern_start < first_month <= modern_end):
+            raise ValueError(
+                f"modern_splices[{sleeve_id!r}].etf_first_month must lie in (modern_start, modern_end]"
+            )
+        try:
+            splices[sleeve_id] = SpliceRule(
+                sleeve=sleeve_id, proxy_weights=weights, etf_first_month=first_month
+            )
+        except ValueError as exc:
+            raise ValueError(f"modern_splices[{sleeve_id!r}] is invalid: {exc}") from exc
+    return splices
+
+
+def _parse_sleeve_products(value: object) -> dict[str, SleeveProduct]:
+    """Parse optional sleeve-to-product declarations into validated products."""
+    if not isinstance(value, dict):
+        raise ValueError("sleeve_products must be an object")
+    return {
+        _nonblank_string(raw_sleeve, name="sleeve_products sleeve"): _parse_sleeve_product(
+            raw_product, name=f"sleeve_products[{str(raw_sleeve)!r}]"
+        )
+        for raw_sleeve, raw_product in value.items()
+    }
+
+
+def _parse_sleeve_product(value: object, *, name: str) -> SleeveProduct:
+    """Parse one product declaration with strict field and fee validation."""
+    if not isinstance(value, dict):
+        raise ValueError(f"{name} must be an object")
+    fields = (
+        "krx_code",
+        "name",
+        "listing_date",
+        "total_expense_ratio",
+        "currency_hedged",
+        "source_url",
+        "source_checked_date",
+    )
+    extra = sorted(set(value) - set(fields))
+    if extra:
+        raise ValueError(f"{name} has unknown fields: {extra}")
+    for field in fields:
+        if field not in value:
+            raise ValueError(f"{name} missing field: {field}")
+    krx_code = _nonblank_string(value["krx_code"], name=f"{name}.krx_code")
+    if len(krx_code) != 6 or not krx_code.isalnum():
+        raise ValueError(f"{name}.krx_code must be a 6-character alphanumeric string")
+    product_name = _nonblank_string(value["name"], name=f"{name}.name")
+    listing_date = _parse_date(value["listing_date"], name=f"{name}.listing_date")
+    expense_ratio = _finite_number(value["total_expense_ratio"], name=f"{name}.total_expense_ratio")
+    if not 0.0 <= expense_ratio <= 0.02:
+        raise ValueError(f"{name}.total_expense_ratio must lie in [0, 0.02]")
+    hedged = value["currency_hedged"]
+    if not isinstance(hedged, bool):
+        raise ValueError(f"{name}.currency_hedged must be a boolean")
+    source_url = _nonblank_string(value["source_url"], name=f"{name}.source_url")
+    if not source_url.startswith("http"):
+        raise ValueError(f"{name}.source_url must start with 'http'")
+    checked_date = _parse_date(value["source_checked_date"], name=f"{name}.source_checked_date")
+    return SleeveProduct(
+        krx_code=krx_code,
+        name=product_name,
+        listing_date=listing_date,
+        total_expense_ratio=expense_ratio,
+        currency_hedged=hedged,
+        source_url=source_url,
+        source_checked_date=checked_date,
     )

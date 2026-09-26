@@ -11,6 +11,8 @@ from typing import Final, Literal
 
 from src.sim.pension_monthly import (
     MonthlyReturnPanel,
+    PensionPathResult,
+    WeightSchedule,
     block_bootstrap_panels,
     simulate_cohorts,
     simulate_pension_dca,
@@ -63,6 +65,10 @@ class PensionDecisionReport:
     tax_rank_agreement: bool
     manifest_hashes: Mapping[str, str]
     trial_count: int
+    dominance_min_ratio: Mapping[str, float]
+    guard_excluded_ids: tuple[str, ...]
+    control_scores: Mapping[str, float]
+    control_vs_reference: Mapping[str, float]
 
 
 def _ce_ratio(ratios: Sequence[float], gamma: float) -> float:
@@ -71,6 +77,11 @@ def _ce_ratio(ratios: Sequence[float], gamma: float) -> float:
         return math.exp(math.fsum(math.log(ratio) for ratio in ratios) / len(ratios))
     power = 1.0 - gamma
     return float((math.fsum(ratio**power for ratio in ratios) / len(ratios)) ** (1.0 / power))
+
+
+def _paired_ratios(own: Sequence[float], base: Sequence[float]) -> tuple[float, ...]:
+    """Paired terminal-wealth ratios sharing one cohort index."""
+    return tuple(own_value / base_value for own_value, base_value in zip(own, base, strict=True))
 
 
 def _cell_scores(
@@ -105,6 +116,11 @@ def _cell_scores(
     return cell
 
 
+def _schedule_drag(annual_drag: Mapping[str, float], schedule: WeightSchedule) -> dict[str, float]:
+    """Restrict a universe-wide drag map to the sleeves one schedule actually holds."""
+    return {sleeve: drag for sleeve, drag in annual_drag.items() if sleeve in schedule.start_weights}
+
+
 def evaluate_pension_decision(
     spec: PensionDecisionSpec,
     modern: MonthlyReturnPanel,
@@ -125,6 +141,14 @@ def evaluate_pension_decision(
     it resamples the same history. The bootstrap probes the longest accumulation,
     where compounding differences are largest.
 
+    When a dominance reference is declared, a candidate is eligible for selection only if its
+    paired certainty equivalent against the reference is at least one minus the equivalence band
+    in every tier-horizon cell. A challenger must therefore not lose the tradable era to buy a
+    century-tier edge, nor the reverse. The reference is always eligible. The best score and the
+    equivalence set are computed over eligible candidates only. Controls are scored on the modern
+    tier alone, never enter the robust minimum, the bootstrap, or the selection, and exist to
+    record why an allocation without a century proxy was not adopted.
+
     Args:
         spec: Pre-registered decision config.
         modern: Tradable ETF tier panel.
@@ -136,20 +160,35 @@ def evaluate_pension_decision(
         Scores for every candidate, the selection, and the verdict with reasons.
 
     Raises:
-        ValueError: If a panel lacks a sleeve required by any candidate or the incumbent id is unknown.
+        ValueError: If a panel lacks a sleeve required by any candidate, the incumbent id is unknown,
+            or the drag map names a sleeve no candidate or control uses.
     """
     candidate_ids = tuple(spec.candidates)
     if incumbent_id is not None and incumbent_id not in spec.candidates:
         raise ValueError(f"pension incumbent_id {incumbent_id!r} is not among candidates")
-    required = {sleeve for schedule in spec.candidates.values() for sleeve in schedule.start_weights}
-    for label, panel in (("modern", modern), ("century", century)):
-        missing = sorted(required - set(panel.returns))
-        if missing:
-            raise ValueError(f"pension {label} panel lacks sleeves required by candidates: {missing}")
+    reference_id = spec.dominance_reference_id
+    if reference_id is not None and reference_id not in spec.candidates:
+        raise ValueError(f"pension dominance_reference_id {reference_id!r} is not among candidates")
+    need_guard = reference_id is not None
+    have_controls = bool(spec.controls)
+    candidate_sleeves = {sleeve for schedule in spec.candidates.values() for sleeve in schedule.start_weights}
+    control_sleeves = {sleeve for schedule in spec.controls.values() for sleeve in schedule.start_weights}
+    modern_missing = sorted((candidate_sleeves | control_sleeves) - set(modern.returns))
+    if modern_missing:
+        raise ValueError(f"pension modern panel lacks sleeves required by candidates and controls: {modern_missing}")
+    century_missing = sorted(candidate_sleeves - set(century.returns))
+    if century_missing:
+        raise ValueError(f"pension century panel lacks sleeves required by candidates: {century_missing}")
+    unknown_drags = sorted(set(spec.annual_drag_by_sleeve) - candidate_sleeves - control_sleeves)
+    if unknown_drags:
+        raise ValueError(f"pension annual_drag_by_sleeve names unknown sleeves: {unknown_drags}")
     schedules = dict(spec.candidates)
 
     scores: list[CandidateScore] = []
     robust: dict[str, list[float]] = {candidate_id: [] for candidate_id in candidate_ids}
+    guard_lists: dict[str, list[float]] = {candidate_id: [] for candidate_id in candidate_ids}
+    control_lists: dict[str, list[float]] = {control_id: [] for control_id in spec.controls}
+    control_ref_lists: dict[str, list[float]] = {control_id: [] for control_id in spec.controls}
     sensitivity: dict[float, dict[str, list[float]]] = {
         gamma: {candidate_id: [] for candidate_id in candidate_ids} for gamma in spec.sensitivity_gammas
     }
@@ -166,14 +205,19 @@ def evaluate_pension_decision(
                     len(panel.months),
                 )
                 continue
-            results = simulate_cohorts(
-                panel,
-                schedules,
-                years=horizon,
-                step_months=spec.step_months,
-                pre_retirement_months=spec.pre_retirement_months,
-                annual_drag=spec.annual_drag_by_sleeve,
-            )
+            active = schedules if tier != "modern" or not have_controls else {**schedules, **spec.controls}
+            results: dict[str, tuple[PensionPathResult, ...]] = {}
+            for schedule_id, schedule in active.items():
+                results.update(
+                    simulate_cohorts(
+                        panel,
+                        {schedule_id: schedule},
+                        years=horizon,
+                        step_months=spec.step_months,
+                        pre_retirement_months=spec.pre_retirement_months,
+                        annual_drag=_schedule_drag(spec.annual_drag_by_sleeve, schedule),
+                    )
+                )
             terminals = {
                 candidate_id: tuple(result.terminal_value for result in results[candidate_id])
                 for candidate_id in candidate_ids
@@ -196,6 +240,23 @@ def evaluate_pension_decision(
                     candidate_ids, panel.tier, horizon, gamma, terminals, drawdowns, spec.benchmark_id
                 ):
                     sensitivity[gamma][scored.candidate_id].append(scored.ce_ratio)
+            ref_terms = terminals[reference_id] if reference_id is not None else None
+            if ref_terms is not None:
+                for candidate_id in candidate_ids:
+                    guard_lists[candidate_id].append(
+                        _ce_ratio(_paired_ratios(terminals[candidate_id], ref_terms), spec.primary_gamma)
+                    )
+            if have_controls and tier == "modern":
+                base_terms = terminals[spec.benchmark_id]
+                for control_id in spec.controls:
+                    control_terms = tuple(result.terminal_value for result in results[control_id])
+                    control_lists[control_id].append(
+                        _ce_ratio(_paired_ratios(control_terms, base_terms), spec.primary_gamma)
+                    )
+                    if ref_terms is not None:
+                        control_ref_lists[control_id].append(
+                            _ce_ratio(_paired_ratios(control_terms, ref_terms), spec.primary_gamma)
+                        )
     for candidate_id in candidate_ids:
         if not robust[candidate_id]:
             raise ValueError(f"pension candidate {candidate_id!r} has no feasible tier-horizon cell")
@@ -219,6 +280,11 @@ def evaluate_pension_decision(
     )
     wins = dict.fromkeys(candidate_ids, 0)
     benchmark_schedule = schedules[spec.benchmark_id]
+    benchmark_drag = _schedule_drag(spec.annual_drag_by_sleeve, benchmark_schedule)
+    candidate_drags = {
+        candidate_id: _schedule_drag(spec.annual_drag_by_sleeve, schedules[candidate_id])
+        for candidate_id in candidate_ids
+    }
     for boot in boot_panels:
         base = simulate_pension_dca(
             boot,
@@ -226,7 +292,7 @@ def evaluate_pension_decision(
             start_month_index=0,
             years=bootstrap_horizon,
             pre_retirement_months=0,
-            annual_drag=spec.annual_drag_by_sleeve,
+            annual_drag=benchmark_drag,
         ).terminal_value
         for candidate_id in candidate_ids:
             terminal = simulate_pension_dca(
@@ -235,14 +301,36 @@ def evaluate_pension_decision(
                 start_month_index=0,
                 years=bootstrap_horizon,
                 pre_retirement_months=0,
-                annual_drag=spec.annual_drag_by_sleeve,
+                annual_drag=candidate_drags[candidate_id],
             ).terminal_value
             if terminal / base > 1.0:
                 wins[candidate_id] += 1
     win_share = {candidate_id: wins[candidate_id] / len(boot_panels) for candidate_id in candidate_ids}
 
-    best = max(robust_scores.values())
-    equivalent = sorted(candidate for candidate, value in robust_scores.items() if value >= best - spec.equivalence_band)
+    dominance_min_ratio: dict[str, float] = {}
+    guard_excluded: tuple[str, ...] = ()
+    if need_guard:
+        assert reference_id is not None
+        dominance_min_ratio = {
+            candidate_id: min(values) for candidate_id, values in guard_lists.items()
+        }
+        threshold = 1.0 - spec.equivalence_band
+        guard_excluded = tuple(
+            sorted(candidate_id for candidate_id in candidate_ids if dominance_min_ratio[candidate_id] < threshold)
+        )
+        logger.info(
+            "[PORTFOLIO] event=pension_decision_guard reference=%s excluded=%d",
+            reference_id,
+            len(guard_excluded),
+        )
+    control_scores = {control_id: min(values) for control_id, values in control_lists.items()}
+    control_vs_reference = (
+        {control_id: min(values) for control_id, values in control_ref_lists.items()} if need_guard else {}
+    )
+    excluded_set = set(guard_excluded)
+    pool = [candidate_id for candidate_id in candidate_ids if candidate_id not in excluded_set]
+    best = max(robust_scores[candidate_id] for candidate_id in pool)
+    equivalent = sorted(candidate for candidate in pool if robust_scores[candidate] >= best - spec.equivalence_band)
     worst_tier_drawdown = {
         candidate: min(statistics.median(drawdowns) for drawdowns in tier_drawdown[candidate].values())
         for candidate in equivalent
@@ -264,10 +352,17 @@ def evaluate_pension_decision(
         status, selected_id = "KEEP_INCUMBENT", incumbent_id
     else:
         status, selected_id = "ADOPT_CANDIDATE", selection
+    if need_guard:
+        unguarded_best = max(robust_scores.values())
+        if any(
+            candidate_id in excluded_set and value == unguarded_best
+            for candidate_id, value in robust_scores.items()
+        ):
+            reasons.append("DOMINANCE_GUARD")
     trial_count_raw = spec.lineage.get("related_trial_count", 0)
     if isinstance(trial_count_raw, bool) or not isinstance(trial_count_raw, int):
         raise ValueError("pension lineage.related_trial_count must be a non-negative integer")
-    trial_count = trial_count_raw + len(candidate_ids)
+    trial_count = trial_count_raw + len(candidate_ids) + len(spec.controls)
     logger.info(
         "[PORTFOLIO] event=pension_decision_done name=%s status=%s selected=%s trial_count=%d",
         spec.name,
@@ -288,6 +383,10 @@ def evaluate_pension_decision(
         tax_rank_agreement=True,
         manifest_hashes={},
         trial_count=trial_count,
+        dominance_min_ratio=dominance_min_ratio,
+        guard_excluded_ids=guard_excluded,
+        control_scores=control_scores,
+        control_vs_reference=control_vs_reference,
     )
 
 

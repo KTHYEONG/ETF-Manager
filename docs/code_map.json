@@ -1211,5 +1211,8 @@
   },
   "src/validation/pension_decision.py": {
     "testing": "tests/unit/validation/test_pension_decision.py"
+  },
+  "src/sim/pension_splice.py": {
+    "testing": "tests/unit/sim/test_pension_splice.py"
   }
 }

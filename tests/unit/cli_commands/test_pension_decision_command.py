@@ -431,3 +431,208 @@ def test_pension_decision_rejects_century_month_not_yet_visible(
     assert code == 1
     assert "config requires 2000-01-31..2012-06-30" in caplog.text
     assert "payload" not in captured
+
+
+def _splice_months(first: date, count: int) -> list[date]:
+    return _months(first, count)
+
+
+def _splice_config(tmp_path: Path) -> str:
+    document = json.loads((_REPO / "experiments" / "pension_decision_v1.json").read_text(encoding="utf-8"))
+    document["candidates"] = {
+        "spy_only": {
+            "start_weights": {"SPY": 1.0},
+            "end_weights": {"SPY": 1.0},
+            "glide_years": 0,
+        },
+        "schd_tilt": {
+            "start_weights": {"SPY": 0.5, "SCHD": 0.5},
+            "end_weights": {"SPY": 0.5, "SCHD": 0.5},
+            "glide_years": 0,
+        },
+    }
+    document["benchmark_id"] = "spy_only"
+    document["neighbors"] = {"spy_only": [], "schd_tilt": []}
+    document["century_series"] = {"SPY": "ff_mkt_monthly", "SCHD": "ff_dp_hi30_monthly"}
+    document["modern_start"] = "2000-01-31"
+    document["modern_end"] = "2002-06-30"
+    document["century_start"] = "2000-01-31"
+    document["century_end"] = "2002-04-30"
+    document["horizons_years"] = [1, 2]
+    document["step_months"] = 12
+    document["pre_retirement_months"] = 12
+    document["bootstrap_paths"] = 4
+    document["bootstrap_block_months"] = 6
+    document["annual_drag_by_sleeve"] = {}
+    document["tax_crosscheck_arm_map"] = {"sp500_100": "spy_only"}
+    document["controls"] = {
+        "world": {
+            "start_weights": {"VT": 1.0},
+            "end_weights": {"VT": 1.0},
+            "glide_years": 0,
+        }
+    }
+    document["dominance_reference_id"] = "spy_only"
+    document["modern_splices"] = {
+        "SCHD": {"proxy_weights": {"ff_dp_hi30_monthly": 1.0}, "etf_first_month": "2001-01-31"}
+    }
+    path = tmp_path / "splice_decision.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return str(path)
+
+
+def _splice_prices_frame() -> pl.DataFrame:
+    months = _splice_months(date(1999, 12, 31), 31)
+    tickers, dates, closes = [], [], []
+    for index, day in enumerate(months):
+        tickers.append("SPY")
+        dates.append(day)
+        closes.append(100.0 * (1.004) ** index)
+    for index, day in enumerate(months):
+        tickers.append("VT")
+        dates.append(day)
+        closes.append(100.0 * (1.005) ** index)
+    schd_months = _splice_months(date(2000, 12, 31), 19)
+    for index, day in enumerate(schd_months):
+        tickers.append("SCHD")
+        dates.append(day)
+        closes.append(100.0 * (1.006) ** index)
+    return pl.DataFrame(
+        {
+            "ticker": tickers,
+            "date": dates,
+            "adjusted_close": closes,
+            "available_at": [datetime(2000, 1, 1, tzinfo=UTC)] * len(dates),
+        },
+        schema={
+            "ticker": pl.String,
+            "date": pl.Date,
+            "adjusted_close": pl.Float64,
+            "available_at": pl.Datetime("us", "UTC"),
+        },
+    )
+
+
+def _splice_research_frame(*, with_proxy: bool = True) -> pl.DataFrame:
+    months = _splice_months(date(2000, 1, 31), 28)
+    series, ends, returns, stamps = [], [], [], []
+    for day in months:
+        series.append("ff_mkt_monthly")
+        ends.append(day)
+        returns.append(0.004)
+        stamps.append(datetime(day.year, day.month, day.day, tzinfo=UTC) + timedelta(days=60))
+    if with_proxy:
+        for day in months:
+            series.append("ff_dp_hi30_monthly")
+            ends.append(day)
+            returns.append(0.005)
+            stamps.append(datetime(day.year, day.month, day.day, tzinfo=UTC) + timedelta(days=60))
+    return pl.DataFrame(
+        {
+            "series_id": series,
+            "period_end": ends,
+            "simple_return": returns,
+            "label": ["research_proxy"] * len(ends),
+            "source": ["synthetic"] * len(ends),
+            "available_at": stamps,
+        },
+        schema={
+            "series_id": pl.String,
+            "period_end": pl.Date,
+            "simple_return": pl.Float64,
+            "label": pl.String,
+            "source": pl.String,
+            "available_at": pl.Datetime("us", "UTC"),
+        },
+    )
+
+
+def _install_splice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, captured: dict[str, object], *, with_proxy: bool = True
+) -> None:
+    frames = {"prices": _splice_prices_frame(), "research_monthly": _splice_research_frame(with_proxy=with_proxy)}
+    snapshot = SimpleNamespace(
+        artifacts={
+            Dataset.PRICES: SimpleNamespace(manifest_path="/m/prices.json"),
+            Dataset.RESEARCH_MONTHLY: SimpleNamespace(manifest_path="/m/research.json"),
+        }
+    )
+    monkeypatch.setattr(catalog_mod, "resolve_snapshot", lambda *_a, **_k: snapshot)
+    monkeypatch.setattr(
+        catalog_mod, "load_snapshot_visible", lambda _snap, dataset, _ts: frames[str(dataset)]
+    )
+    monkeypatch.setattr(
+        pension_campaign_mod,
+        "run_pension_campaign",
+        lambda *_a, **_k: SimpleNamespace(
+            summaries=[
+                SimpleNamespace(arm_id="sp500_100", horizon_months=12, median_wealth_ratio=1.0),
+                SimpleNamespace(arm_id="sp500_100", horizon_months=24, median_wealth_ratio=1.0),
+            ]
+        ),
+    )
+    monkeypatch.setattr(campaign_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
+
+    def write(
+        _settings: DataSettings,
+        *,
+        experiment: str,
+        kind: object,
+        run_id: str,
+        payload: dict[str, object],
+        markdown: str | None = None,
+        written_at: object = None,
+    ) -> SimpleNamespace:
+        captured["experiment"] = experiment
+        captured["kind"] = str(kind)
+        captured["run_id"] = run_id
+        captured["payload"] = payload
+        captured["markdown"] = markdown
+        return SimpleNamespace(json_path=tmp_path / f"decision_{run_id}.json")
+
+    monkeypatch.setattr(result_store_mod, "write_result", write)
+
+
+def test_pension_decision_spliced_sleeve_and_controls_reach_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A late-listed sleeve, one control, and a reference surface in the payload."""
+    captured: dict[str, object] = {}
+    _install_splice(tmp_path, monkeypatch, captured)
+    code = campaign_mod.run_pension_decision_command(
+        config_path=_splice_config(tmp_path),
+        settings=DataSettings(data_root=str(tmp_path / "data")),
+        seed=11,
+    )
+    assert code == 0
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    assert payload["dominance_reference_id"] == "spy_only"
+    assert payload["modern_splices"] == [
+        {
+            "sleeve": "SCHD",
+            "proxy_first_month": "2000-01-31",
+            "proxy_last_month": "2000-12-31",
+            "etf_first_month": "2001-01-31",
+            "proxy_weights": {"ff_dp_hi30_monthly": 1.0},
+        }
+    ]
+    assert set(payload["control_scores"]) == {"world"}  # type: ignore[arg-type]
+    assert isinstance(captured["markdown"], str)
+    assert "도미넌스 가드" in captured["markdown"]
+    assert "컨트롤" in captured["markdown"]
+
+
+def test_pension_decision_missing_proxy_series_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A proxy series absent from the store fails the splice with no result file."""
+    captured: dict[str, object] = {}
+    _install_splice(tmp_path, monkeypatch, captured, with_proxy=False)
+    code = campaign_mod.run_pension_decision_command(
+        config_path=_splice_config(tmp_path),
+        settings=DataSettings(data_root=str(tmp_path / "data")),
+        seed=11,
+    )
+    assert code == 1
+    assert "payload" not in captured
