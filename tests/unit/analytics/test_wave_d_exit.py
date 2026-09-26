@@ -61,7 +61,7 @@ def _make_wave(
         thesis_id=ThesisId.AI_COMPUTE,
         report=report,
         decision=decision,
-        experiment_path=Path("experiments/m_thesis_ai_compute_soxx_120m.json"),
+        experiment_path=Path("configs/research/m_thesis_ai_compute_soxx_120m.json"),
     )
     return ThesisWaveReport(
         as_of=as_of,
@@ -240,7 +240,7 @@ def test_run_thesis_pipeline_writes_result_store(scenario_id: str, tmp_path: Pat
     code = wde_mod.run_thesis_pipeline_command(thesis_id="ai_compute", as_of=None, settings=settings)
     assert code == 0
     assert not (tmp_path / "docs").exists()
-    artifacts = list((tmp_path / "data" / "results" / "thesis_ai_compute").glob("wave_d_exit_*.json"))
+    artifacts = list((tmp_path / "data" / "runs" / "thesis_ai_compute").glob("wave_d_exit_*.json"))
     assert len(artifacts) == 1
     assert artifacts[0].with_suffix(".md").is_file()
 
@@ -361,5 +361,5 @@ def test_run_thesis_pipeline_explicit_as_of_checks_pinned_session(
         thesis_id="ai_compute", as_of="2024-01-31", settings=settings
     )
     assert code == 0
-    artifacts = list((tmp_path / "data" / "results" / "thesis_ai_compute").glob("wave_d_exit_*.json"))
+    artifacts = list((tmp_path / "data" / "runs" / "thesis_ai_compute").glob("wave_d_exit_*.json"))
     assert len(artifacts) == 1

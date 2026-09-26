@@ -111,9 +111,9 @@ def promote_result(
     experiment: str,
     kind: ResultKind,
     run_id: str,
-    dest_root: Path = Path("docs/results"),
+    dest_root: Path = Path("data/research"),
 ) -> tuple[Path, ...]:
-    """Copy one run artifact (JSON and markdown sidecar if present) into curated docs.
+    """Copy one run artifact (JSON and markdown sidecar if present) into promoted evidence.
 
     Destination: ``dest_root/<experiment_slug>/<kind>_<run_id_slug>.{json,md}``.
     Idempotent when the destination bytes already match.
@@ -123,7 +123,7 @@ def promote_result(
 
     Raises:
         FileNotFoundError: The source JSON does not exist.
-        FileExistsError: A destination exists with different bytes (curated evidence is
+        FileExistsError: A destination exists with different bytes (promoted evidence is
             never silently overwritten).
     """
     exp_slug = normalize_result_slug(experiment)

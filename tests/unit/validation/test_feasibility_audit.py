@@ -13,7 +13,7 @@ from src.data.pipeline import persist_ingest
 from src.data.schema import Dataset, spec_for
 from src.data.settings import DataSettings
 from src.data.storage import RawPayload
-from src.validation.experiment import ExperimentSpec, load_experiment_config
+from src.validation.experiment import ExperimentSpec
 from src.validation.feasibility_audit import (
     audit_static_dca_window,
     resolve_dependency_profile,
@@ -86,16 +86,6 @@ def _catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, days: tuple[date, 
     persist_ingest(_fx_frame(days), Dataset.FX, _payload(), settings)
     persist_ingest(_cpi_frame(cpi_period), Dataset.CPI, _payload(), settings)
     return settings
-
-
-@pytest.mark.parametrize("scenario_id", ["WAV2-AUD-static-deps"])
-def test_WAV2_AUD_static_deps(scenario_id: str) -> None:  # noqa: N802
-    """WAV2-AUD-static-deps"""
-    spec = load_experiment_config("experiments/m_qqq_grid.json")
-    profile = resolve_dependency_profile(spec)
-    assert profile.profile == "static_dca"
-    assert profile.requires_macro is False
-    assert profile.required_datasets == ("prices", "fx", "cpi")
 
 
 @pytest.mark.parametrize("scenario_id", ["WAV2-AUD-macro-deps"])

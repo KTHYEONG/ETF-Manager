@@ -1,6 +1,39 @@
 {
   "tasks": [
     {
+      "task_id": "TASK_RESEARCH_CONFIG_PRUNE",
+      "date": "2026-09-26",
+      "adr_id": "ADR_20260926_RESEARCH_CONFIG_PRUNE",
+      "domain": "data",
+      "title": "Retire closed research configs, back up only irreplaceable data",
+      "why": "Closed walk-forward research configs and their content-pinning tests cluttered git while Drive mirrored regenerable outputs.",
+      "resolution": "Removed 47 research configs and about 40 config-pinning tests, kept lineage entries as retired in INDEX.json, and limited Drive backup to raw, normalized, manifests, frozen, and prospective_registry.",
+      "impact": "configs/research shrank to 19 files still read by shipped commands, the census counts are unchanged, and the three final decisions rerun successfully.",
+      "caveat": "Pension, after-tax, and thesis configs remain because their commands and about 180 tests depend on them."
+    },
+    {
+      "task_id": "TASK_DATA_LAYOUT",
+      "date": "2026-09-26",
+      "adr_id": "ADR_20260926_DATA_LAYOUT",
+      "domain": "data",
+      "title": "Data layout: Drive-held raw, git-ignored runs/frozen, decision and research configs",
+      "why": "Raw payloads (466MB) and generated JSON cluttered disk and git while the tests coupled to experiments/ and records/ paths.",
+      "resolution": "Added tools/devops/backup.py (Drive push/pull/verify, raw removed locally), resolve_repo_path aliases keeping frozen hashes stable, moved configs to configs/decision and configs/research, frozen records to data/frozen, and account result pages under docs/results.",
+      "impact": "Local data shrank from 492MB to 27MB and git-tracked generated JSON was removed without changing any frozen config hash or run id.",
+      "caveat": "Research configs remain tracked because tests assert on their real content; Drive copy of raw is the only source for Bronze payloads."
+    },
+    {
+      "task_id": "TASK_ISA_HOUSEHOLD",
+      "date": "2026-09-26",
+      "adr_id": "ADR_20260926_ISA_HOUSEHOLD",
+      "domain": "portfolio",
+      "title": "ISA brokerage + pension-savings household operating-policy decision",
+      "why": "ISA needed a statute-backed tax model and an operating-mode decision (hold, roll to pension, roll to side) jointly with the frozen pension holding.",
+      "resolution": "Added ISA tax regime (2026 law), monthly household simulator with 6 operating arms, robust CE decision with bootstrap/exit/holding cross-checks, and run isa-household CLI.",
+      "impact": "Selects per-budget ISA operating mode by worst-case after-tax household wealth without altering the frozen pension decision.",
+      "caveat": "Pending 2027 reform bill is not law and not modeled; FX-neutral returns and nominal KRW thresholds assumed."
+    },
+    {
       "task_id": "TASK_PENSION_DECISION_V3",
       "date": "2026-09-26",
       "adr_id": "ADR_20260926_PENSION_DECISION_V3",
@@ -985,36 +1018,6 @@
       "why": "Phase 9 validation ended at AllocationResult ledger with no order objects or broker book; next.md Phase 10 requires paper execution after research stabilization.",
       "resolution": "Added BuyOrder and orders_from_snapshots (buy-only integer deltas), Broker protocol and PaperBroker, reconcile and replay_paper, CLI run paper with plain AllocationConfig and monkeypatched store tests; live routing and sells out of scope.",
       "impact": "Closes Phase 10 paper execution path under buy-only I6; roadmap P0-P10 implementation complete; live broker connectivity remains deferred per architecture boundary."
-    },
-    {
-      "task_id": "TASK_P9_ROBUST_VALIDATION",
-      "date": "2026-08-23",
-      "adr_id": "ADR_20260823_P9_ROBUST_VALIDATION",
-      "domain": "validation",
-      "title": "Phase 9: Walk-forward, cohort CE gate, block bootstrap, I12 registry",
-      "why": "Phase 8 produced single-path AllocationResult only; next.md Phase 9 and architecture L5 require time-ordered validation, rolling cohorts, CE_gamma adoption gate versus B0, bootstrap distributions, and I12 experiment identity.",
-      "resolution": "Added validation/windows (walk_forward_windows, rolling_cohorts), gate (certainty_equivalent, adoption_passes, select_plateau), moving_block_bootstrap, registry (ExperimentRecord, make_experiment), evaluate_cohort_wealths, CLI run validate with delta0/modules/cohort/bootstrap flags, and cohort identity test; no price-path MC or SPA/MCS.",
-      "impact": "Closes Phase 9 robust validation core under I5 identical cashflows and architecture CE gate; unblocks Phase 10 paper execution after research stabilization."
-    },
-    {
-      "task_id": "TASK_P8_ETF_MAPPING",
-      "date": "2026-08-23",
-      "adr_id": "ADR_20260823_P8_ETF_MAPPING",
-      "domain": "policy",
-      "title": "Phase 8: PIT ETF score + hysteresis mapping (buy-only)",
-      "why": "Phase 7 spent economic sleeve tickers directly; next.md Phase 8 requires L6 implementation mapping with hard filters, implementation-quality score, and incumbent hysteresis without selling on switch.",
-      "resolution": "Expanded Dataset.ETF_METADATA schema v2, added passes_hard_filters and etf_score with PIT metadata lookup, MappingConfig and apply_etf_mapping with hysteresis, wired run_allocation after overlay before currency with buy-only leftover lots in NAV, ETF_METADATA load when mapping set, and CLI --map-etf / --map-min-improvement; mapping=None preserves Phase 7 identity.",
-      "impact": "Closes Phase 8 ETF implementation layer under I1/I10 PIT metadata and I6 buy-only cash conservation; unblocks Phase 9 robust validation without SEC ingest or survivorship-free universe."
-    },
-    {
-      "task_id": "TASK_P7_CURRENCY",
-      "date": "2026-08-23",
-      "adr_id": "ADR_20260823_P7_CURRENCY",
-      "domain": "policy",
-      "title": "Phase 7: Bounded FX defer + trading/economic currency labels",
-      "why": "Phase 6 converted every month's investable KRW in full at execution FX; next.md Phase 7 requires baseline conversion with optional bounded defer and explicit trading vs economic currency separation.",
-      "resolution": "Added trailing_fx_percentile (L2), CurrencyConfig and conversion_fraction with bounded defer on expensive FX percentile, trading_currency/economic_currency labels, wired run_allocation to apply currency after overlay with cash_krw debit by spent KRW only, and CLI --fx-max-defer / --fx-expensive-percentile; currency=None preserves Phase 6 identity.",
-      "impact": "Closes Phase 7 spot conversion policy under I6 no-extra-cashflow; unblocks Phase 8 ETF mapping and FX hedge challengers without changing external cashflows."
     }
   ]
 }

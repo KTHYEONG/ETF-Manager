@@ -39,7 +39,7 @@ def _months(first: date, count: int) -> list[date]:
 
 
 def _config(tmp_path: Path) -> str:
-    document = json.loads((_REPO / "experiments" / "pension_decision_v1.json").read_text(encoding="utf-8"))
+    document = json.loads((_REPO / "configs" / "research" / "pension_decision_v1.json").read_text(encoding="utf-8"))
     document["modern_start"] = "2000-01-31"
     document["modern_end"] = "2012-06-30"
     document["century_start"] = "2000-01-31"
@@ -438,7 +438,7 @@ def _splice_months(first: date, count: int) -> list[date]:
 
 
 def _splice_config(tmp_path: Path) -> str:
-    document = json.loads((_REPO / "experiments" / "pension_decision_v1.json").read_text(encoding="utf-8"))
+    document = json.loads((_REPO / "configs" / "research" / "pension_decision_v1.json").read_text(encoding="utf-8"))
     document["candidates"] = {
         "spy_only": {
             "start_weights": {"SPY": 1.0},
@@ -688,3 +688,22 @@ def test_pension_decision_realized_window_without_prices_fails_closed(
     )
     assert code == 1
     assert "payload" not in captured
+
+
+def test_freeze_writes_record_under_frozen_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--freeze persists the record under <data>/frozen/pension and never under records/."""
+    captured: dict[str, object] = {}
+    _install(tmp_path, monkeypatch, captured)
+    settings = DataSettings(data_root=str(tmp_path / "data"))
+    code = campaign_mod.run_pension_decision_command(
+        config_path=_config(tmp_path),
+        settings=settings,
+        seed=11,
+        freeze=True,
+    )
+    assert code == 0
+    frozen = list((tmp_path / "data" / "frozen" / "pension").glob("*.json"))
+    assert len(frozen) == 1
+    assert not Path("records").exists()

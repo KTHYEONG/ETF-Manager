@@ -11,8 +11,8 @@ import pytest
 from src.validation.pension_decision_config import load_pension_decision_spec
 
 _REPO = Path(__file__).resolve().parents[3]
-_CONFIG_PATH = _REPO / "experiments" / "pension_decision_v1.json"
-_V2_CONFIG_PATH = _REPO / "experiments" / "pension_decision_v2.json"
+_CONFIG_PATH = _REPO / "configs" / "research" / "pension_decision_v1.json"
+_V2_CONFIG_PATH = _REPO / "configs" / "research" / "pension_decision_v2.json"
 
 
 def test_shipped_v2_config_loads_with_products_and_reference(tmp_path: Path) -> None:
@@ -445,7 +445,7 @@ def test_load_rejects_non_array_realized_horizons(tmp_path: Path) -> None:
         load_pension_decision_spec(_document_with_realized_window(tmp_path, "10"))
 
 
-_V3_CONFIG_PATH = _REPO / "experiments" / "pension_decision_v3.json"
+_V3_CONFIG_PATH = _REPO / "configs" / "decision" / "pension.json"
 
 
 def test_shipped_v3_config_loads_with_realized_tier(tmp_path: Path) -> None:
@@ -470,3 +470,32 @@ def test_v3_differs_from_v2_only_in_declared_fields(tmp_path: Path) -> None:
     assert v3.modern_splices == v2.modern_splices
     assert v3.sleeve_products == v2.sleeve_products
     assert v3.annual_drag_by_sleeve == v2.annual_drag_by_sleeve
+
+
+def test_committed_config_legacy_campaign_path_resolves() -> None:
+    """A config citing a frozen experiments/ campaign path loads with the file on disk."""
+    spec = load_pension_decision_spec(_CONFIG_PATH)
+    assert Path(spec.tax_crosscheck_campaign_path).is_file()
+
+
+def test_missing_cited_campaign_path_names_field(tmp_path: Path) -> None:
+    """A config citing a file that exists nowhere fails closed naming the field."""
+    document = _mutated(_document(), "tax_crosscheck_campaign_path", "experiments/does_not_exist_zz.json")
+    with pytest.raises(ValueError, match="tax_crosscheck_campaign_path"):
+        load_pension_decision_spec(_write(tmp_path, document))
+
+
+def test_relocated_decision_config_bytes_stable() -> None:
+    """Relocated configs/decision/pension.json hashes to the frozen record's config_sha256."""
+    import hashlib
+
+    from src.validation.pension_decision_record import load_pension_decision_record
+
+    relocated = Path("configs/decision/pension.json")
+    if not relocated.is_file():
+        pytest.skip("relocation pending: configs/decision/pension.json absent")
+    records = sorted(Path("data/frozen/pension").glob("*.json"))
+    if not records:
+        pytest.skip("relocation pending: no local frozen pension record")
+    digest = hashlib.sha256(relocated.read_bytes()).hexdigest()
+    assert any(load_pension_decision_record(record).config_sha256 == digest for record in records)

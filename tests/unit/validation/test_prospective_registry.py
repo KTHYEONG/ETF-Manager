@@ -75,9 +75,7 @@ def test_freeze_prospective_bundle_filename_follows_bundle_id(tmp_path) -> None:
 def test_committed_prospective_record_location() -> None:
     from pathlib import Path
 
-    from src.data.paths import PROSPECTIVE_RECORDS_DIR
-
-    assert (Path(PROSPECTIVE_RECORDS_DIR) / "prospective_2026_v1_frozen.json").is_file()
+    assert (Path("data/frozen/prospective") / "prospective_2026_v1_frozen.json").is_file()
     assert not Path("configs/prospective/registry").exists()
 
 def test_assert_strategy_identity_unchanged_rejects_edit() -> None:

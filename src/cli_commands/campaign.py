@@ -39,7 +39,7 @@ _ = freeze_prospective_bundle
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from src.validation.pension_decision import PensionDecisionReport
+    pass
 _VALIDATE_GAMMAS: tuple[float, ...] = (2.0, 5.0, 10.0)
 _VALIDATE_BASELINE_TICKER: str = "VT"
 _ERRORS = (AllocationDataError, BaselineDataError, PolicyError, ThesisError, UntrustedDatasetError, XirrError, ValueError, OSError)
@@ -354,12 +354,17 @@ def run_audit_feasibility_command(*, config_path: str, settings: DataSettings, w
 
 
 
+# 파이프라인 분리 후에도 기존 진입점(`campaign.run_*`)을 유지하는 명시적 재수출.
 from src.cli_commands.campaign_pension import (  # noqa: E402
-    _decision_markdown, _read_incumbent_id, _read_record_id, run_isa_household_command,
-    run_pension_campaign_command, run_pension_decision_command, run_pension_selection_command,
+    _decision_markdown as _decision_markdown,
+    _read_incumbent_id as _read_incumbent_id,
+    _read_record_id as _read_record_id,
+    run_isa_household_command as run_isa_household_command,
+    run_pension_campaign_command as run_pension_campaign_command,
+    run_pension_decision_command as run_pension_decision_command,
+    run_pension_selection_command as run_pension_selection_command,
 )
-_ = (_decision_markdown, _read_incumbent_id, _read_record_id, run_isa_household_command,
-     run_pension_campaign_command, run_pension_decision_command, run_pension_selection_command)
+
 
 def run_pension_review_command(*, record_path: str, as_of: date, settings: DataSettings) -> int:
 

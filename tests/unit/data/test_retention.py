@@ -57,7 +57,7 @@ def _payload_with(retrieved_at: datetime, content: bytes) -> RawPayload:
 
 
 def _write_result_pin(settings: DataSettings, name: str, payload: dict[str, object]) -> Path:
-    path = settings.resolved_data_root() / "results" / "retention_probe" / name
+    path = settings.resolved_data_root() / "runs" / "retention_probe" / name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
@@ -122,7 +122,7 @@ def test_plan_prune_stages_legacy_flat_results_dirs(tmp_path: Path, monkeypatch:
 
     plan = plan_prune(settings, keep_latest_only=True, drop_nport_zip_mirrors=False)
 
-    assert (legacy / "wave_old.json", root / "data" / "results" / "thesis" / "wave_old.json") in plan.to_migrate
+    assert (legacy / "wave_old.json", root / "data" / "runs" / "thesis" / "wave_old.json") in plan.to_migrate
 
 
 def test_plan_prune_rejects_malformed_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -253,7 +253,7 @@ def test_apply_prune_dry_run_is_default(tmp_path: Path, monkeypatch: pytest.Monk
     assert early_art.manifest_path.is_file()
     assert early_art.normalized_path.is_file()
     assert (legacy / "wave_old.json").is_file()
-    assert not (root / "data" / "results" / "thesis" / "wave_old.json").exists()
+    assert not (root / "data" / "runs" / "thesis" / "wave_old.json").exists()
 
 
 def test_plan_prune_retains_latest_silver_with_missing_bronze(
@@ -408,7 +408,7 @@ def test_plan_prune_skips_absent_and_unreadable_evidence(
         {"manifest_hash": None, "manifest_hashes": {"fx": None, "cpi": "NO_TRUSTED_CPI"}, "manifest_sha256s": None},
     )
     _write_result_pin(settings, "listed.json", {"manifest_hashes": [ghost]})
-    probe_dir = settings.resolved_data_root() / "results" / "retention_probe"
+    probe_dir = settings.resolved_data_root() / "runs" / "retention_probe"
     (probe_dir / "corrupt.json").write_bytes(b"not json{{")
     (probe_dir / "array.json").write_text("[1, 2]", encoding="utf-8")
 
@@ -436,13 +436,13 @@ def test_plan_prune_malformed_pin_blocks_planning(
     with pytest.raises(UntrustedDatasetError):
         plan_prune(settings, migrate_results_layout=False)
 
-    (settings.resolved_data_root() / "results" / "retention_probe" / "bad.json").unlink()
+    (settings.resolved_data_root() / "runs" / "retention_probe" / "bad.json").unlink()
     _write_result_pin(settings, "bad_multi.json", {"manifest_hashes": "bad-value"})
 
     with pytest.raises(UntrustedDatasetError):
         plan_prune(settings, migrate_results_layout=False)
 
-    (settings.resolved_data_root() / "results" / "retention_probe" / "bad_multi.json").unlink()
+    (settings.resolved_data_root() / "runs" / "retention_probe" / "bad_multi.json").unlink()
     _write_result_pin(settings, "bad_type.json", {"manifest_hash": 42})
 
     with pytest.raises(UntrustedDatasetError):
@@ -537,3 +537,68 @@ def test_apply_prune_rechecks_protected_silver_paths(
     for kept in plan.retained_parquets:
         assert kept.is_file()
         assert kept not in report.deleted
+
+
+def test_plan_prune_collects_pins_from_new_roots_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pins under runs, frozen, and research are honored; legacy docs/results pins are ignored."""
+    root = tmp_path / "new_roots"
+    root.mkdir()
+    monkeypatch.chdir(root)
+    settings = DataSettings(data_root="data")
+
+    days = [date(2024, 1, 30), date(2024, 1, 31)]
+    early_art = persist_ingest(
+        _fx_frame(days, [1300.0, 1301.0], _RETRIEVED_EARLY),
+        Dataset.FX,
+        _payload(_RETRIEVED_EARLY),
+        settings,
+    )
+    late_art = persist_ingest(
+        _fx_frame(days, [1300.5, 1302.0], _RETRIEVED_LATE),
+        Dataset.FX,
+        _payload(_RETRIEVED_LATE),
+        settings,
+    )
+    data = settings.resolved_data_root()
+    for subdir in ("runs", "frozen", "research"):
+        pin_dir = data / subdir / "pins"
+        pin_dir.mkdir(parents=True, exist_ok=True)
+        (pin_dir / "pin.json").write_text(
+            json.dumps({"manifest_hash": early_art.manifest_path.stem}), encoding="utf-8"
+        )
+    ghost = "ab" * 32
+    for legacy in ("docs/results", "records/prospective"):
+        legacy_dir = root / legacy
+        legacy_dir.mkdir(parents=True, exist_ok=True)
+        (legacy_dir / "ghost.json").write_text(json.dumps({"manifest_hash": ghost}), encoding="utf-8")
+
+    plan = plan_prune(settings, migrate_results_layout=False)
+    assert early_art.manifest_path in plan.retained_manifests
+    assert late_art.manifest_path in plan.retained_manifests
+    assert ghost not in plan.missing_evidence
+
+
+def test_plan_prune_malformed_pin_under_frozen_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malformed pin value under the frozen root fails planning without deletions."""
+    root = tmp_path / "frozen_pin"
+    root.mkdir()
+    monkeypatch.chdir(root)
+    settings = DataSettings(data_root="data")
+
+    days = [date(2024, 1, 30), date(2024, 1, 31)]
+    persist_ingest(
+        _fx_frame(days, [1300.0, 1301.0], _RETRIEVED_EARLY),
+        Dataset.FX,
+        _payload(_RETRIEVED_EARLY),
+        settings,
+    )
+    frozen_dir = settings.resolved_data_root() / "frozen"
+    frozen_dir.mkdir(parents=True, exist_ok=True)
+    (frozen_dir / "bad.json").write_text(json.dumps({"manifest_hash": "bad-value"}), encoding="utf-8")
+
+    with pytest.raises(UntrustedDatasetError):
+        plan_prune(settings, migrate_results_layout=False)

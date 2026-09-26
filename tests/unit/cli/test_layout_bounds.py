@@ -40,21 +40,8 @@ def test_cli_layout_required_modules_exist() -> None:
         assert Path(f"src/cli_commands/{stem}.py").exists()
 
 
-def test_documented_module_paths_and_commands_exist() -> None:
-    """Every module-index path and README command example resolves to the real tree."""
-    import re
-
-    index_text = Path("docs/architecture/module_index.md").read_text(encoding="utf-8")
-    indexed = re.findall(r"`([^`]+)`", index_text)
-    candidates = [
-        token
-        for token in indexed
-        if "/" in token and not token.startswith("http") and "<" not in token and "*" not in token
-    ]
-    assert candidates, "module index lists no source paths"
-    missing = [token for token in candidates if not Path(token.rstrip("/")).exists()]
-    assert not missing, f"module index references missing paths: {missing}"
-
+def test_documented_readme_commands_exist() -> None:
+    """Every README command example resolves to the real parser."""
     readme = Path("README.md").read_text(encoding="utf-8")
     assert "python -m src.cli" in readme
     from src.cli_commands.parser import _build_parser
@@ -76,10 +63,10 @@ def test_documented_module_paths_and_commands_exist() -> None:
     )
     assert policy_args.id == "qqq"
     assert parser.parse_args(["maintain", "data"]).target == "data"
-    assert Path("experiments/final_historical_campaign_v1.json").is_file()
+    assert Path("configs/decision/general.json").is_file()
 
 
-def test_data_flow_matches_trust_contracts(
+def test_system_design_matches_trust_contracts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Missing Bronze stays readable/repairable while damaged Silver stops the run."""
@@ -93,9 +80,9 @@ def test_data_flow_matches_trust_contracts(
     from src.data.settings import DataSettings
     from src.data.storage import DataStore, RawPayload, UntrustedDatasetError
 
-    flow = Path("docs/architecture/data-flow.md").read_text(encoding="utf-8")
-    assert "maintain data" in flow
-    assert "UntrustedDatasetError" in flow
+    design = Path("docs/architecture/system-design.md").read_text(encoding="utf-8")
+    assert "maintain data" in design
+    assert "UntrustedDatasetError" in design
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("ETF_MANAGER_DATA_ROOT", raising=False)

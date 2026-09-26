@@ -143,7 +143,7 @@ def test_apply_result_prune_dry_run_is_inert(tmp_path: Path) -> None:
     """Prune dry run is inert."""
     settings = _settings(tmp_path)
     _prune_fixture(settings)
-    root = tmp_path / "data" / "results"
+    root = tmp_path / "data" / "runs"
     before_files = sorted(p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file())
     before_ledger = (root / "exp" / "runs.jsonl").read_bytes()
 
@@ -159,7 +159,7 @@ def test_apply_result_prune_rewrites_ledger(tmp_path: Path) -> None:
     """Prune apply rewrites ledger."""
     settings = _settings(tmp_path)
     _prune_fixture(settings)
-    root = tmp_path / "data" / "results"
+    root = tmp_path / "data" / "runs"
 
     plan = plan_result_prune(settings, keep=2)
     deleted = apply_result_prune(settings, plan, dry_run=False)
@@ -180,7 +180,7 @@ def test_apply_result_prune_tolerates_missing_files(tmp_path: Path) -> None:
 
     settings = _settings(tmp_path)
     _write(settings, "exp", ResultKind.WALK_FORWARD, "a", T1)
-    root = tmp_path / "data" / "results"
+    root = tmp_path / "data" / "runs"
     ghost = ResultRef(
         experiment="exp",
         kind=ResultKind.WALK_FORWARD,
@@ -199,7 +199,7 @@ def test_apply_result_prune_preserves_blank_lines(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     _write(settings, "exp", ResultKind.WALK_FORWARD, "r1", T1)
     _write(settings, "exp", ResultKind.WALK_FORWARD, "r2", T2)
-    ledger = tmp_path / "data" / "results" / "exp" / "runs.jsonl"
+    ledger = tmp_path / "data" / "runs" / "exp" / "runs.jsonl"
     ledger.write_text(ledger.read_text(encoding="utf-8") + "\n", encoding="utf-8")
 
     plan = plan_result_prune(settings, keep=1)
@@ -215,7 +215,7 @@ def test_apply_result_prune_fails_closed_on_corrupt_ledger(tmp_path: Path) -> No
     from src.data.result_store import ResultRef
 
     settings = _settings(tmp_path)
-    root = tmp_path / "data" / "results"
+    root = tmp_path / "data" / "runs"
     bad_lines = ["not json", "[1, 2]", json.dumps({"run_id": "r1"})]
     for i, bad in enumerate(bad_lines):
         exp = f"corrupt{i}"
@@ -237,7 +237,7 @@ def test_apply_result_prune_fails_closed_on_corrupt_ledger(tmp_path: Path) -> No
 def test_plan_result_prune_skips_legacy(tmp_path: Path) -> None:
     """Prune never touches legacy."""
     settings = _settings(tmp_path)
-    root = tmp_path / "data" / "results"
+    root = tmp_path / "data" / "runs"
     legacy = root / "_legacy"
     legacy.mkdir(parents=True)
     (legacy / "x.json").write_text("{}", encoding="utf-8")
@@ -254,7 +254,7 @@ def test_plan_result_prune_rejects_keep_below_one(tmp_path: Path) -> None:
 
 
 def _flat(settings: DataSettings, flat: str, name: str, payload: object, mtime: float | None = None) -> Path:
-    root = Path(settings.resolved_data_root()) / "results" / flat
+    root = Path(settings.resolved_data_root()) / "runs" / flat
     root.mkdir(parents=True, exist_ok=True)
     path = root / name
     path.write_text(json.dumps(payload) if not isinstance(payload, str) else payload, encoding="utf-8")
@@ -266,7 +266,7 @@ def _flat(settings: DataSettings, flat: str, name: str, payload: object, mtime: 
 def test_plan_result_migration_groups_by_payload_name(tmp_path: Path) -> None:
     """Migration groups by payload name."""
     settings = _settings(tmp_path)
-    root = tmp_path / "data" / "results"
+    root = tmp_path / "data" / "runs"
     mtime = datetime(2026, 2, 1, tzinfo=UTC).timestamp()
     src = _flat(settings, "experiments", "wf_qqq_adaptive_v5_893bec.json", {"name": "wf_qqq_adaptive_v5"}, mtime)
     (src.with_suffix(".md")).write_text("# old\n", encoding="utf-8")
@@ -291,7 +291,7 @@ def test_plan_result_migration_groups_by_payload_name(tmp_path: Path) -> None:
 def test_plan_result_migration_uses_campaign_and_thesis_ids(tmp_path: Path) -> None:
     """Migration uses campaign id and thesis id."""
     settings = _settings(tmp_path)
-    root = tmp_path / "data" / "results"
+    root = tmp_path / "data" / "runs"
     _flat(settings, "audits", "FINAL_HISTORICAL_CAMPAIGN_V1_8201d9e.json", {"campaign_id": "FINAL_HISTORICAL_CAMPAIGN_V1"})
     _flat(settings, "thesis", "wave_ai_compute.json", {"thesis_id": "ai_compute"})
 
@@ -305,7 +305,7 @@ def test_plan_result_migration_uses_campaign_and_thesis_ids(tmp_path: Path) -> N
 def test_plan_result_migration_quarantines_uninferrable(tmp_path: Path) -> None:
     """Uninferrable files are quarantined."""
     settings = _settings(tmp_path)
-    root = tmp_path / "data" / "results"
+    root = tmp_path / "data" / "runs"
     _flat(settings, "experiments", "mystery.json", {"x": 1})
     (root / "experiments" / "mystery.md").write_text("# m\n", encoding="utf-8")
     _flat(settings, "experiments", "array.json", [1, 2])
@@ -331,9 +331,9 @@ def test_plan_result_migration_rejects_collision(tmp_path: Path) -> None:
 
     with pytest.raises(FileExistsError, match="collision"):
         plan_result_migration(settings)
-    assert (tmp_path / "data" / "results" / "experiments" / "dup.json").is_file()
-    assert (tmp_path / "data" / "results" / "experiments" / "e_dup.json").is_file()
-    assert not (tmp_path / "data" / "results" / "e").exists()
+    assert (tmp_path / "data" / "runs" / "experiments" / "dup.json").is_file()
+    assert (tmp_path / "data" / "runs" / "experiments" / "e_dup.json").is_file()
+    assert not (tmp_path / "data" / "runs" / "e").exists()
 
 
 def test_apply_result_migration_dry_run_is_inert(tmp_path: Path) -> None:
@@ -344,4 +344,4 @@ def test_apply_result_migration_dry_run_is_inert(tmp_path: Path) -> None:
     plan = plan_result_migration(settings)
     assert apply_result_migration(settings, plan, dry_run=True) == len(plan.moves) == 1
     assert src.is_file()
-    assert not (tmp_path / "data" / "results" / "wf_qqq_adaptive_v5").exists()
+    assert not (tmp_path / "data" / "runs" / "wf_qqq_adaptive_v5").exists()

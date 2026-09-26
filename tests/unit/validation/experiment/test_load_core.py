@@ -72,112 +72,6 @@ def test_exp_w1_load_round_trip(scenario_id: str, tmp_path: Path) -> None:
     assert all(candidate.modules == 1 for candidate in spec.candidates)
 
 
-@pytest.mark.parametrize("scenario_id", ["EXP-M2-json-load"])
-def test_exp_m2_json_load(scenario_id: str) -> None:
-    """EXP-M2-json-load"""
-    spec = load_experiment_config("experiments/m1_m2.json")
-
-    assert spec.name == "m1_m2_us_core_value"
-    assert spec.start == date(2014, 1, 3)
-    assert spec.end == date(2024, 8, 31)
-    assert spec.contribution_krw == pytest.approx(1_000_000.0)
-    assert spec.hurdle == pytest.approx(0.02)
-    assert spec.horizon_months == 36
-    assert spec.baseline.id == "s1_us"
-    assert spec.baseline.policy is PolicyId.VTI
-    assert spec.baseline.modules == 0
-    assert [candidate.id for candidate in spec.candidates] == ["s6_us_core_value"]
-    assert [candidate.policy for candidate in spec.candidates] == [PolicyId.VTI_VTV]
-    assert [candidate.modules for candidate in spec.candidates] == [1]
-
-
-@pytest.mark.parametrize("scenario_id", ["EXP-D-universe-json"])
-def test_exp_d_universe_json(scenario_id: str) -> None:
-    """EXP-D-universe-json"""
-    m1_d = load_experiment_config("experiments/m1_d_universe.json")
-
-    assert m1_d.name == "m1_d_universe"
-    assert m1_d.start == date(2014, 1, 3)
-    assert m1_d.end == date(2024, 8, 31)
-    assert m1_d.contribution_krw == pytest.approx(1_000_000.0)
-    assert m1_d.hurdle == pytest.approx(0.02)
-    assert m1_d.horizon_months == 36
-    assert m1_d.baseline.id == "s1_us"
-    assert m1_d.baseline.policy is PolicyId.VTI
-    assert m1_d.baseline.modules == 0
-    assert [candidate.id for candidate in m1_d.candidates] == ["s7_us_large_cap"]
-    assert [candidate.policy for candidate in m1_d.candidates] == [PolicyId.IVV]
-    assert [candidate.modules for candidate in m1_d.candidates] == [1]
-
-    wf = load_experiment_config("experiments/wf_vti_ivv.json")
-
-    assert wf.name == "wf_vti_ivv"
-    assert wf.train_months == 60
-    assert wf.test_months == 36
-    assert wf.horizon_months == 0
-    assert wf.baseline.id == "s1_us"
-    assert wf.baseline.policy is PolicyId.VTI
-    assert wf.baseline.modules == 0
-    assert [candidate.id for candidate in wf.candidates] == ["s7_us_large_cap"]
-    assert [candidate.policy for candidate in wf.candidates] == [PolicyId.IVV]
-    assert [candidate.modules for candidate in wf.candidates] == [1]
-
-
-@pytest.mark.parametrize("scenario_id", ["EXP-N-nasdaq-json"])
-def test_exp_n_nasdaq_json(scenario_id: str) -> None:
-    """EXP-N-nasdaq-json"""
-    m1_n = load_experiment_config("experiments/m1_n_nasdaq.json")
-
-    assert m1_n.name == "m1_n_nasdaq"
-    assert m1_n.start == date(2006, 10, 31)
-    assert m1_n.end == date(2026, 6, 30)
-    assert m1_n.contribution_krw == pytest.approx(1_000_000.0)
-    assert m1_n.hurdle == pytest.approx(0.02)
-    assert m1_n.horizon_months == 36
-    assert m1_n.baseline.id == "s1_us"
-    assert m1_n.baseline.policy is PolicyId.VTI
-    assert m1_n.baseline.modules == 0
-    assert [candidate.id for candidate in m1_n.candidates] == ["s8_us_nasdaq"]
-    assert [candidate.policy for candidate in m1_n.candidates] == [PolicyId.QQQ]
-    assert [candidate.modules for candidate in m1_n.candidates] == [1]
-
-    wf = load_experiment_config("experiments/wf_vti_qqq.json")
-
-    assert wf.name == "wf_vti_qqq"
-    assert wf.train_months == 60
-    assert wf.test_months == 36
-    assert wf.horizon_months == 0
-    assert wf.contribution_krw == pytest.approx(1_000_000.0)
-    assert wf.hurdle == pytest.approx(0.02)
-    assert wf.start == date(2006, 10, 31)
-    assert wf.end == date(2026, 6, 30)
-    assert wf.baseline.id == "s1_us"
-    assert wf.baseline.policy is PolicyId.VTI
-    assert wf.baseline.modules == 0
-    assert [candidate.id for candidate in wf.candidates] == ["s8_us_nasdaq"]
-    assert [candidate.policy for candidate in wf.candidates] == [PolicyId.QQQ]
-    assert [candidate.modules for candidate in wf.candidates] == [1]
-
-
-@pytest.mark.parametrize("scenario_id", ["EXP-WF-optional-months"])
-def test_exp_wf_optional_months(scenario_id: str) -> None:
-    """EXP-WF-optional-months"""
-    m0_m1 = load_experiment_config("experiments/m0_m1.json")
-    assert m0_m1.train_months is None
-    assert m0_m1.test_months is None
-
-    only_train = dict(_payload())
-    only_train["train_months"] = 60
-    with pytest.raises(ValueError, match="both train_months and test_months"):
-        ExperimentSpec.model_validate(only_train)
-
-    wf = load_experiment_config("experiments/wf_vt_vti.json")
-    assert wf.train_months == 60
-    assert wf.test_months == 36
-    assert wf.baseline.policy is PolicyId.VT
-    assert [candidate.policy for candidate in wf.candidates] == [PolicyId.VTI]
-
-
 _FAIL_CASES = [
     ("empty candidates", lambda payload: payload.update(candidates=[]), "candidates"),
     (
@@ -312,7 +206,7 @@ def test_load_final_historical_campaign_config() -> None:
     from src.validation.historical_campaign import assert_final_campaign_spec
     from src.validation.research_posture import ObjectiveFamily
 
-    spec = load_experiment_config("experiments/final_historical_campaign_v1.json")
+    spec = load_experiment_config("configs/decision/general.json")
     assert spec.name == "final_historical_campaign_v1"
     assert spec.objective_family is ObjectiveFamily.CAPITAL_ALLOCATION
     assert len(spec.candidates) == 3
@@ -323,36 +217,19 @@ def test_load_final_historical_campaign_config() -> None:
 def test_resolve_experiment_config_direct_path() -> None:
     from src.validation.experiment import resolve_experiment_config_path
 
-    resolved = resolve_experiment_config_path("experiments/wf_qqq_adaptive_v5.json")
+    resolved = resolve_experiment_config_path("experiments/m_thesis_ai_compute_soxx.json")
     assert resolved.is_file()
-    assert resolved.name == "wf_qqq_adaptive_v5.json"
+    assert resolved.name == "m_thesis_ai_compute_soxx.json"
 
 
 def test_resolve_experiment_config_legacy_prefix_redirects() -> None:
     from src.validation.experiment import resolve_experiment_config_path
 
-    resolved = resolve_experiment_config_path("configs/experiments/wf_qqq_adaptive_v5.json")
+    resolved = resolve_experiment_config_path("configs/experiments/m_thesis_ai_compute_soxx.json")
     assert resolved.is_file()
     assert resolved.parent.name != "archive"
-    assert resolved.name == "wf_qqq_adaptive_v5.json"
-    assert "experiments" in resolved.parts
-
-
-def test_resolve_experiment_config_legacy_prefix_reaches_archive() -> None:
-    from src.validation.experiment import resolve_experiment_config_path
-
-    resolved = resolve_experiment_config_path("configs/experiments/wf_qqq_adaptive_v4.json")
-    assert resolved.is_file()
-    assert resolved.parent.name == "archive"
-    assert resolved.name == "wf_qqq_adaptive_v4.json"
-
-
-def test_resolve_experiment_config_new_prefix_reaches_archive() -> None:
-    from src.validation.experiment import resolve_experiment_config_path
-
-    resolved = resolve_experiment_config_path("experiments/wf_qqq_reserve.json")
-    assert resolved.is_file()
-    assert resolved.parent.name == "archive"
+    assert resolved.name == "m_thesis_ai_compute_soxx.json"
+    assert resolved == Path("configs/research/m_thesis_ai_compute_soxx.json").resolve()
 
 
 def test_resolve_experiment_config_unrelated_path_no_fallback() -> None:
@@ -368,6 +245,6 @@ def test_resolve_experiment_config_cwd_independent(monkeypatch: pytest.MonkeyPat
     from src.validation.experiment import resolve_experiment_config_path
 
     monkeypatch.chdir(tmp_path)
-    resolved = resolve_experiment_config_path("configs/experiments/m0_m1.json")
+    resolved = resolve_experiment_config_path("configs/experiments/m_thesis_ai_compute_soxx.json")
     assert resolved.is_file()
-    assert resolved.name == "m0_m1.json"
+    assert resolved.name == "m_thesis_ai_compute_soxx.json"

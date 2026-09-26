@@ -105,8 +105,9 @@ def test_audit_regime_coverage_flags_gaps() -> None:
 
 
 def test_build_trial_lineage_census_from_index() -> None:
-    from src.data.paths import EXPERIMENT_INDEX_PATH, EXPERIMENTS_DIR
     from src.validation.historical_campaign import build_trial_lineage_census
+
+    from src.data.paths import EXPERIMENT_INDEX_PATH, EXPERIMENTS_DIR
 
     census = build_trial_lineage_census(
         index_path=EXPERIMENT_INDEX_PATH,

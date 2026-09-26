@@ -451,7 +451,7 @@ def test_campaign_is_deterministic(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 def test_shipped_campaign_config_loads() -> None:
     """The shipped campaign declares four arms with one baseline and a sensitivity."""
-    spec = load_pension_campaign_spec(_REPO / "experiments" / "pension_campaign_v1.json")
+    spec = load_pension_campaign_spec(_REPO / "configs" / "research" / "pension_campaign_v1.json")
     assert len(spec.arms) == 4
     assert [arm.arm_id for arm in spec.arms if arm.role == "baseline"] == ["sp500_100"]
     assert [arm.arm_id for arm in spec.arms if arm.role == "sensitivity"] == ["qqq80_soxx20"]
@@ -609,7 +609,7 @@ def test_campaign_run_guards(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     )
     empty_settings = DataSettings(data_root="empty-data")
     write_pension_campaign_report(live_report, empty_settings, experiment_id="abc123")
-    blocked = settings.resolved_data_root() / "results" / "probe"
+    blocked = settings.resolved_data_root() / "runs" / "probe"
     blocked.parent.mkdir(parents=True, exist_ok=True)
     if blocked.exists():
         for child in blocked.iterdir():
@@ -1308,9 +1308,9 @@ def test_load_pension_campaign_spec_import_paths_agree(tmp_path: Path) -> None:
     from src.validation import pension_campaign_config as extracted
 
     pinned = [
-        _REPO / "experiments" / "pension_campaign_v2_dotcom.json",
-        _REPO / "experiments" / "pension_campaign_v2_semis.json",
-        _REPO / "experiments" / "pension_campaign_v1.json",
+        _REPO / "configs" / "research" / "pension_campaign_v2_dotcom.json",
+        _REPO / "configs" / "research" / "pension_campaign_v2_semis.json",
+        _REPO / "configs" / "research" / "pension_campaign_v1.json",
         Path(_write_config(tmp_path, _campaign_config())),
     ]
     for config_path in pinned:

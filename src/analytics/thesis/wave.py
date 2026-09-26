@@ -13,7 +13,7 @@ from pathlib import Path
 from src.analytics.thesis.decision import ThesisDecisionRecord, synthesize_thesis_decision
 from src.analytics.thesis.report import ThesisReport, build_thesis_report, write_thesis_report
 from src.data.panel_freshness import CatalogPanelReport, resolve_catalog_panel_as_of
-from src.data.paths import THESIS_EXPERIMENT_MAP_PATH
+from src.data.paths import THESIS_EXPERIMENT_MAP_PATH, resolve_repo_path
 from src.data.settings import DataSettings
 from src.policy.thesis import ThesisId
 from src.sim.allocation import AllocationConfig, AllocationResult
@@ -71,7 +71,7 @@ def load_thesis_experiment_map(path: Path = THESIS_EXPERIMENT_MAP_PATH) -> Mappi
             tid = ThesisId(key)
         except ValueError as exc:
             raise ValueError(f"unknown thesis id {key!r} in map {path}") from exc
-        result[tid] = Path(str(value))
+        result[tid] = resolve_repo_path(value)
     # Require all three thesis ids present
     required = {ThesisId.AI_COMPUTE, ThesisId.AI_POWER_BOTTLENECK, ThesisId.PHYSICAL_AUTOMATION}
     missing = required - set(result.keys())

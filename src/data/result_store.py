@@ -33,6 +33,7 @@ class ResultKind(StrEnum):
     AFTER_TAX = "after_tax"
     PENSION = "pension"
     PENSION_DECISION = "pension_decision"
+    ISA_HOUSEHOLD = "isa_household"
     FINAL_HISTORICAL = "final_historical"
     FEASIBILITY = "feasibility"
     THESIS_REPORT = "thesis_report"

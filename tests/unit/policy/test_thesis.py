@@ -199,20 +199,23 @@ def test_experiment_map_points_physical_automation_to_robo(scenario_id: str) -> 
     exp_map = json.loads(Path("configs/theses/experiment_map.json").read_text(encoding="utf-8"))
     path_str = exp_map["physical_automation"]
     assert path_str.endswith("m_thesis_physical_automation_robo.json")
-    assert Path(path_str).exists()
-    doc = json.loads(Path(path_str).read_text(encoding="utf-8"))
+    from src.data.paths import resolve_repo_path
+
+    path = resolve_repo_path(path_str)
+    assert path.is_file()
+    doc = json.loads(path.read_text(encoding="utf-8"))
     assert doc["candidates"][0]["targets"]["ROBO"] == 1.0
     assert doc["thesis_id"] == "physical_automation"
     assert doc["start"] == "2013-10-31"
     assert doc["horizon_months"] == 120
-    inc_path = Path("experiments/m_thesis_physical_automation_robo_inc_5_10_15.json")
+    inc_path = Path("configs/research/m_thesis_physical_automation_robo_inc_5_10_15.json")
     assert inc_path.exists()
     inc_doc = json.loads(inc_path.read_text(encoding="utf-8"))
     weights = {tuple(sorted(c["targets"].items())) for c in inc_doc["candidates"]}
     assert any(("ROBO", 0.05) in dict(c["targets"]).items() for c in inc_doc["candidates"])
     assert any(("ROBO", 0.10) in dict(c["targets"]).items() for c in inc_doc["candidates"])
     assert any(("ROBO", 0.15) in dict(c["targets"]).items() for c in inc_doc["candidates"])
-    assert Path("experiments/m_thesis_physical_automation_botz_prospective.json").exists()
+    assert Path("configs/research/m_thesis_physical_automation_botz_prospective.json").exists()
 
 
 @pytest.mark.parametrize("scenario_id", ["test_ai_power_thesis_proxy_is_pave"])
@@ -230,8 +233,11 @@ def test_experiment_map_points_ai_power_to_pave(scenario_id: str) -> None:
     exp_map = json.loads(Path("configs/theses/experiment_map.json").read_text(encoding="utf-8"))
     path_str = exp_map["ai_power_bottleneck"]
     assert path_str.endswith("m_thesis_ai_power_pave.json")
-    assert Path(path_str).exists()
-    inc_path = Path("experiments/m_thesis_ai_power_pave_inc_5_10_15.json")
+    from src.data.paths import resolve_repo_path
+
+    path = resolve_repo_path(path_str)
+    assert path.is_file()
+    inc_path = Path("configs/research/m_thesis_ai_power_pave_inc_5_10_15.json")
     assert inc_path.exists()
     doc = json.loads(inc_path.read_text(encoding="utf-8"))
     assert doc["preregistration"]["weights_locked"] is True
@@ -244,7 +250,7 @@ def test_experiment_map_points_ai_power_to_pave(scenario_id: str) -> None:
         assert "PAVE" in targets
         assert "QQQ" in targets
     # ensure legacy grid file still exists but not mapped
-    assert Path("experiments/m_thesis_ai_power_bottleneck_grid.json").exists()
+    assert Path("configs/research/m_thesis_ai_power_bottleneck_grid.json").exists()
 
 def test_thesis_watch_requires_zero_operational_weight() -> None:
     import pytest

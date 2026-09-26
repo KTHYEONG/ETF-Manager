@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from src.data.paths import resolve_repo_path
 from src.data.pension_market import load_pension_etf_identities
 
 __all__ = [
@@ -116,10 +117,12 @@ def _parse_date(value: object, *, name: str) -> date:
 
 
 def _parse_path(value: object, *, name: str) -> str:
-    path = _nonblank_string(value, name=name)
-    if not Path(path).is_file():
-        raise ValueError(f"{name} does not exist: {path}")
-    return path
+    raw = _nonblank_string(value, name=name)
+    try:
+        resolved = resolve_repo_path(raw)
+    except FileNotFoundError as exc:
+        raise ValueError(f"{name} does not exist: {raw}") from exc
+    return str(resolved)
 
 
 def _parse_weights(value: object, *, name: str) -> dict[str, float]:

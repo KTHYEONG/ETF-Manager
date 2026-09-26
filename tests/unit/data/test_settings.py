@@ -50,10 +50,10 @@ def test_data_settings_invalid_root_rejected(tmp_path: Path, monkeypatch: pytest
 def test_data_settings_frozen_campaign_value_wins() -> None:
     """Explicit frozen campaign values override operational defaults; report identity is stable."""
     spec_from_default_root = load_experiment_config(
-        "experiments/acc_qqq_baseline_120m.json", settings=DataSettings(data_root="data")
+        "configs/research/m_thesis_ai_compute_soxx.json", settings=DataSettings(data_root="data")
     )
     spec_from_alt_root = load_experiment_config(
-        "experiments/acc_qqq_baseline_120m.json", settings=DataSettings(data_root="data_alt")
+        "configs/research/m_thesis_ai_compute_soxx.json", settings=DataSettings(data_root="data_alt")
     )
     assert spec_from_default_root == spec_from_alt_root
     assert spec_from_default_root.contribution_krw == spec_from_alt_root.contribution_krw

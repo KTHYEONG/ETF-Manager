@@ -1,0 +1,164 @@
+{
+  "annuity_drawing_years": 20,
+  "arms": {
+    "hold": {
+      "arm_id": "hold",
+      "cycle_years": null,
+      "mode": "hold"
+    },
+    "roll3_pension_cap": {
+      "arm_id": "roll3_pension_cap",
+      "cycle_years": 3,
+      "mode": "roll_to_pension_credit_cap"
+    },
+    "roll5_pension_all": {
+      "arm_id": "roll5_pension_all",
+      "cycle_years": 5,
+      "mode": "roll_to_pension_all"
+    },
+    "roll3_pension_all": {
+      "arm_id": "roll3_pension_all",
+      "cycle_years": 3,
+      "mode": "roll_to_pension_all"
+    },
+    "roll3_side": {
+      "arm_id": "roll3_side",
+      "cycle_years": 3,
+      "mode": "roll_to_side"
+    },
+    "no_isa": {
+      "arm_id": "no_isa",
+      "cycle_years": null,
+      "mode": "no_isa"
+    }
+  },
+  "baseline_arm_id": "hold",
+  "bootstrap_block_months": 24,
+  "bootstrap_paths": 1000,
+  "equivalence_band": 0.005,
+  "horizons_years": [
+    20,
+    30
+  ],
+  "isa_budgets_krw": [
+    6000000,
+    12000000,
+    20000000
+  ],
+  "isa_tax_regime_path": "configs/tax/kr_isa_2026.json",
+  "lineage": {
+    "first_test_date": "2026-09-26",
+    "post_hoc_disclosure": "Holding reuses the frozen pension_decision_v3 incumbent; ISA-tax rank neutrality and the rejection of domestic-equity sleeves were probed on the same history before registration.",
+    "related_trials": [
+      "pension_decision_v3",
+      "probe_isa_tax_rank_2026_09_26",
+      "probe_isa_robust_2026_09_26",
+      "probe_isa_domestic_2026_09_26"
+    ],
+    "related_trial_count": 37
+  },
+  "min_bootstrap_win_share": 0.6,
+  "name": "isa_household_v1",
+  "notes": "capacity values are the exact national/local tax needed to absorb the 6M ordinary credit plus the 3M transfer-credit base at the profile's credit rate (15% or 12%, +10% local); incomes are bracket representatives (≤50M preferential & 15%, 50–55M general & 15%, >55M general & 12%); the student phase keeps a small wage so the existing 서민형 account is legal; birth date only affects the annuity age band; KRW thresholds are nominal; returns are FX-neutral; pending 2027 reform not modeled.",
+  "overseas_tax_regime_path": "configs/tax/kr_overseas_equity.json",
+  "pension_annual_krw": 6000000,
+  "pension_decision_config_path": "experiments/pension_decision_v3.json",
+  "pension_record_path": "records/pension_decisions/pension_decision_v3__2026-08-31__1175d4ef48b20a9a.json",
+  "pension_tax_regime_path": "configs/tax/kr_pension_2026.json",
+  "plan_start_year": 2027,
+  "profiles": [
+    {
+      "birth_date": "2003-01-01",
+      "initial_isa_tax_class": "preferential",
+      "pension_account_open_date": "2027-01-01",
+      "phases": [
+        {
+          "annual_income_krw": 5000000,
+          "first_plan_year_offset": 0,
+          "income_kind": "wage",
+          "remaining_local_tax_krw": 0,
+          "remaining_national_tax_krw": 0
+        },
+        {
+          "annual_income_krw": 45000000,
+          "first_plan_year_offset": 2,
+          "income_kind": "wage",
+          "remaining_local_tax_krw": 135000,
+          "remaining_national_tax_krw": 1350000
+        }
+      ],
+      "profile_id": "student_then_seomin"
+    },
+    {
+      "birth_date": "2003-01-01",
+      "initial_isa_tax_class": "preferential",
+      "pension_account_open_date": "2027-01-01",
+      "phases": [
+        {
+          "annual_income_krw": 5000000,
+          "first_plan_year_offset": 0,
+          "income_kind": "wage",
+          "remaining_local_tax_krw": 0,
+          "remaining_national_tax_krw": 0
+        },
+        {
+          "annual_income_krw": 52000000,
+          "first_plan_year_offset": 2,
+          "income_kind": "wage",
+          "remaining_local_tax_krw": 135000,
+          "remaining_national_tax_krw": 1350000
+        }
+      ],
+      "profile_id": "student_then_general_mid"
+    },
+    {
+      "birth_date": "2003-01-01",
+      "initial_isa_tax_class": "preferential",
+      "pension_account_open_date": "2027-01-01",
+      "phases": [
+        {
+          "annual_income_krw": 5000000,
+          "first_plan_year_offset": 0,
+          "income_kind": "wage",
+          "remaining_local_tax_krw": 0,
+          "remaining_national_tax_krw": 0
+        },
+        {
+          "annual_income_krw": 70000000,
+          "first_plan_year_offset": 2,
+          "income_kind": "wage",
+          "remaining_local_tax_krw": 108000,
+          "remaining_national_tax_krw": 1080000
+        }
+      ],
+      "profile_id": "student_then_general_high"
+    },
+    {
+      "birth_date": "2003-01-01",
+      "initial_isa_tax_class": "preferential",
+      "pension_account_open_date": "2027-01-01",
+      "phases": [
+        {
+          "annual_income_krw": 5000000,
+          "first_plan_year_offset": 0,
+          "income_kind": "wage",
+          "remaining_local_tax_krw": 0,
+          "remaining_national_tax_krw": 0
+        },
+        {
+          "annual_income_krw": 45000000,
+          "first_plan_year_offset": 2,
+          "income_kind": "wage",
+          "remaining_local_tax_krw": 0,
+          "remaining_national_tax_krw": 0
+        }
+      ],
+      "profile_id": "student_then_no_capacity"
+    }
+  ],
+  "sensitivity_drawing_years": [
+    10,
+    30
+  ],
+  "step_months": 12
+}

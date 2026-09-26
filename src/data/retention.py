@@ -111,7 +111,10 @@ def _register_pin_value(value: object, source: Path, exact: bool, ambiguous: lis
 
 def _collect_recorded_pins(settings: DataSettings) -> tuple[list[str], list[str]]:
     """Collect ambiguous frame-or-manifest pins and exact manifest pins from evidence files."""
-    roots = [settings.resolved_data_root() / "results", Path.cwd() / "docs" / "results", Path.cwd() / "records" / "prospective"]
+    from src.data.paths import resolve_repository_paths
+
+    paths = resolve_repository_paths(settings)
+    roots = [paths.results, paths.frozen, paths.research]
     ambiguous: list[str] = []
     exact_pins: list[str] = []
     for evidence_root in roots:
@@ -292,7 +295,7 @@ def plan_prune(
     # Migrate results layout
     if migrate_results_layout:
         # Existing flat dirs: data/experiments, data/audits, data/thesis_reports
-        # New dirs: data/results/<flat-name> staging dirs consumed by Spec 2 migration.
+        # New dirs: data/runs/<flat-name> staging dirs consumed by Spec 2 migration.
         from src.data.paths import LEGACY_FLAT_RESULT_SUBDIRS, results_root
 
         _legacy_old = {"experiments": "experiments", "audits": "audits", "thesis": "thesis_reports"}

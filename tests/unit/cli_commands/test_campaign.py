@@ -5,6 +5,44 @@ from pathlib import Path
 
 import pytest
 
+_THESIS_INC_10_CONFIG = """{
+  "name": "wf_thesis_ai_compute_soxx_inc_10",
+  "start": "2012-08-31",
+  "end": "2024-08-31",
+  "contribution_krw": 1000000,
+  "hurdle": 0.02,
+  "objective": "ce",
+  "horizon_months": 36,
+  "train_months": 60,
+  "test_months": 36,
+  "thesis_id": "ai_compute",
+  "preregistration": {
+    "weights_locked": true,
+    "universe_locked": true,
+    "baseline_frozen": true
+  },
+  "baseline": {
+    "id": "qqq_baseline",
+    "policy": "qqq",
+    "modules": 0,
+    "targets": {
+      "QQQ": 1.0
+    }
+  },
+  "candidates": [
+    {
+      "id": "qqq90_soxx10",
+      "policy": "qqq",
+      "modules": 1,
+      "targets": {
+        "QQQ": 0.9,
+        "SOXX": 0.1
+      }
+    }
+  ]
+}"""
+
+
 
 @pytest.mark.parametrize("scenario_id", ["test_campaign_import"])
 def test_campaign_import(scenario_id: str) -> None:
@@ -41,9 +79,8 @@ def test_strategy_selection_thesis_preregistration(scenario_id: str, tmp_path: P
     written = tmp_path / "selection_report.json"
     monkeypatch.setattr(sel_mod, "write_strategy_selection_report", lambda report, settings, experiment_id: written)
 
-    source = Path("experiments/wf_thesis_ai_compute_soxx_inc_10.json")
-    config_path = tmp_path / source.name
-    config_path.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    config_path = tmp_path / "wf_thesis_ai_compute_soxx_inc_10.json"
+    config_path.write_text(_THESIS_INC_10_CONFIG, encoding="utf-8")
     settings = DataSettings(data_root=str(tmp_path / "data"))
 
     assert camp_mod.run_strategy_selection_command(config_path=str(config_path), settings=settings) == 0
@@ -56,11 +93,11 @@ def test_campaign_commands_fail_closed_on_missing_definition(
     import src.cli_commands.campaign as camp_mod
     from src.data.settings import DataSettings
 
-    source_text = Path("experiments/acc_qqq_baseline_120m.json").read_text(encoding="utf-8")
+    source_text = Path("configs/research/m_thesis_ai_compute_soxx.json").read_text(encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     settings = DataSettings(data_root=tmp_path / "data")
     missing = str(tmp_path / "no-such-experiment.json")
-    definition = tmp_path / "acc_qqq_baseline_120m.json"
+    definition = tmp_path / "m_thesis_ai_compute_soxx.json"
     definition.write_text(source_text, encoding="utf-8")
     assert camp_mod.run_ablation_command(config_path=missing, settings=settings) == 1
     assert camp_mod.run_walk_forward_command(config_path=missing, settings=settings) == 1

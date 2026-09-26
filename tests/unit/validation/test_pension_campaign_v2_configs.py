@@ -10,11 +10,11 @@ from src.data.pension_market import load_pension_etf_identities
 from src.validation.pension_campaign import load_pension_campaign_spec
 
 _REPO = Path(__file__).resolve().parents[3]
-_DOTCOM_PATH = _REPO / "experiments" / "pension_campaign_v2_dotcom.json"
-_SEMIS_PATH = _REPO / "experiments" / "pension_campaign_v2_semis.json"
-_V1_PATH = _REPO / "experiments" / "pension_campaign_v1.json"
+_DOTCOM_PATH = _REPO / "configs" / "research" / "pension_campaign_v2_dotcom.json"
+_SEMIS_PATH = _REPO / "configs" / "research" / "pension_campaign_v2_semis.json"
+_V1_PATH = _REPO / "configs" / "research" / "pension_campaign_v1.json"
 _IDENTITY_PATH = _REPO / "configs" / "data" / "pension_etfs_2026.json"
-_INDEX_PATH = _REPO / "experiments" / "INDEX.json"
+_INDEX_PATH = _REPO / "configs" / "research" / "INDEX.json"
 _CONFIG_PATHS = (_DOTCOM_PATH, _SEMIS_PATH)
 
 

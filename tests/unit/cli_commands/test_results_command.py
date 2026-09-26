@@ -47,7 +47,7 @@ def test_cli_prune_defaults_to_dry_run(tmp_path: Path, monkeypatch) -> None:  # 
         _write("exp", ResultKind.WALK_FORWARD, f"r{day}", day)
 
     assert main(["maintain", "results", "prune", "--keep", "1"]) == 0
-    assert len(list((tmp_path / "data" / "results" / "exp").glob("*.json"))) == 4
+    assert len(list((tmp_path / "data" / "runs" / "exp").glob("*.json"))) == 4
 
 
 def test_cli_promote_success(tmp_path: Path, monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
@@ -57,15 +57,15 @@ def test_cli_promote_success(tmp_path: Path, monkeypatch, capsys) -> None:  # ty
 
     assert main(["maintain", "results", "promote", "--experiment", "exp", "--kind", "walk_forward", "--run-id", "a"]) == 0
     out = capsys.readouterr().out
-    assert "docs/results/exp/walk_forward_a.json" in out
-    assert (tmp_path / "docs" / "results" / "exp" / "walk_forward_a.json").is_file()
+    assert "data/research/exp/walk_forward_a.json" in out
+    assert (tmp_path / "data" / "research" / "exp" / "walk_forward_a.json").is_file()
 
 
 def test_cli_promote_divergence_returns_failure(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """CLI promote divergence returns failure."""
     _hermetic(tmp_path, monkeypatch)
     _write("exp", ResultKind.WALK_FORWARD, "a", 1)
-    dest = tmp_path / "docs" / "results" / "exp" / "walk_forward_a.json"
+    dest = tmp_path / "data" / "research" / "exp" / "walk_forward_a.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps({"other": True}), encoding="utf-8")
 
@@ -76,12 +76,12 @@ def test_cli_promote_divergence_returns_failure(tmp_path: Path, monkeypatch) -> 
 def test_cli_migrate_apply(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """CLI migrate apply."""
     _hermetic(tmp_path, monkeypatch)
-    flat = tmp_path / "data" / "results" / "experiments"
+    flat = tmp_path / "data" / "runs" / "experiments"
     flat.mkdir(parents=True)
     (flat / "wf_qqq_adaptive_v5_893bec.json").write_text(json.dumps({"name": "wf_qqq_adaptive_v5"}), encoding="utf-8")
 
     assert main(["maintain", "results", "migrate", "--apply"]) == 0
-    assert (tmp_path / "data" / "results" / "wf_qqq_adaptive_v5" / "legacy_893bec.json").is_file()
+    assert (tmp_path / "data" / "runs" / "wf_qqq_adaptive_v5" / "legacy_893bec.json").is_file()
 
 
 def test_run_results_command_rejects_unknown_action(tmp_path: Path) -> None:

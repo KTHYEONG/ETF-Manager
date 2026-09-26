@@ -60,5 +60,5 @@ def test_thesis_incremental_writes_result_store(tmp_path: Path, monkeypatch: pyt
     )
     assert code == 0
     assert not (tmp_path / "docs").exists()
-    artifacts = list((tmp_path / "data" / "results" / "thesis_ai_compute").glob("thesis_incremental_*.json"))
+    artifacts = list((tmp_path / "data" / "runs" / "thesis_ai_compute").glob("thesis_incremental_*.json"))
     assert len(artifacts) == 1

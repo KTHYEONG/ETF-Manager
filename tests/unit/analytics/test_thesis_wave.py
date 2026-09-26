@@ -47,9 +47,9 @@ def test_wave_a_three_entries(scenario_id: str, tmp_path: Path, monkeypatch: pyt
 
     def fake_load_map(path=Path("configs/theses/experiment_map.json")):
         return {
-            ThesisId.AI_COMPUTE: Path("experiments/m_thesis_ai_compute_soxx_120m.json"),
-            ThesisId.AI_POWER_BOTTLENECK: Path("experiments/m_thesis_ai_power_bottleneck_grid.json"),
-            ThesisId.PHYSICAL_AUTOMATION: Path("experiments/m_thesis_physical_automation_botz_prospective.json"),
+            ThesisId.AI_COMPUTE: Path("configs/research/m_thesis_ai_compute_soxx_120m.json"),
+            ThesisId.AI_POWER_BOTTLENECK: Path("configs/research/m_thesis_ai_power_bottleneck_grid.json"),
+            ThesisId.PHYSICAL_AUTOMATION: Path("configs/research/m_thesis_physical_automation_botz_prospective.json"),
         }
 
     monkeypatch.setattr(tw, "load_thesis_experiment_map", fake_load_map)
@@ -82,7 +82,7 @@ def test_wave_b_experiment_map_fail(scenario_id: str, tmp_path: Path, monkeypatc
     bad_path = tmp_path / "bad_map.json"
     import json
 
-    bad_path.write_text(json.dumps({"ai_compute": "experiments/m_thesis_ai_compute_soxx_120m.json", "physical_automation": "experiments/m_thesis_physical_automation_botz_prospective.json"}), encoding="utf-8")
+    bad_path.write_text(json.dumps({"ai_compute": "configs/research/m_thesis_ai_compute_soxx_120m.json", "physical_automation": "configs/research/m_thesis_physical_automation_botz_prospective.json"}), encoding="utf-8")
 
     with pytest.raises(ValueError, match="missing"):  # noqa: PT011
         load_thesis_experiment_map(bad_path)
@@ -92,9 +92,9 @@ def test_wave_b_experiment_map_fail(scenario_id: str, tmp_path: Path, monkeypatc
 
     def fake_bad_load(path=Path("configs/theses/experiment_map.json")):
         return {
-            ThesisId.AI_COMPUTE: Path("experiments/m_thesis_ai_compute_soxx_120m.json"),
+            ThesisId.AI_COMPUTE: Path("configs/research/m_thesis_ai_compute_soxx_120m.json"),
             # missing ai_power_bottleneck
-            ThesisId.PHYSICAL_AUTOMATION: Path("experiments/m_thesis_physical_automation_botz_prospective.json"),
+            ThesisId.PHYSICAL_AUTOMATION: Path("configs/research/m_thesis_physical_automation_botz_prospective.json"),
         }
 
     monkeypatch.setattr(tw, "load_thesis_experiment_map", fake_bad_load)
@@ -169,9 +169,9 @@ def test_thesis_wave_cli_never_touches_docs(tmp_path: Path, monkeypatch: pytest.
 
     def fake_load_map(path=Path("configs/theses/experiment_map.json")):  # type: ignore[no-untyped-def]
         return {
-            ThesisId.AI_COMPUTE: Path("experiments/m_thesis_ai_compute_soxx_120m.json"),
-            ThesisId.AI_POWER_BOTTLENECK: Path("experiments/m_thesis_ai_power_bottleneck_grid.json"),
-            ThesisId.PHYSICAL_AUTOMATION: Path("experiments/m_thesis_physical_automation_botz_prospective.json"),
+            ThesisId.AI_COMPUTE: Path("configs/research/m_thesis_ai_compute_soxx_120m.json"),
+            ThesisId.AI_POWER_BOTTLENECK: Path("configs/research/m_thesis_ai_power_bottleneck_grid.json"),
+            ThesisId.PHYSICAL_AUTOMATION: Path("configs/research/m_thesis_physical_automation_botz_prospective.json"),
         }
 
     def fake_runner(config):  # type: ignore[no-untyped-def]
@@ -206,4 +206,4 @@ def test_thesis_wave_cli_never_touches_docs(tmp_path: Path, monkeypatch: pytest.
     code = thesis_cli.run_thesis_wave_command(as_of=as_of.isoformat(), settings=settings)
     assert code == 0
     assert not (tmp_path / "docs").exists()
-    assert list((tmp_path / "data" / "results" / "thesis_wave").glob("thesis_wave_*.json")) != []
+    assert list((tmp_path / "data" / "runs" / "thesis_wave").glob("thesis_wave_*.json")) != []

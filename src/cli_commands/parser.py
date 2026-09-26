@@ -387,6 +387,13 @@ def _build_parser() -> _Parser:
     )
     pension_review.add_argument("--record", required=True, help="Path to the frozen decision record JSON")
     pension_review.add_argument("--as-of", required=True, type=_iso_date, help="ISO date for review as-of")
+    isa_household = run_targets.add_parser(
+        "isa-household",
+        help="ISA + pension household operating-policy decision (routing, transfer, rollover)",
+    )
+    isa_household.add_argument("--config", required=True, help="Path to the ISA household decision JSON")
+    isa_household.add_argument("--seed", type=int, required=True, help="Bootstrap RNG seed")
+    isa_household.add_argument("--freeze", action="store_true", help="Freeze the operating-policy record")
     audit_feasibility = run_targets.add_parser(
         "audit-feasibility",
         help="Static DCA feasibility window audit (reporting only)",
@@ -457,7 +464,7 @@ def _build_parser() -> _Parser:
     results = maintain_targets.add_parser("results", help="Inspect, promote, prune, and migrate run artifacts")
     results_actions = results.add_subparsers(dest="results_action", required=True)
     results_actions.add_parser("list", help="List latest run artifact per experiment, kind, and run id")
-    results_promote = results_actions.add_parser("promote", help="Copy one run artifact into curated docs/results")
+    results_promote = results_actions.add_parser("promote", help="Copy one run artifact into promoted evidence under data/research")
     results_promote.add_argument("--experiment", required=True, help="Experiment slug (e.g. wf_qqq_adaptive_v5)")
     results_promote.add_argument(
         "--kind",
@@ -466,7 +473,7 @@ def _build_parser() -> _Parser:
         help="Artifact family (e.g. walk_forward, legacy)",
     )
     results_promote.add_argument("--run-id", dest="run_id", required=True, help="Run id slug")
-    results_promote.add_argument("--dest-root", dest="dest_root", default="docs/results", help="Curated destination root")
+    results_promote.add_argument("--dest-root", dest="dest_root", default="data/research", help="Copy one run artifact into promoted evidence under data/research")
     results_prune = results_actions.add_parser("prune", help="Delete all but the keep most recent runs per kind (dry-run by default)")
     results_prune.add_argument("--keep", type=int, default=3, help="Runs to keep per experiment and kind")
     results_prune.add_argument("--apply", action="store_true", help="Apply deletions; omit for dry-run")

@@ -11,6 +11,7 @@ import polars as pl
 import pytest
 
 import src.cli_commands.campaign as campaign_mod
+import src.cli_commands.campaign_pension as campaign_pension_mod
 from src import cli
 from src.cli import main
 from src.data.calendar import load_calendar
@@ -128,7 +129,7 @@ def workspace(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[DataSett
         (_REPO / "configs" / "data" / "pension_etfs_2026.json").read_text(encoding="utf-8"), encoding="utf-8"
     )
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(campaign_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
+    monkeypatch.setattr(campaign_pension_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
     proxy_path = tmp_path / "proxy.json"
     proxy_path.write_text(
         json.dumps(_campaign_config("us_proxy", "configs/tax/kr_pension_2026.json", "configs/data/pension_etfs_2026.json")),

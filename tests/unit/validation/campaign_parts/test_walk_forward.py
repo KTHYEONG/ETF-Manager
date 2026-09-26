@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import json  # noqa: F401
 from dataclasses import FrozenInstanceError  # noqa: F401
 from datetime import date
@@ -252,14 +254,75 @@ def test_wf_c_reject_costs_and_etf_candidate(scenario_id: str) -> None:
         run_walk_forward_proxy_adoption(proxy_baseline, etf_runner, proxy_runner)
 
 
-def test_walk_forward_compound_growth_objective_wires() -> None:
+_COMPOUND_GROWTH_CONFIG = """{
+  "name": "wf_soxx100_compound_growth",
+  "start": "2016-07-01",
+  "end": "2026-06-30",
+  "contribution_krw": 1000000,
+  "hurdle": 0.02,
+  "objective": "compound_growth",
+  "horizon_months": 0,
+  "train_months": 36,
+  "test_months": 24,
+  "thesis_id": "ai_compute",
+  "preregistration": {
+    "weights_locked": true,
+    "universe_locked": true,
+    "baseline_frozen": true
+  },
+  "baseline": {
+    "id": "qqq90_soxx10_adaptive_v5",
+    "policy": "qqq",
+    "modules": 1,
+    "targets": {
+      "QQQ": 0.9,
+      "SOXX": 0.1
+    }
+  },
+  "candidates": [
+    {
+      "id": "soxx100_adaptive_v5",
+      "policy": "qqq",
+      "modules": 2,
+      "targets": {
+        "SOXX": 1.0
+      }
+    }
+  ],
+  "adaptive_contribution": {
+    "rank_window": 126,
+    "downside_power": 4.0,
+    "upside_power": 0.25,
+    "min_multiplier": 0.0,
+    "max_multiplier": 2.0,
+    "include_vol_dampener": false,
+    "dispersion": 1.35,
+    "neutral_deadband": 5.0
+  },
+  "baseline_adaptive_contribution": {
+    "rank_window": 126,
+    "downside_power": 4.0,
+    "upside_power": 0.25,
+    "min_multiplier": 0.0,
+    "max_multiplier": 2.0,
+    "include_vol_dampener": false,
+    "dispersion": 1.35,
+    "neutral_deadband": 5.0
+  }
+}
+"""
+
+
+def test_walk_forward_compound_growth_objective_wires(tmp_path: Path) -> None:
     from datetime import date
 
     from src.sim.allocation import AllocationConfig, AllocationResult, Snapshot
     from src.validation.experiment import load_experiment_config
     from src.validation.walk_forward import run_walk_forward_adoption
 
-    spec = load_experiment_config("experiments/wf_soxx100_compound_growth.json")
+    config_path = tmp_path / "wf_soxx100_compound_growth.json"
+    config_path.write_text(_COMPOUND_GROWTH_CONFIG, encoding="utf-8")
+    spec = load_experiment_config(config_path)
 
     def runner(cfg: AllocationConfig) -> AllocationResult:
         snap = Snapshot(session=date(2020, 1, 31), contribution_krw=1.0, nav_krw=1.0)

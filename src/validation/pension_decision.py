@@ -26,6 +26,7 @@ __all__ = [
     "PensionDecisionReport",
     "PensionDecisionStatus",
     "assert_tax_rank_neutrality",
+    "ce_ratio",
     "evaluate_pension_decision",
 ]
 
@@ -72,12 +73,15 @@ class PensionDecisionReport:
     control_vs_reference: Mapping[str, float]
 
 
-def _ce_ratio(ratios: Sequence[float], gamma: float) -> float:
-    """CRRA certainty equivalent of paired wealth ratios; gamma 1 is the geometric mean."""
+def ce_ratio(ratios: Sequence[float], gamma: float) -> float:
+    """CRRA certainty equivalent of paired wealth ratios (gamma 1 = geometric mean)."""
     if gamma == 1.0:
         return math.exp(math.fsum(math.log(ratio) for ratio in ratios) / len(ratios))
     power = 1.0 - gamma
     return float((math.fsum(ratio**power for ratio in ratios) / len(ratios)) ** (1.0 / power))
+
+
+_ce_ratio = ce_ratio
 
 
 def _paired_ratios(own: Sequence[float], base: Sequence[float]) -> tuple[float, ...]:
@@ -107,7 +111,7 @@ def _cell_scores(
                 tier=tier,
                 horizon_years=horizon_years,
                 gamma=gamma,
-                ce_ratio=_ce_ratio(ratios, gamma),
+                ce_ratio=ce_ratio(ratios, gamma),
                 median_ratio=statistics.median(ratios),
                 worst_ratio=min(ratios),
                 cohort_count=len(ratios),
@@ -280,7 +284,7 @@ def evaluate_pension_decision(
             ref_terms = terminals[reference_id] if reference_id is not None else None
             if ref_terms is not None:
                 for candidate_id in candidate_ids:
-                    guard_ratio = _ce_ratio(
+                    guard_ratio = ce_ratio(
                         _paired_ratios(terminals[candidate_id], ref_terms), spec.primary_gamma
                     )
                     guard_lists[candidate_id].append(guard_ratio)
@@ -290,11 +294,11 @@ def evaluate_pension_decision(
                 for control_id in spec.controls:
                     control_terms = tuple(result.terminal_value for result in results[control_id])
                     control_lists[control_id].append(
-                        _ce_ratio(_paired_ratios(control_terms, base_terms), spec.primary_gamma)
+                        ce_ratio(_paired_ratios(control_terms, base_terms), spec.primary_gamma)
                     )
                     if ref_terms is not None:
                         control_ref_lists[control_id].append(
-                            _ce_ratio(_paired_ratios(control_terms, ref_terms), spec.primary_gamma)
+                            ce_ratio(_paired_ratios(control_terms, ref_terms), spec.primary_gamma)
                         )
     for candidate_id in candidate_ids:
         if not robust[candidate_id]:

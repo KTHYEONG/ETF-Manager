@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from datetime import date
 
 import pytest
@@ -27,6 +28,51 @@ from src.validation.experiment import (
     resolve_adaptive_contribution,
     resolve_baseline_adaptive_contribution,
 )
+
+_ADAPTIVE_V4_CONFIG = """{
+  "name": "wf_qqq_adaptive_v4",
+  "start": "2015-06-01",
+  "end": "2026-06-30",
+  "contribution_krw": 1000000,
+  "hurdle": 0.02,
+  "objective": "adaptive_growth",
+  "horizon_months": 0,
+  "train_months": 60,
+  "test_months": 36,
+  "baseline": {
+    "id": "s8_us_nasdaq_adaptive_ops",
+    "policy": "qqq",
+    "modules": 1
+  },
+  "candidates": [
+    {
+      "id": "s8_us_nasdaq_adaptive_v4",
+      "policy": "qqq",
+      "modules": 1
+    }
+  ],
+  "adaptive_contribution": {
+    "rank_window": 126,
+    "downside_power": 3.5,
+    "upside_power": 0.35,
+    "min_multiplier": 0.0,
+    "max_multiplier": 2.0,
+    "include_vol_dampener": false,
+    "dispersion": 1.15,
+    "neutral_deadband": 4.0
+  },
+  "baseline_adaptive_contribution": {
+    "rank_window": 126,
+    "downside_power": 2.5,
+    "upside_power": 0.7,
+    "min_multiplier": 0.0,
+    "max_multiplier": 2.0,
+    "include_vol_dampener": true,
+    "dispersion": 1.0,
+    "neutral_deadband": 0.0
+  }
+}"""
+
 
 
 
@@ -398,7 +444,7 @@ def test_wf_ag_baseline_arm(scenario_id: str) -> None:
 
 
 @pytest.mark.parametrize("scenario_id", ["WF-AG-v4-process"])
-def test_wf_ag_v4_process(scenario_id: str) -> None:
+def test_wf_ag_v4_process(scenario_id: str, tmp_path: Path) -> None:
     """WF-AG-v4-process"""
 
     class _V4AdaptiveRunner:
@@ -420,7 +466,9 @@ def test_wf_ag_v4_process(scenario_id: str) -> None:
                 total_contribution_real_krw=contribution,
             )
 
-    spec = load_experiment_config("experiments/wf_qqq_adaptive_v4.json")
+    config_path = tmp_path / "wf_qqq_adaptive_v4.json"
+    config_path.write_text(_ADAPTIVE_V4_CONFIG, encoding="utf-8")
+    spec = load_experiment_config(config_path)
     report = run_walk_forward_adoption(spec, _V4AdaptiveRunner())
 
     assert len(report.folds) >= 2
