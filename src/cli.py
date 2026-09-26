@@ -11,7 +11,7 @@ from src.cli_commands.campaign import (
     run_ablation_command, run_accumulation_cohort_command, run_after_tax_campaign_command,
     run_audit_feasibility_command, run_cadence_robustness_command, run_final_historical_campaign_command,
     run_pension_campaign_command, run_pension_decision_command, run_pension_review_command, run_pension_selection_command, run_prospective_monitor_command,
-    run_strategy_selection_command, run_validate_command, run_walk_forward_command, run_walk_forward_costs_command, run_walk_forward_proxy_command,
+    run_strategy_selection_command, run_validate_command, run_walk_forward_command, run_walk_forward_costs_command, run_walk_forward_proxy_command, run_isa_household_command,
 )
 from src.cli_commands.diagnose import (
     run_diagnose_compound_dca_command, run_diagnose_qqq_accumulation_alpha_command,
@@ -21,6 +21,7 @@ from src.cli_commands.diagnose import (
     run_diagnose_us_vehicles_command,
 )
 from src.cli_commands.ingest import (
+
     _HISTORY_FX_PROVIDER, _SMOKE_DATA_ROOT, _SMOKE_END, _SMOKE_FX_PROVIDER,
     _SMOKE_START, _SMOKE_TICKER, run_ingest_history, run_ingest_macro_backfill, run_ingest_smoke,
     run_ingest_static_dca,
@@ -34,6 +35,7 @@ from src.cli_commands.thesis import (
     run_diagnose_overlap_command, run_thesis_command, run_thesis_incremental_command,
     run_thesis_report_command, run_thesis_wave_command,
 )
+
 from src.data.fetch import (
     fetch_and_persist_cpi, fetch_and_persist_factors, fetch_and_persist_fx,
     fetch_and_persist_macro, fetch_and_persist_prices, fetch_and_persist_research_monthly,
@@ -324,68 +326,33 @@ def _dispatch_run(args: argparse.Namespace) -> int:
             bootstrap_paths=int(args.bootstrap_paths),
         )
     if args.target == "diagnose-us-vehicles":
-        return run_diagnose_us_vehicles_command(
-            start=args.start,
-            end=args.end,
-            contribution_krw=float(args.contribution_krw),
-            settings=DataSettings(),
-        )
+        return run_diagnose_us_vehicles_command(start=args.start, end=args.end, contribution_krw=float(args.contribution_krw), settings=DataSettings())
     if args.target == "diagnose-qqq-regimes":
-        return run_diagnose_qqq_regimes_command(
-            contribution_krw=float(args.contribution_krw),
-            settings=DataSettings(),
-        )
+        return run_diagnose_qqq_regimes_command(contribution_krw=float(args.contribution_krw), settings=DataSettings())
     if args.target == "diagnose-qqq-blends":
-        return run_diagnose_qqq_blends_command(
-            contribution_krw=float(args.contribution_krw),
-            settings=DataSettings(),
-        )
+        return run_diagnose_qqq_blends_command(contribution_krw=float(args.contribution_krw), settings=DataSettings())
     if args.target == "diagnose-qqq-reserve":
-        return run_diagnose_qqq_reserve_command(
-            contribution_krw=float(args.contribution_krw),
-            settings=DataSettings(),
-            reserve_schedule=args.reserve_schedule,
-        )
+        return run_diagnose_qqq_reserve_command(contribution_krw=float(args.contribution_krw), settings=DataSettings(), reserve_schedule=args.reserve_schedule)
     if args.target == "diagnose-qqq-cadence":
-        return run_diagnose_qqq_cadence_command(
-            contribution_krw=float(args.contribution_krw),
-            settings=DataSettings(),
-        )
+        return run_diagnose_qqq_cadence_command(contribution_krw=float(args.contribution_krw), settings=DataSettings())
     if args.target == "diagnose-qqq-accumulation-alpha":
-        return run_diagnose_qqq_accumulation_alpha_command(
-            contribution_krw=float(args.contribution_krw),
-            settings=DataSettings(),
-        )
+        return run_diagnose_qqq_accumulation_alpha_command(contribution_krw=float(args.contribution_krw), settings=DataSettings())
     if args.target == "diagnose-qqq-kafi":
-        return run_diagnose_qqq_kafi_command(
-            contribution_krw=float(args.contribution_krw),
-            settings=DataSettings(),
-        )
+        return run_diagnose_qqq_kafi_command(contribution_krw=float(args.contribution_krw), settings=DataSettings())
     if args.target == "diagnose-qqq-adaptive-hp":
-        return run_diagnose_qqq_adaptive_hp_command(
-            contribution_krw=float(args.contribution_krw),
-            settings=DataSettings(),
-        )
+        return run_diagnose_qqq_adaptive_hp_command(contribution_krw=float(args.contribution_krw), settings=DataSettings())
     if args.target == "diagnose-compound-dca":
-        return run_diagnose_compound_dca_command(
-            contribution_krw=float(args.contribution_krw),
-            settings=DataSettings(),
-        )
+        return run_diagnose_compound_dca_command(contribution_krw=float(args.contribution_krw), settings=DataSettings())
     if args.target == "accumulation-cohort":
         return run_accumulation_cohort_command(
-            config_path=str(args.config),
-            settings=DataSettings(),
-            horizon_months=int(args.horizon_months),
-            cohort_step_months=int(args.cohort_step_months),
-            bootstrap_paths=int(args.bootstrap_paths),
-            seed=args.seed,
+            config_path=str(args.config), settings=DataSettings(),
+            horizon_months=int(args.horizon_months), cohort_step_months=int(args.cohort_step_months),
+            bootstrap_paths=int(args.bootstrap_paths), seed=args.seed,
         )
     if args.target == "final-historical-campaign":
         return run_final_historical_campaign_command(
-            config_path=str(args.config),
-            settings=DataSettings(),
-            seed=int(args.seed),
-            bootstrap_paths=int(getattr(args, "bootstrap_paths", 400)),
+            config_path=str(args.config), settings=DataSettings(),
+            seed=int(args.seed), bootstrap_paths=int(getattr(args, "bootstrap_paths", 400)),
         )
     if args.target == "after-tax-campaign":
         return run_after_tax_campaign_command(config_path=str(args.config), settings=DataSettings(), seed=int(args.seed))
@@ -393,72 +360,38 @@ def _dispatch_run(args: argparse.Namespace) -> int:
         return (run_pension_campaign_command if args.target == "pension-campaign" else run_pension_selection_command)(config_path=str(args.config), settings=DataSettings(), seed=int(args.seed))
     if args.target == "pension-decision":
         return run_pension_decision_command(
-            config_path=str(args.config),
-            settings=DataSettings(),
-            seed=int(args.seed),
+            config_path=str(args.config), settings=DataSettings(), seed=int(args.seed),
             incumbent_record=str(args.incumbent_record) if getattr(args, "incumbent_record", None) else None,
             freeze=bool(getattr(args, "freeze", False)),
         )
-    if args.target == "pension-review":
-        return run_pension_review_command(
-            record_path=str(args.record),
-            as_of=args.as_of,
-            settings=DataSettings(),
+    if args.target == "isa-household":
+        return run_isa_household_command(
+            config_path=str(args.config), settings=DataSettings(),
+            seed=int(args.seed), freeze=bool(getattr(args, "freeze", False)),
         )
+    if args.target == "pension-review":
+        return run_pension_review_command(record_path=str(args.record), as_of=args.as_of, settings=DataSettings())
     if args.target == "audit-feasibility":
         return run_audit_feasibility_command(
-            config_path=str(args.config),
-            settings=DataSettings(),
+            config_path=str(args.config), settings=DataSettings(),
             write_report=bool(getattr(args, "write_report", False)),
         )
     if args.target == "thesis":
-        return run_thesis_command(
-            thesis_id=args.thesis_id if isinstance(args.thesis_id, str) else None,
-            config_dir=str(args.config_dir),
-            compute_evidence=bool(getattr(args, "compute_evidence", False)),
-        )
+        return run_thesis_command(thesis_id=args.thesis_id if isinstance(args.thesis_id, str) else None, config_dir=str(args.config_dir), compute_evidence=bool(getattr(args, "compute_evidence", False)))
     if args.target == "thesis-report":
-        return run_thesis_report_command(
-            thesis_id=str(args.thesis_id),
-            as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
-            experiment_path=str(args.experiment_path) if getattr(args, "experiment_path", None) else None,
-            settings=DataSettings(),
-        )
+        return run_thesis_report_command(thesis_id=str(args.thesis_id), as_of=str(args.as_of) if getattr(args, "as_of", None) else None, experiment_path=str(args.experiment_path) if getattr(args, "experiment_path", None) else None, settings=DataSettings())
     if args.target == "diagnose-overlap":
-        return run_diagnose_overlap_command(
-            vehicle=str(args.vehicle),
-            baseline=str(args.baseline),
-            as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
-            settings=DataSettings(),
-        )
+        return run_diagnose_overlap_command(vehicle=str(args.vehicle), baseline=str(args.baseline), as_of=str(args.as_of) if getattr(args, "as_of", None) else None, settings=DataSettings())
     if args.target == "thesis-wave":
-        return run_thesis_wave_command(
-            as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
-            settings=DataSettings(),
-            allow_stale=bool(getattr(args, "allow_stale", False)),
-        )
+        return run_thesis_wave_command(as_of=str(args.as_of) if getattr(args, "as_of", None) else None, settings=DataSettings(), allow_stale=bool(getattr(args, "allow_stale", False)))
     if args.target == "thesis-incremental":
-        return run_thesis_incremental_command(
-            thesis_id=str(getattr(args, "thesis_id", "ai_compute")),
-            as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
-            settings=DataSettings(),
-            seed=int(getattr(args, "seed", 7)),
-            bootstrap_paths=int(getattr(args, "bootstrap_paths", 400)),
-            allow_stale=bool(getattr(args, "allow_stale", False)),
-            contribution_krw=float(getattr(args, "contribution_krw", 1_000_000)),
-        )
+        return run_thesis_incremental_command(thesis_id=str(getattr(args, "thesis_id", "ai_compute")), as_of=str(args.as_of) if getattr(args, "as_of", None) else None, settings=DataSettings(), seed=int(getattr(args, "seed", 7)), bootstrap_paths=int(getattr(args, "bootstrap_paths", 400)), allow_stale=bool(getattr(args, "allow_stale", False)), contribution_krw=float(getattr(args, "contribution_krw", 1_000_000)))
     if args.target == "thesis-pipeline":
         from src.analytics.wave_d_exit import run_thesis_pipeline_command
-
-        return run_thesis_pipeline_command(
-            thesis_id=str(getattr(args, "thesis_id", "ai_compute")),
-            as_of=str(args.as_of) if getattr(args, "as_of", None) else None,
-            settings=DataSettings(),
-            allow_stale=bool(getattr(args, "allow_stale", False)),
-            seed=int(getattr(args, "seed", 7)),
-            bootstrap_paths=int(getattr(args, "bootstrap_paths", 400)),
-        )
+        return run_thesis_pipeline_command(thesis_id=str(getattr(args, "thesis_id", "ai_compute")), as_of=str(args.as_of) if getattr(args, "as_of", None) else None, settings=DataSettings(), allow_stale=bool(getattr(args, "allow_stale", False)), seed=int(getattr(args, "seed", 7)), bootstrap_paths=int(getattr(args, "bootstrap_paths", 400)))
     raise _UsageError(f"unsupported target {args.target!r}")
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
