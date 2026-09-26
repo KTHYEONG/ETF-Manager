@@ -10,6 +10,9 @@
       "tests/unit/cli/test_ingest_dispatch.py",
       "tests/unit/cli/test_layout_bounds.py",
       "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
+      "tests/unit/devops/test_backup.py",
       "tests/unit/sim/test_after_tax_engine.py",
       "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
       "tests/unit/validation/campaign_parts/test_cost_grid.py",
@@ -28,6 +31,9 @@
       "tests/unit/cli/test_ingest_dispatch.py",
       "tests/unit/cli/test_layout_bounds.py",
       "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
+      "tests/unit/devops/test_backup.py",
       "tests/unit/sim/test_after_tax_engine.py",
       "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
       "tests/unit/validation/campaign_parts/test_cost_grid.py",
@@ -56,7 +62,7 @@
     "testing": "tests/unit/analytics/test_cadence.py"
   },
   "src/analytics/compound_dca.py": {
-    "architecture": "docs/architecture/components.md",
+    "architecture": "docs/architecture/system-design.md",
     "family": "analytics",
     "testing": "tests/unit/analytics/test_compound_dca.py"
   },
@@ -81,7 +87,7 @@
     "testing": "tests/unit/analytics/test_pension_selection.py"
   },
   "src/analytics/purity_evidence.py": {
-    "architecture": "docs/architecture/components.md",
+    "architecture": "docs/architecture/system-design.md",
     "family": "thesis",
     "testing": "tests/unit/analytics/test_purity_evidence.py"
   },
@@ -112,6 +118,9 @@
       "tests/unit/cli/test_ingest_dispatch.py",
       "tests/unit/cli/test_layout_bounds.py",
       "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
+      "tests/unit/devops/test_backup.py",
       "tests/unit/sim/test_after_tax_engine.py",
       "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
       "tests/unit/validation/campaign_parts/test_cost_grid.py",
@@ -150,16 +159,27 @@
       "tests/unit/analytics/thesis/test_evidence_slots_other_theses.py",
       "tests/unit/analytics/thesis/test_package_layout.py",
       "tests/unit/analytics/thesis/test_structural.py",
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/cli_commands/test_isa_household_command.py",
+      "tests/unit/cli_commands/test_pension_decision_command.py",
       "tests/unit/data/test_catalog.py",
+      "tests/unit/data/test_paths.py",
       "tests/unit/data/test_pension_fx.py",
       "tests/unit/data/test_pit.py",
       "tests/unit/data/test_schedule.py",
+      "tests/unit/docs/test_architecture_docs.py",
       "tests/unit/features/test_pit_market.py",
       "tests/unit/policy/test_kafi_deployment.py",
       "tests/unit/policy/test_reserve.py",
       "tests/unit/sim/test_after_tax_engine.py",
       "tests/unit/sim/test_allocation.py",
+      "tests/unit/validation/experiment/test_load_core.py",
       "tests/unit/validation/test_historical_campaign.py",
+      "tests/unit/validation/test_isa_household_config.py",
+      "tests/unit/validation/test_isa_household_decision.py",
+      "tests/unit/validation/test_pension_decision.py",
+      "tests/unit/validation/test_pension_decision_config.py",
+      "tests/unit/validation/test_pension_decision_record.py",
       "tests/unit/validation/test_pension_selection.py",
       "tests/unit/validation/test_prospective.py"
     ]
@@ -184,11 +204,19 @@
       "tests/unit/analytics/thesis/test_evidence_slots_other_theses.py",
       "tests/unit/analytics/thesis/test_package_layout.py",
       "tests/unit/cli_commands/test_pension_campaign_command.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_price_corrections.py",
       "tests/unit/data/test_retention.py",
+      "tests/unit/data/test_universe.py",
+      "tests/unit/docs/test_architecture_docs.py",
+      "tests/unit/policy/test_after_tax_rules.py",
       "tests/unit/policy/test_thesis.py",
+      "tests/unit/sim/test_delisting_settlement.py",
       "tests/unit/sim/test_pension_engine.py",
       "tests/unit/validation/test_historical_campaign.py",
+      "tests/unit/validation/test_isa_household_decision.py",
       "tests/unit/validation/test_pension_campaign.py",
+      "tests/unit/validation/test_pension_decision.py",
       "tests/unit/validation/test_pension_selection.py",
       "tests/unit/validation/test_result_layout_wiring.py"
     ]
@@ -204,6 +232,7 @@
       "tests/unit/cli_commands/test_thesis.py",
       "tests/unit/data/test_fetch.py",
       "tests/unit/data/test_merge.py",
+      "tests/unit/data/test_price_corrections.py",
       "tests/unit/test_cli.py"
     ]
   },
@@ -256,21 +285,28 @@
       "tests/unit/cli_commands/test_after_tax_campaign_command.py",
       "tests/unit/cli_commands/test_campaign.py",
       "tests/unit/cli_commands/test_diagnose.py",
+      "tests/unit/cli_commands/test_isa_household_command.py",
       "tests/unit/cli_commands/test_pension_campaign_command.py",
+      "tests/unit/cli_commands/test_pension_decision_command.py",
       "tests/unit/cli_commands/test_pension_selection_command.py",
       "tests/unit/cli_commands/test_thesis.py",
       "tests/unit/data/providers/test_sec_nport.py",
       "tests/unit/data/test_doctor.py",
+      "tests/unit/data/test_french_monthly.py",
       "tests/unit/data/test_nport_ingest.py",
       "tests/unit/data/test_panel_freshness.py",
       "tests/unit/data/test_pit.py",
+      "tests/unit/data/test_price_corrections.py",
       "tests/unit/data/test_quality.py",
       "tests/unit/data/test_result_maintenance.py",
       "tests/unit/data/test_retention.py",
       "tests/unit/data/test_schema.py",
       "tests/unit/data/test_settings.py",
       "tests/unit/data/test_storage.py",
+      "tests/unit/devops/test_backup.py",
+      "tests/unit/sim/test_isa_household.py",
       "tests/unit/sim/test_pension_engine.py",
+      "tests/unit/sim/test_pension_monthly.py",
       "tests/unit/sim/test_tax_lots.py",
       "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
       "tests/unit/validation/campaign_parts/test_cost_grid.py",
@@ -282,8 +318,11 @@
       "tests/unit/validation/test_feasibility.py",
       "tests/unit/validation/test_feasibility_audit.py",
       "tests/unit/validation/test_historical_campaign.py",
+      "tests/unit/validation/test_isa_household_decision.py",
       "tests/unit/validation/test_long_horizon_gate.py",
       "tests/unit/validation/test_pension_campaign.py",
+      "tests/unit/validation/test_pension_decision.py",
+      "tests/unit/validation/test_pension_decision_record.py",
       "tests/unit/validation/test_pension_household.py",
       "tests/unit/validation/test_pension_selection.py",
       "tests/unit/validation/test_prospective_registry.py",
@@ -312,8 +351,11 @@
       "tests/unit/analytics/thesis/test_package_layout.py",
       "tests/unit/data/test_thesis_fundamentals.py",
       "tests/unit/policy/test_thesis.py",
+      "tests/unit/sim/test_isa_household.py",
       "tests/unit/sim/test_pension_tax.py",
       "tests/unit/validation/test_evaluate.py",
+      "tests/unit/validation/test_isa_household_decision.py",
+      "tests/unit/validation/test_pension_decision.py",
       "tests/unit/validation/test_prospective.py"
     ]
   },
@@ -369,12 +411,12 @@
     "testing": "tests/unit/analytics/test_valuation_evidence.py"
   },
   "src/analytics/wave_d_exit.py": {
-    "architecture": "docs/architecture/components.md",
+    "architecture": "docs/architecture/system-design.md",
     "family": "thesis",
     "testing": "tests/unit/analytics/test_wave_d_exit.py"
   },
   "src/cli.py": {
-    "architecture": "docs/architecture/module_index.md",
+    "architecture": "docs/architecture/system-design.md",
     "family": "cli",
     "testing": "tests/unit/test_cli.py"
   },
@@ -389,6 +431,9 @@
       "tests/unit/cli/test_ingest_dispatch.py",
       "tests/unit/cli/test_layout_bounds.py",
       "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
+      "tests/unit/devops/test_backup.py",
       "tests/unit/sim/test_after_tax_engine.py",
       "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
       "tests/unit/validation/campaign_parts/test_cost_grid.py",
@@ -399,6 +444,9 @@
   "src/cli_commands/campaign.py": {
     "family": "cli",
     "testing": "tests/unit/cli_commands/test_campaign.py"
+  },
+  "src/cli_commands/campaign_pension.py": {
+    "family": "cli"
   },
   "src/cli_commands/diagnose.py": {
     "family": "cli",
@@ -423,16 +471,18 @@
       "tests/unit/data/test_etf_metadata_bootstrap.py",
       "tests/unit/data/test_fetch.py",
       "tests/unit/data/test_ingest_guard.py",
+      "tests/unit/data/test_macro_backfill.py",
       "tests/unit/data/test_merge.py",
       "tests/unit/data/test_nport_batch.py",
       "tests/unit/data/test_nport_ingest.py",
       "tests/unit/data/test_panel_freshness.py",
       "tests/unit/data/test_pension_market_schema.py",
       "tests/unit/data/test_pipeline.py",
+      "tests/unit/data/test_price_corrections.py",
       "tests/unit/data/test_query.py",
       "tests/unit/data/test_retention.py",
       "tests/unit/data/test_thesis_fundamentals.py",
-      "tests/unit/docs/test_module_index.py",
+      "tests/unit/docs/test_architecture_docs.py",
       "tests/unit/etf/test_mapping.py",
       "tests/unit/etf/test_score.py",
       "tests/unit/features/test_pit_market.py",
@@ -444,7 +494,9 @@
       "tests/unit/sim/test_allocation_deployment.py",
       "tests/unit/sim/test_allocation_shape.py",
       "tests/unit/sim/test_baseline.py",
+      "tests/unit/sim/test_delisting_settlement.py",
       "tests/unit/sim/test_research_proxy.py",
+      "tests/unit/test_cli.py",
       "tests/unit/validation/test_feasibility.py",
       "tests/unit/validation/test_feasibility_audit.py",
       "tests/unit/validation/test_historical_campaign.py",
@@ -471,13 +523,19 @@
       "tests/unit/cli/test_facade_exports.py",
       "tests/unit/cli/test_layout_bounds.py",
       "tests/unit/cli/test_parser.py",
+      "tests/unit/cli_commands/test_isa_household_command.py",
+      "tests/unit/cli_commands/test_pension_decision_command.py",
       "tests/unit/cli_commands/test_pension_selection_command.py",
+      "tests/unit/docs/test_architecture_docs.py",
       "tests/unit/validation/test_pension_selection.py"
     ]
   },
   "src/cli_commands/resolvers.py": {
     "family": "cli",
-    "testing": "tests/unit/cli/test_layout_bounds.py"
+    "testing": [
+      "tests/unit/cli/test_layout_bounds.py",
+      "tests/unit/docs/test_architecture_docs.py"
+    ]
   },
   "src/cli_commands/results.py": {
     "family": "cli",
@@ -485,18 +543,17 @@
       "tests/unit/analytics/test_thesis_wave.py",
       "tests/unit/analytics/test_wave_d_exit.py",
       "tests/unit/cli/test_parser.py",
-      "tests/unit/cli/test_sim_campaign_dispatch.py",
       "tests/unit/cli_commands/test_after_tax_campaign_command.py",
+      "tests/unit/cli_commands/test_isa_household_command.py",
       "tests/unit/cli_commands/test_pension_campaign_command.py",
       "tests/unit/cli_commands/test_results_command.py",
       "tests/unit/cli_commands/test_thesis.py",
       "tests/unit/data/test_paths.py",
       "tests/unit/data/test_result_maintenance.py",
-      "tests/unit/data/test_result_store.py",
       "tests/unit/data/test_retention.py",
-      "tests/unit/validation/test_after_tax_campaign.py",
+      "tests/unit/docs/test_architecture_docs.py",
+      "tests/unit/sim/test_pension_monthly.py",
       "tests/unit/validation/test_evaluate.py",
-      "tests/unit/validation/test_pension_campaign.py",
       "tests/unit/validation/test_result_layout_wiring.py"
     ]
   },
@@ -504,7 +561,8 @@
     "family": "cli",
     "testing": [
       "tests/unit/cli/test_layout_bounds.py",
-      "tests/unit/cli/test_sim_campaign_dispatch.py"
+      "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/docs/test_architecture_docs.py"
     ]
   },
   "src/cli_commands/thesis.py": {
@@ -522,6 +580,9 @@
       "tests/unit/cli/test_ingest_dispatch.py",
       "tests/unit/cli/test_layout_bounds.py",
       "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
+      "tests/unit/devops/test_backup.py",
       "tests/unit/sim/test_after_tax_engine.py",
       "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
       "tests/unit/validation/campaign_parts/test_cost_grid.py",
@@ -571,7 +632,10 @@
   },
   "src/data/paths.py": {
     "family": "data",
-    "testing": "tests/unit/data/test_paths.py"
+    "testing": [
+      "tests/unit/data/test_paths.py",
+      "tests/unit/validation/test_experiment_taxonomy.py"
+    ]
   },
   "src/data/pension_fx.py": {
     "family": "data",
@@ -589,6 +653,10 @@
     "family": "data",
     "testing": "tests/unit/data/test_pit.py"
   },
+  "src/data/price_corrections.py": {
+    "family": "data",
+    "testing": "tests/unit/data/test_price_corrections.py"
+  },
   "src/data/providers/__init__.py": {
     "family": "data",
     "testing": [
@@ -600,6 +668,9 @@
       "tests/unit/cli/test_ingest_dispatch.py",
       "tests/unit/cli/test_layout_bounds.py",
       "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
+      "tests/unit/devops/test_backup.py",
       "tests/unit/sim/test_after_tax_engine.py",
       "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
       "tests/unit/validation/campaign_parts/test_cost_grid.py",
@@ -628,11 +699,14 @@
       "tests/unit/cli_commands/test_after_tax_campaign_command.py",
       "tests/unit/cli_commands/test_campaign.py",
       "tests/unit/cli_commands/test_diagnose.py",
+      "tests/unit/cli_commands/test_isa_household_command.py",
       "tests/unit/cli_commands/test_pension_campaign_command.py",
+      "tests/unit/cli_commands/test_pension_selection_command.py",
       "tests/unit/data/test_ecos.py",
       "tests/unit/data/test_fetch.py",
       "tests/unit/data/test_fred.py",
       "tests/unit/data/test_french.py",
+      "tests/unit/data/test_french_monthly.py",
       "tests/unit/data/test_paths.py",
       "tests/unit/data/test_pension_market.py",
       "tests/unit/data/test_pension_market_schema.py",
@@ -641,6 +715,7 @@
       "tests/unit/data/test_schema.py",
       "tests/unit/data/test_settings.py",
       "tests/unit/data/test_tiingo.py",
+      "tests/unit/devops/test_backup.py",
       "tests/unit/features/test_kafi.py",
       "tests/unit/policy/test_adaptive_contribution.py",
       "tests/unit/policy/test_after_tax_rules.py",
@@ -652,7 +727,12 @@
       "tests/unit/sim/test_allocation_deployment.py",
       "tests/unit/sim/test_allocation_shape.py",
       "tests/unit/sim/test_baseline.py",
+      "tests/unit/sim/test_delisting_settlement.py",
+      "tests/unit/sim/test_isa_tax.py",
+      "tests/unit/sim/test_liquidity.py",
       "tests/unit/sim/test_pension_engine.py",
+      "tests/unit/sim/test_pension_monthly.py",
+      "tests/unit/sim/test_pension_splice.py",
       "tests/unit/sim/test_pension_tax.py",
       "tests/unit/sim/test_pension_tax_config.py",
       "tests/unit/sim/test_tax.py",
@@ -676,9 +756,13 @@
       "tests/unit/validation/test_feasibility_audit.py",
       "tests/unit/validation/test_gate.py",
       "tests/unit/validation/test_historical_campaign.py",
+      "tests/unit/validation/test_isa_household_config.py",
+      "tests/unit/validation/test_isa_household_decision.py",
       "tests/unit/validation/test_long_horizon_gate.py",
       "tests/unit/validation/test_pension_campaign.py",
       "tests/unit/validation/test_pension_campaign_v2_configs.py",
+      "tests/unit/validation/test_pension_decision_config.py",
+      "tests/unit/validation/test_pension_decision_record.py",
       "tests/unit/validation/test_pension_household.py",
       "tests/unit/validation/test_pension_selection.py",
       "tests/unit/validation/test_prospective.py",
@@ -695,8 +779,10 @@
       "tests/unit/cli/test_ingest_dispatch.py",
       "tests/unit/data/test_ecos.py",
       "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
       "tests/unit/data/test_panel_freshness.py",
       "tests/unit/data/test_pension_fx.py",
+      "tests/unit/data/test_price_corrections.py",
       "tests/unit/data/test_schema.py",
       "tests/unit/data/test_secrets.py",
       "tests/unit/data/test_thesis_fundamentals.py"
@@ -710,9 +796,11 @@
       "tests/unit/cli_commands/test_pension_campaign_command.py",
       "tests/unit/data/test_fetch.py",
       "tests/unit/data/test_fred.py",
+      "tests/unit/data/test_macro_backfill.py",
       "tests/unit/data/test_merge.py",
       "tests/unit/data/test_panel_freshness.py",
       "tests/unit/data/test_pension_fx.py",
+      "tests/unit/data/test_price_corrections.py",
       "tests/unit/data/test_secrets.py",
       "tests/unit/data/test_thesis_fundamentals.py",
       "tests/unit/validation/test_pension_campaign.py",
@@ -721,7 +809,11 @@
   },
   "src/data/providers/french.py": {
     "family": "data",
-    "testing": "tests/unit/data/test_french.py"
+    "testing": [
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_french.py",
+      "tests/unit/data/test_french_monthly.py"
+    ]
   },
   "src/data/providers/quota.py": {
     "family": "data",
@@ -738,15 +830,13 @@
     "family": "data",
     "testing": [
       "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
       "tests/unit/data/test_panel_freshness.py",
+      "tests/unit/data/test_price_corrections.py",
       "tests/unit/data/test_secrets.py",
       "tests/unit/data/test_thesis_fundamentals.py",
       "tests/unit/data/test_tiingo.py"
     ]
-  },
-  "src/data/price_corrections.py": {
-    "family": "data",
-    "testing": "tests/unit/data/test_price_corrections.py"
   },
   "src/data/quality.py": {
     "family": "data",
@@ -808,6 +898,9 @@
       "tests/unit/cli/test_ingest_dispatch.py",
       "tests/unit/cli/test_layout_bounds.py",
       "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
+      "tests/unit/devops/test_backup.py",
       "tests/unit/sim/test_after_tax_engine.py",
       "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
       "tests/unit/validation/campaign_parts/test_cost_grid.py",
@@ -824,7 +917,7 @@
     "testing": "tests/unit/etf/test_score.py"
   },
   "src/etf/sleeves.py": {
-    "architecture": "docs/architecture/components.md",
+    "architecture": "docs/architecture/system-design.md",
     "family": "etf",
     "testing": "tests/unit/etf/test_sleeves.py"
   },
@@ -839,6 +932,9 @@
       "tests/unit/cli/test_ingest_dispatch.py",
       "tests/unit/cli/test_layout_bounds.py",
       "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
+      "tests/unit/devops/test_backup.py",
       "tests/unit/sim/test_after_tax_engine.py",
       "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
       "tests/unit/validation/campaign_parts/test_cost_grid.py",
@@ -865,6 +961,9 @@
       "tests/unit/cli/test_ingest_dispatch.py",
       "tests/unit/cli/test_layout_bounds.py",
       "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
+      "tests/unit/devops/test_backup.py",
       "tests/unit/sim/test_after_tax_engine.py",
       "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
       "tests/unit/validation/campaign_parts/test_cost_grid.py",
@@ -915,6 +1014,9 @@
       "tests/unit/cli/test_ingest_dispatch.py",
       "tests/unit/cli/test_layout_bounds.py",
       "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
+      "tests/unit/devops/test_backup.py",
       "tests/unit/sim/test_after_tax_engine.py",
       "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
       "tests/unit/validation/campaign_parts/test_cost_grid.py",
@@ -947,7 +1049,7 @@
     "testing": "tests/unit/policy/test_kafi_deployment.py"
   },
   "src/policy/mix_risk_budget.py": {
-    "architecture": "docs/architecture/components.md",
+    "architecture": "docs/architecture/system-design.md",
     "family": "policy",
     "testing": "tests/unit/policy/test_mix_risk_budget.py"
   },
@@ -990,6 +1092,9 @@
       "tests/unit/cli/test_ingest_dispatch.py",
       "tests/unit/cli/test_layout_bounds.py",
       "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
+      "tests/unit/devops/test_backup.py",
       "tests/unit/sim/test_after_tax_engine.py",
       "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
       "tests/unit/validation/campaign_parts/test_cost_grid.py",
@@ -998,7 +1103,7 @@
     ]
   },
   "src/sim/after_tax_engine.py": {
-    "architecture": "docs/architecture/design-decisions.md",
+    "architecture": "docs/architecture/engineering-decisions.md",
     "family": "sim",
     "testing": "tests/unit/sim/test_after_tax_engine.py"
   },
@@ -1026,6 +1131,14 @@
     "family": "sim",
     "testing": "tests/unit/sim/test_corporate_actions.py"
   },
+  "src/sim/isa_household.py": {
+    "family": "sim",
+    "testing": "tests/unit/sim/test_isa_household.py"
+  },
+  "src/sim/isa_tax.py": {
+    "family": "sim",
+    "testing": "tests/unit/sim/test_isa_tax.py"
+  },
   "src/sim/liquidity.py": {
     "family": "sim",
     "testing": "tests/unit/sim/test_liquidity.py"
@@ -1042,6 +1155,14 @@
   "src/sim/pension_marks.py": {
     "family": "sim",
     "testing": "tests/unit/sim/test_pension_engine.py"
+  },
+  "src/sim/pension_monthly.py": {
+    "family": "sim",
+    "testing": "tests/unit/sim/test_pension_monthly.py"
+  },
+  "src/sim/pension_splice.py": {
+    "family": "sim",
+    "testing": "tests/unit/sim/test_pension_splice.py"
   },
   "src/sim/pension_tax.py": {
     "family": "sim",
@@ -1070,6 +1191,9 @@
       "tests/unit/cli/test_ingest_dispatch.py",
       "tests/unit/cli/test_layout_bounds.py",
       "tests/unit/cli/test_sim_campaign_dispatch.py",
+      "tests/unit/data/test_fetch.py",
+      "tests/unit/data/test_macro_backfill.py",
+      "tests/unit/devops/test_backup.py",
       "tests/unit/sim/test_after_tax_engine.py",
       "tests/unit/validation/campaign_parts/test_cadence_robustness.py",
       "tests/unit/validation/campaign_parts/test_cost_grid.py",
@@ -1130,12 +1254,12 @@
     "testing": "tests/unit/validation/test_feasibility_audit.py"
   },
   "src/validation/gate.py": {
-    "architecture": "docs/architecture/components.md",
+    "architecture": "docs/architecture/system-design.md",
     "family": "validation",
     "testing": "tests/unit/validation/test_gate.py"
   },
   "src/validation/historical_campaign.py": {
-    "architecture": "docs/architecture/components.md",
+    "architecture": "docs/architecture/system-design.md",
     "family": "validation",
     "testing": "tests/unit/validation/test_historical_campaign.py"
   },
@@ -1146,6 +1270,14 @@
   "src/validation/historical_campaign_report.py": {
     "family": "validation",
     "testing": "tests/unit/validation/test_historical_campaign.py"
+  },
+  "src/validation/isa_household_config.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_isa_household_config.py"
+  },
+  "src/validation/isa_household_decision.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_isa_household_decision.py"
   },
   "src/validation/pension_campaign.py": {
     "family": "validation",
@@ -1158,6 +1290,18 @@
   "src/validation/pension_campaign_report.py": {
     "family": "validation",
     "testing": "tests/unit/validation/test_pension_campaign.py"
+  },
+  "src/validation/pension_decision.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_pension_decision.py"
+  },
+  "src/validation/pension_decision_config.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_pension_decision_config.py"
+  },
+  "src/validation/pension_decision_record.py": {
+    "family": "validation",
+    "testing": "tests/unit/validation/test_pension_decision_record.py"
   },
   "src/validation/pension_household.py": {
     "family": "validation",
@@ -1183,7 +1327,7 @@
     "testing": "tests/unit/validation/test_prospective.py"
   },
   "src/validation/prospective_registry.py": {
-    "architecture": "docs/architecture/components.md",
+    "architecture": "docs/architecture/system-design.md",
     "family": "validation",
     "testing": "tests/unit/validation/test_prospective_registry.py"
   },
@@ -1192,12 +1336,12 @@
     "testing": "tests/unit/validation/test_registry.py"
   },
   "src/validation/research_posture.py": {
-    "architecture": "docs/architecture/overview.md",
+    "architecture": "docs/architecture/system-design.md",
     "family": "validation",
     "testing": "tests/unit/validation/test_research_posture.py"
   },
   "src/validation/strategy_selection.py": {
-    "architecture": "docs/architecture/components.md",
+    "architecture": "docs/architecture/system-design.md",
     "family": "validation",
     "testing": "tests/unit/validation/test_strategy_selection.py"
   },
@@ -1208,11 +1352,5 @@
   "src/validation/windows.py": {
     "family": "validation",
     "testing": "tests/unit/validation/test_windows.py"
-  },
-  "src/validation/pension_decision.py": {
-    "testing": "tests/unit/validation/test_pension_decision.py"
-  },
-  "src/sim/pension_splice.py": {
-    "testing": "tests/unit/sim/test_pension_splice.py"
   }
 }

@@ -383,7 +383,7 @@ def test_abl_mix_override_wired(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["ABL-THESIS-prereg-wired"])
 def test_abl_thesis_prereg_wired(scenario_id: str) -> None:
     """ABL-THESIS-prereg-wired"""
-    spec = load_experiment_config("experiments/m_thesis_ai_compute_soxx.json")
+    spec = load_experiment_config("configs/research/m_thesis_ai_compute_soxx.json")
     registry = load_thesis_registry(Path("configs/theses"))
     assert_experiment_preregistration(spec, registry)
 

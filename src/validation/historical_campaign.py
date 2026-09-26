@@ -142,7 +142,7 @@ class FinalHistoricalCampaignReport:
 
 FINAL_HISTORICAL_MIN_COHORTS: Final[int] = 4
 FINAL_HISTORICAL_TARGET_COHORTS: Final[int] = 10
-# CPI PIT visible at first month-end execution close (see data-flow.md).
+# CPI PIT visible at first month-end execution close (see system-design.md).
 _STATIC_DCA_ALLOCATION_MIN_START: Final[date] = date(2012, 8, 31)
 
 

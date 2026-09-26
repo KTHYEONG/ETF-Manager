@@ -68,55 +68,6 @@ def test_exp_mix_targets_fail_closed(scenario_id: str) -> None:
         )
 
 
-@pytest.mark.parametrize("scenario_id", ["EXP-MIX-json-iwf"])
-def test_exp_mix_json_iwf(scenario_id: str) -> None:
-    """EXP-MIX-json-iwf"""
-    spec = load_experiment_config("experiments/m_qqq_iwf.json")
-    assert spec.contribution_krw == pytest.approx(1_000_000.0)
-    assert spec.hurdle == pytest.approx(0.02)
-    assert spec.horizon_months == 36
-    assert spec.adaptive_contribution is None
-    assert spec.baseline.policy is PolicyId.QQQ
-    assert spec.baseline.targets is None
-    assert len(spec.candidates) == 1
-    candidate = spec.candidates[0]
-    assert candidate.id == "iwf_100"
-    assert candidate.policy is PolicyId.QQQ
-    assert candidate.modules == 1
-    assert candidate.targets == {"IWF": 1.0}
-
-
-@pytest.mark.parametrize("scenario_id", ["EXP-MIX-json-grid"])
-def test_exp_mix_json_grid(scenario_id: str) -> None:
-    """EXP-MIX-json-grid"""
-    spec = load_experiment_config("experiments/m_qqq_grid.json")
-    assert spec.adaptive_contribution is None
-    assert spec.baseline.policy is PolicyId.QQQ
-    assert spec.baseline.targets is None
-    assert len(spec.candidates) == 3
-    grid_weights = [candidate.targets["GRID"] for candidate in spec.candidates if candidate.targets]
-    qqq_residuals = [candidate.targets["QQQ"] for candidate in spec.candidates if candidate.targets]
-    assert grid_weights == [pytest.approx(0.05), pytest.approx(0.10), pytest.approx(0.15)]
-    assert qqq_residuals == [pytest.approx(0.95), pytest.approx(0.90), pytest.approx(0.85)]
-    assert all(candidate.modules == 1 for candidate in spec.candidates)
-
-
-@pytest.mark.parametrize("scenario_id", ["EXP-MIX-json-future-core-wf"])
-def test_exp_mix_json_future_core_wf(scenario_id: str) -> None:
-    """EXP-MIX-json-future-core-wf"""
-    spec = load_experiment_config("experiments/wf_qqq_future_core.json")
-    assert spec.train_months == 60
-    assert spec.test_months == 36
-    assert spec.horizon_months == 0
-    assert spec.adaptive_contribution is None
-    assert len(spec.candidates) == 1
-    assert spec.candidates[0].targets == {
-        "QQQ": pytest.approx(0.80),
-        "GRID": pytest.approx(0.10),
-        "XLI": pytest.approx(0.10),
-    }
-
-
 @pytest.mark.parametrize("scenario_id", ["REG-MIX-identity-hash"])
 def test_reg_mix_identity_hash(scenario_id: str) -> None:
     """REG-MIX-identity-hash"""
@@ -153,7 +104,7 @@ def test_reg_mix_identity_hash(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-THESIS-schema-load"])
 def test_exp_thesis_schema_load(scenario_id: str) -> None:
     """EXP-THESIS-schema-load"""
-    spec = load_experiment_config("experiments/m_thesis_ai_compute_soxx.json")
+    spec = load_experiment_config("configs/research/m_thesis_ai_compute_soxx.json")
     assert spec.thesis_id == ThesisId.AI_COMPUTE
     assert spec.preregistration is not None
     assert spec.preregistration.weights_locked is True
@@ -224,16 +175,9 @@ def test_exp_prereg_universe_lock(scenario_id: str) -> None:
         assert_experiment_preregistration(spec, registry)
 
 
-@pytest.mark.parametrize("scenario_id", ["EXP-PREREG-legacy-unchanged"])
-def test_exp_prereg_legacy_unchanged(scenario_id: str) -> None:
-    """EXP-PREREG-legacy-unchanged"""
-    spec = load_experiment_config("experiments/m_qqq_iwf.json")
-    assert spec.thesis_id is None
-    assert spec.preregistration is None
-
 @pytest.mark.parametrize("scenario_id", ["EXP-LH-objective-load"])
 def test_exp_lh_objective_load(scenario_id: str) -> None:
-    spec = load_experiment_config("experiments/m_thesis_ai_compute_soxx_120m.json")
+    spec = load_experiment_config("configs/research/m_thesis_ai_compute_soxx_120m.json")
     assert spec.objective == "long_horizon"
     assert spec.horizon_months == 120
 
@@ -241,7 +185,7 @@ def test_exp_lh_objective_load(scenario_id: str) -> None:
 @pytest.mark.parametrize("scenario_id", ["EXP-GRID-load"])
 def test_exp_grid_load(scenario_id: str) -> None:
     """EXP-GRID-load"""
-    spec = load_experiment_config("experiments/m_thesis_ai_power_bottleneck_grid.json")
+    spec = load_experiment_config("configs/research/m_thesis_ai_power_bottleneck_grid.json")
     assert spec.thesis_id == ThesisId.AI_POWER_BOTTLENECK
     assert spec.candidates[0].targets == {"GRID": 1.0}
     assert spec.preregistration is not None

@@ -4,11 +4,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src.cli_commands.parser import _UsageError, _resolve_git_commit
+from src.cli_commands.parser import _resolve_git_commit
 from src.data.schema import Dataset
 from src.data.settings import DataSettings
 from src.data.storage import UntrustedDatasetError
@@ -314,7 +313,7 @@ def run_pension_decision_command(*, config_path: str, settings: DataSettings, se
             record_path = freeze_pension_decision(
                 report,
                 spec,
-                output_dir=resolve_repository_paths(settings).root / "records" / "pension_decisions",
+                output_dir=resolve_repository_paths(settings).frozen / "pension",
                 frozen_at=datetime.now(UTC),
                 git_commit=git_commit,
                 config_sha256=hashlib.sha256(config_bytes).hexdigest(),
@@ -496,7 +495,7 @@ def run_isa_household_command(*, config_path: str, settings: DataSettings, seed:
 
                 record_path = freeze_isa_household_decision(
                     report,
-                    output_dir=resolve_repository_paths(settings).root / "records" / "isa_household",
+                    output_dir=resolve_repository_paths(settings).frozen / "isa",
                     frozen_at=datetime.now(UTC),
                     git_commit=git_commit,
                     config_sha256=config_sha256,

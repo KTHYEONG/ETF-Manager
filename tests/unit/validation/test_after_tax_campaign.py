@@ -287,7 +287,7 @@ def test_report_written_under_experiment_result_dir(tmp_path: Path, monkeypatch:
     report = run_after_tax_campaign(_spec(), _runner, seed=7)
     out = write_after_tax_campaign_report(report, settings, experiment_id="abc123")
     assert out.is_file()
-    assert out.parent == tmp_path / "data" / "results" / report.name
+    assert out.parent == tmp_path / "data" / "runs" / report.name
     assert out.name.startswith("after_tax_")
     assert out.with_suffix(".md").is_file()
     payload = json.loads(out.read_text(encoding="utf-8"))

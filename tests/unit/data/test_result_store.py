@@ -32,7 +32,7 @@ def test_write_result_layout_per_experiment(tmp_path: Path) -> None:
         run_id="893bec335e979f14",
         payload={"a": 1},
     )
-    expected = tmp_path / "data" / "results" / "wf_qqq_adaptive_v5" / "walk_forward_893bec335e979f14.json"
+    expected = tmp_path / "data" / "runs" / "wf_qqq_adaptive_v5" / "walk_forward_893bec335e979f14.json"
     assert ref.json_path == expected
     assert expected.read_text(encoding="utf-8") == json.dumps({"a": 1}, indent=2)
     assert not ref.markdown_path.exists()
@@ -88,8 +88,8 @@ def test_write_result_rejects_reserved_slug(tmp_path: Path) -> None:
                 run_id="abc123",
                 payload={},
             )
-    assert not (tmp_path / "data" / "results").exists() or list(
-        (tmp_path / "data" / "results").rglob("*.json")
+    assert not (tmp_path / "data" / "runs").exists() or list(
+        (tmp_path / "data" / "runs").rglob("*.json")
     ) == []
 
 
@@ -124,12 +124,12 @@ def test_write_result_rejects_naive_timestamp(tmp_path: Path) -> None:
             payload={},
             written_at=datetime(2026, 1, 1),
         )
-    assert not (tmp_path / "data" / "results" / "wf_qqq_adaptive_v5" / "runs.jsonl").exists()
+    assert not (tmp_path / "data" / "runs" / "wf_qqq_adaptive_v5" / "runs.jsonl").exists()
 
 
 def test_read_run_ledger_fails_closed_on_corruption(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
-    ledger = tmp_path / "data" / "results" / "wf_qqq_adaptive_v5" / "runs.jsonl"
+    ledger = tmp_path / "data" / "runs" / "wf_qqq_adaptive_v5" / "runs.jsonl"
     ledger.parent.mkdir(parents=True, exist_ok=True)
     ledger.write_text("not json\n", encoding="utf-8")
     with pytest.raises(ValueError, match="corrupted run ledger"):
@@ -150,7 +150,7 @@ def test_record_run_rejects_naive_timestamp(tmp_path: Path) -> None:
 
 def test_read_run_ledger_rejects_non_object_line(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
-    ledger = tmp_path / "data" / "results" / "wf_qqq_adaptive_v5" / "runs.jsonl"
+    ledger = tmp_path / "data" / "runs" / "wf_qqq_adaptive_v5" / "runs.jsonl"
     ledger.parent.mkdir(parents=True, exist_ok=True)
     ledger.write_text("[1, 2]\n", encoding="utf-8")
     with pytest.raises(ValueError, match="corrupted run ledger"):
@@ -159,7 +159,7 @@ def test_read_run_ledger_rejects_non_object_line(tmp_path: Path) -> None:
 
 def test_read_run_ledger_rejects_unknown_kind(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
-    ledger = tmp_path / "data" / "results" / "wf_qqq_adaptive_v5" / "runs.jsonl"
+    ledger = tmp_path / "data" / "runs" / "wf_qqq_adaptive_v5" / "runs.jsonl"
     ledger.parent.mkdir(parents=True, exist_ok=True)
     ledger.write_text(
         json.dumps({"experiment": "wf_qqq_adaptive_v5", "kind": "nope", "run_id": "a", "written_at": "2026-01-01T00:00:00+00:00"}) + "\n",
@@ -171,7 +171,7 @@ def test_read_run_ledger_rejects_unknown_kind(tmp_path: Path) -> None:
 
 def test_read_run_ledger_rejects_bad_timestamp(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
-    ledger = tmp_path / "data" / "results" / "wf_qqq_adaptive_v5" / "runs.jsonl"
+    ledger = tmp_path / "data" / "runs" / "wf_qqq_adaptive_v5" / "runs.jsonl"
     ledger.parent.mkdir(parents=True, exist_ok=True)
     ledger.write_text(
         json.dumps({"experiment": "wf_qqq_adaptive_v5", "kind": "walk_forward", "run_id": "a", "written_at": "not-a-time"}) + "\n",
@@ -183,7 +183,7 @@ def test_read_run_ledger_rejects_bad_timestamp(tmp_path: Path) -> None:
 
 def test_read_run_ledger_rejects_missing_keys(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
-    ledger = tmp_path / "data" / "results" / "wf_qqq_adaptive_v5" / "runs.jsonl"
+    ledger = tmp_path / "data" / "runs" / "wf_qqq_adaptive_v5" / "runs.jsonl"
     ledger.parent.mkdir(parents=True, exist_ok=True)
     ledger.write_text(
         "\n" + json.dumps({"experiment": "wf_qqq_adaptive_v5", "kind": "walk_forward", "written_at": "2026-01-01T00:00:00+00:00"}) + "\n",

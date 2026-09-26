@@ -54,7 +54,7 @@ def test_cost_grid_writer_uses_result_store(tmp_path: Path) -> None:
         ),
     )
     out = write_cost_grid_report(report, settings, experiment_id="abc123")
-    assert out == tmp_path / "data" / "results" / "grid_smoke" / "costs_abc123.json"
+    assert out == tmp_path / "data" / "runs" / "grid_smoke" / "costs_abc123.json"
     assert json.loads(out.read_text(encoding="utf-8"))["name"] == "grid_smoke"
 
 
@@ -73,7 +73,7 @@ def test_cadence_robustness_writer_uses_result_store(tmp_path: Path) -> None:
         robust_adopted=True,
     )
     out = write_cadence_robustness_report(report, settings, experiment_id="abc123")
-    assert out == tmp_path / "data" / "results" / "cadence_smoke" / "robustness_abc123.json"
+    assert out == tmp_path / "data" / "runs" / "cadence_smoke" / "robustness_abc123.json"
 
 
 def test_strategy_selection_writer_uses_result_store(tmp_path: Path) -> None:
@@ -94,7 +94,7 @@ def test_strategy_selection_writer_uses_result_store(tmp_path: Path) -> None:
         selection_reason="test",
     )
     out = write_strategy_selection_report(report, settings, experiment_id="abc123")
-    assert out == tmp_path / "data" / "results" / "select_smoke" / "selection_abc123.json"
+    assert out == tmp_path / "data" / "runs" / "select_smoke" / "selection_abc123.json"
 
 
 def test_accumulation_writer_uses_result_store(tmp_path: Path) -> None:
@@ -113,7 +113,7 @@ def test_accumulation_writer_uses_result_store(tmp_path: Path) -> None:
         unrecovered_cohort_count=0,
     )
     out = write_accumulation_cohort_report(report, settings, experiment_id="abc123")
-    assert out == tmp_path / "data" / "results" / "accum_smoke" / "accumulation_abc123.json"
+    assert out == tmp_path / "data" / "runs" / "accum_smoke" / "accumulation_abc123.json"
 
 
 def test_feasibility_writer_uses_result_store(tmp_path: Path) -> None:
@@ -134,7 +134,7 @@ def test_feasibility_writer_uses_result_store(tmp_path: Path) -> None:
         resolve_violations=(),
     )
     out = write_feasibility_audit_report(report, settings, audit_id="audit1")
-    assert out == tmp_path / "data" / "results" / "feas_smoke" / "feasibility_audit1.json"
+    assert out == tmp_path / "data" / "runs" / "feas_smoke" / "feasibility_audit1.json"
 
 
 def test_prospective_freeze_writer_uses_result_store(tmp_path: Path) -> None:
@@ -150,7 +150,7 @@ def test_prospective_freeze_writer_uses_result_store(tmp_path: Path) -> None:
         experiment_name="freeze_smoke",
     )
     out = write_prospective_freeze_record(spec=spec, freeze=freeze, settings=settings)
-    assert out.parent == tmp_path / "data" / "results" / "freeze_smoke"
+    assert out.parent == tmp_path / "data" / "runs" / "freeze_smoke"
     assert out.name.startswith("prospective_freeze_")
 
 

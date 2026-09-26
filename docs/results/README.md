@@ -1,12 +1,9 @@
 # Research Results
 
-Curated, human-readable results kept in git. Machine outputs of CLI runs live under `data/results/` (git-ignored, backed up to gdrive `quant-lake`). Superseded runs are deleted; git history preserves them.
+| 계좌 | 채택안 | 결과 문서 | 근거 위치 (`data/frozen` 또는 `data/runs`) |
+| :--- | :--- | :--- | :--- |
+| 일반계좌 | QQQ 90% + SOXX 10% | [`general.md`](general.md) | `data/runs/final_historical_campaign_v1/` |
+| 연금저축 | 나스닥100 90% + 배당 10% | [`pension.md`](pension.md) | `data/frozen/pension/` |
+| ISA 중개형 | 계속 보유(`hold`) | [`isa.md`](isa.md) | `data/frozen/isa/` |
 
-| File | What it is |
-|------|------------|
-| [`final-historical/final_historical_campaign_v1_2012-2026.md`](final-historical/final_historical_campaign_v1_2012-2026.md) (+ `.json`) | Frozen buy-only campaign: QQQ100 vs QQQ95/90/85 + SOXX, 120M cohorts, 2012-08-31..2026-08-28 |
-| [`thesis-wave/thesis_wave_summary_2026-08-28.md`](thesis-wave/thesis_wave_summary_2026-08-28.md) | Thesis decision table on the FRESH 2026-08-28 panel |
-| [`thesis-wave/thesis_wave_d_exit_ai_compute_2026-08-28.md`](thesis-wave/thesis_wave_d_exit_ai_compute_2026-08-28.md) | ai_compute reference-slice exit assessment |
-| [`thesis-incremental/thesis_incremental_ai_compute_2026-08-28.json`](thesis-incremental/thesis_incremental_ai_compute_2026-08-28.json) | SOXX 5/10/15 incremental portfolio evidence |
-
-CLI default outputs: `run thesis-wave` writes the wave JSON under `data/results/thesis_wave/` plus the markdown sidecar; `run thesis-incremental` writes under `data/results/thesis_<id>/`. Every CLI run artifact lives at `data/results/<experiment>/<kind>_<run_id>.{json,md}` with a `runs.jsonl` ledger per experiment; curated evidence is added with `maintain results promote --experiment ... --kind ... --run-id ...` into `docs/results/<experiment>/`.
+기계 출력물과 동결 기록은 git 무시 대상인 `data/` 아래에 살고 `tools/devops/backup.py`로 Drive에 미러링된다. 승격된 연구 근거는 `data/research/`에 둔다.

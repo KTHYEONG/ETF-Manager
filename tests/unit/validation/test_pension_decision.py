@@ -74,7 +74,7 @@ def _spec(
         bootstrap_paths=paths,
         bootstrap_block_months=3,
         annual_drag_by_sleeve={},
-        tax_crosscheck_campaign_path="experiments/pension_campaign_v2_dotcom.json",
+        tax_crosscheck_campaign_path="configs/research/pension_campaign_v2_dotcom.json",
         tax_crosscheck_arm_map={},
         review_every_months=12,
         lineage={"related_trial_count": lineage},
@@ -974,3 +974,10 @@ def test_reference_wins_full_ties() -> None:
     assert report.guard_excluded_ids == ()
     assert report.selected_id == "ref"
     assert "DOMINANCE_GUARD" not in report.reasons
+
+
+def test_public_ce_ratio_matches_geometric_mean_at_gamma_1() -> None:
+    """The public certainty equivalent equals 1.0 for offsetting paired ratios at gamma 1."""
+    from src.validation.pension_decision import ce_ratio
+
+    assert ce_ratio((0.5, 2.0), 1.0) == pytest.approx(1.0, abs=1e-12)

@@ -302,32 +302,6 @@ def test_ccd_intensity_arms_and_dual_champions() -> None:
     assert configs_by_arm['qqq85_soxx15_adaptive_v5'].targets_override == qqq_soxx_intensity_targets(0.15)
 
 
-def test_wf_soxx_intensity_mdd_spec_loads() -> None:
-    from datetime import date
-    from src.validation.experiment import load_experiment_config
-    from src.validation.windows import walk_forward_windows
-    from src.analytics.compound_dca import COMPOUND_DCA_WINDOW, qqq_soxx_intensity_targets
-
-    spec = load_experiment_config('experiments/wf_qqq_soxx_intensity_mdd.json')
-    assert spec.objective == 'adaptive_growth'
-    assert spec.adaptive_contribution is not None
-    assert spec.baseline.id == 'qqq90_soxx10_adaptive_v5'
-    assert spec.baseline.targets == qqq_soxx_intensity_targets(0.10)
-    cand_ids = {c.id for c in spec.candidates}
-    assert cand_ids == {'qqq95_soxx5_adaptive_v5', 'qqq85_soxx15_adaptive_v5'}
-    by_id = {c.id: c for c in spec.candidates}
-    assert by_id['qqq95_soxx5_adaptive_v5'].targets == qqq_soxx_intensity_targets(0.05)
-    assert by_id['qqq85_soxx15_adaptive_v5'].targets == qqq_soxx_intensity_targets(0.15)
-    assert spec.preregistration is not None
-    assert spec.preregistration.weights_locked is True
-    assert spec.preregistration.universe_locked is True
-    assert (spec.start, spec.end) == COMPOUND_DCA_WINDOW
-    assert spec.train_months == 36
-    assert spec.test_months == 24
-    folds = walk_forward_windows(spec.start, spec.end, train_months=int(spec.train_months), test_months=int(spec.test_months))
-    assert len(folds) >= 2
-    assert spec.start == date(2016, 7, 1)
-
 
 def test_compound_dca_recommended_arm_is_growth_champion() -> None:
     from datetime import date

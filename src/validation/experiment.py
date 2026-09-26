@@ -13,10 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.data.paths import (
-    EXPERIMENT_ARCHIVE_DIR,
-    EXPERIMENTS_DIR,
-    LEGACY_EXPERIMENTS_PREFIX,
-    resolve_repository_paths,
+    resolve_repo_path,
 )
 from src.data.settings import DataSettings
 from src.etf.mapping import MappingConfig
@@ -634,29 +631,18 @@ def assert_experiment_preregistration(
                             raise ValueError(f"ticker {ticker!r} not in allowed universe {sorted(allowed)!r}")
 
 
-def _relative_after_prefix(posix_path: str, prefix: str) -> tuple[str, ...] | None:
-    parts = [part for part in posix_path.split("/") if part not in ("", ".")]
-    head = prefix.split("/")
-    if parts[: len(head)] != head or len(parts) == len(head):
-        return None
-    return tuple(parts[len(head):])
-
-
 def resolve_experiment_config_path(path: str | Path, *, settings: DataSettings | None = None) -> Path:
     """Resolve an experiment config path, tolerating relocation and archiving.
 
-    Experiment definitions moved from ``configs/experiments/`` to ``experiments/`` and
-    superseded ones move into ``experiments/archive/``; commands, docs and stored result
-    payloads still cite the old locations, so lookup is:
+    Research definitions live in ``configs/research`` (superseded ones in
+    ``configs/research/archive/``) and final decision specs in ``configs/decision``.
+    Frozen configs and stored result payloads still cite the previous ``experiments/``
+    and ``configs/experiments/`` locations; ``resolve_repo_path`` maps those to the
+    same versioned definitions without writing a copy.
 
-    1. ``path`` as given, if it is a file.
-    2. If ``path`` is under the legacy ``configs/experiments`` prefix: the same relative
-       path under ``experiments/``.
-    3. If ``path`` is under either prefix: ``experiments/archive/<basename>``.
-    4. Steps 2-3 retried relative to the repository root (cwd-independent).
-
-    Historical ``configs/experiments`` aliases resolve to the same versioned
-    definitions without writing a copy.
+    Args:
+        path: Config path as cited by a command, config, or stored payload.
+        settings: Accepted for caller compatibility; resolution is repository-anchored.
 
     Returns:
         Resolved absolute path of the first existing candidate.
@@ -664,38 +650,8 @@ def resolve_experiment_config_path(path: str | Path, *, settings: DataSettings |
     Raises:
         FileNotFoundError: No candidate exists.
     """
-    paths = resolve_repository_paths(settings if settings is not None else DataSettings())
-    candidate = Path(path)
-    if candidate.is_file():
-        return candidate.resolve()
-    posix = candidate.as_posix()
-    legacy_rel = _relative_after_prefix(posix, LEGACY_EXPERIMENTS_PREFIX)
-    new_rel = _relative_after_prefix(posix, EXPERIMENTS_DIR.as_posix())
-    fallbacks: list[Path] = []
-    if legacy_rel is not None:
-        fallbacks.append(EXPERIMENTS_DIR.joinpath(*legacy_rel))
-        fallbacks.append(EXPERIMENT_ARCHIVE_DIR / candidate.name)
-    if new_rel is not None:
-        fallbacks.append(EXPERIMENT_ARCHIVE_DIR / candidate.name)
-    for fallback in fallbacks:
-        if fallback.is_file():
-            resolved = fallback.resolve()
-            logger.info("[DATA] event=experiment_config_fallback requested=%s resolved=%s", path, resolved)
-            return resolved
-    repo_root = paths.root
-    if not candidate.is_absolute():
-        rooted_candidate = repo_root / candidate.as_posix()
-        if rooted_candidate.is_file():
-            resolved = rooted_candidate.resolve()
-            logger.info("[DATA] event=experiment_config_fallback requested=%s resolved=%s", path, resolved)
-            return resolved
-    for fallback in fallbacks:
-        rooted = repo_root / fallback.as_posix()
-        if rooted.is_file():
-            resolved = rooted.resolve()
-            logger.info("[DATA] event=experiment_config_fallback requested=%s resolved=%s", path, resolved)
-            return resolved
-    raise FileNotFoundError(f"experiment config not found: {path}")
+    del settings
+    return resolve_repo_path(path)
 
 
 BaselineSpec = CandidateSpec

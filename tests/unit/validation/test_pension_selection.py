@@ -29,7 +29,7 @@ from src.validation.pension_selection import (
 )
 
 _REPO = Path(__file__).resolve().parents[3]
-_CONFIG_PATH = _REPO / "experiments" / "pension_selection_v1.json"
+_CONFIG_PATH = _REPO / "configs" / "research" / "pension_selection_v1.json"
 
 
 def _document() -> dict[str, object]:
@@ -56,7 +56,7 @@ def test_committed_pension_selection_config_loads() -> None:
 
 def test_experiment_index_catalogs_pension_selection() -> None:
     """The active selection config is discoverable in the canonical experiment taxonomy."""
-    index = json.loads((_REPO / "experiments" / "INDEX.json").read_text(encoding="utf-8"))
+    index = json.loads((_REPO / "configs" / "research" / "INDEX.json").read_text(encoding="utf-8"))
     assert index["files"]["pension_selection_v1.json"] == {
         "status": "active",
         "kind": "pension",
@@ -167,7 +167,7 @@ def _set_arm_weight_type(document: dict[str, object]) -> None:
         ("tail_quantile", lambda d: _dict_field(d, "tail").__setitem__("quantile", 0.5), "must lie in"),
         ("pre_retirement_long", lambda d: _dict_field(d, "tail").__setitem__("pre_retirement_months", 241), "must not exceed"),
         ("empty_campaigns", lambda d: _dict_field(d, "historical").__setitem__("campaign_config_paths", []), "non-empty array"),
-        ("duplicate_campaigns", lambda d: _dict_field(d, "historical").__setitem__("campaign_config_paths", ["experiments/pension_campaign_v2_dotcom.json", "experiments/pension_campaign_v2_dotcom.json"]), "must be unique"),
+        ("duplicate_campaigns", lambda d: _dict_field(d, "historical").__setitem__("campaign_config_paths", ["configs/research/pension_campaign_v2_dotcom.json", "configs/research/pension_campaign_v2_dotcom.json"]), "must be unique"),
         ("empty_horizons", lambda d: _dict_field(d, "historical").__setitem__("horizons_months", []), "non-empty array"),
         ("duplicate_horizons", lambda d: _dict_field(d, "historical").__setitem__("horizons_months", [120, 120]), "must be unique"),
         ("nonfinite_floor", lambda d: _dict_field(d, "historical").__setitem__("worst_ratio_floor", float("inf")), "finite number"),
@@ -756,3 +756,20 @@ def test_write_pension_selection_report_paths_agree(tmp_path: Path) -> None:
     markdown = new_path.with_suffix(".md").read_text(encoding="utf-8")
     assert "## Verdicts" in markdown
     assert f"- status: `{report.status}`" in markdown
+
+
+def test_committed_selection_legacy_campaign_paths_resolve() -> None:
+    """A selection config citing frozen experiments/ campaign paths loads with files on disk."""
+    spec = load_pension_selection_spec(_CONFIG_PATH)
+    assert spec.historical.campaign_config_paths
+    assert all(Path(path).is_file() for path in spec.historical.campaign_config_paths)
+
+
+def test_missing_cited_campaign_path_names_field(tmp_path: Path) -> None:
+    """A selection config citing a file that exists nowhere fails closed naming the field."""
+    document = _document()
+    historical = dict(_dict_field(document, "historical"))
+    historical["campaign_config_paths"] = ["configs/research/does_not_exist_zz.json"]
+    document["historical"] = historical
+    with pytest.raises(ValueError, match="campaign_config_paths"):
+        load_pension_selection_spec(_write_config(tmp_path, document))

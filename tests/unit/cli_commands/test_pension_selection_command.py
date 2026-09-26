@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 import src.cli_commands.campaign as campaign_mod
+import src.cli_commands.campaign_pension as campaign_pension_mod
 from src import cli
 from src.cli import main
 from src.cli_commands.parser import _build_parser
@@ -17,7 +18,7 @@ from src.sim.pension_engine import PensionDataError
 from src.validation import pension_selection as pension_selection_module
 
 _REPO = Path(__file__).resolve().parents[3]
-_CONFIG_PATH = _REPO / "experiments" / "pension_selection_v1.json"
+_CONFIG_PATH = _REPO / "configs" / "research" / "pension_selection_v1.json"
 _GIT_COMMIT = "0" * 40
 _CONSUMED: dict[str, str | None] = {"prices": "hash-prices", "fx_krw_base": "hash-fx-base", "fx": None, "cpi": None}
 
@@ -56,7 +57,7 @@ def test_pension_selection_command_writes_report_and_provenance(
 ) -> None:
     """The command returns zero and persists deterministic config and source provenance."""
     captured: list[tuple[str, dict[str, str]]] = []
-    monkeypatch.setattr(campaign_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
+    monkeypatch.setattr(campaign_pension_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
     monkeypatch.setattr(pension_selection_module, "run_pension_selection", lambda *_args, **_kwargs: _stub_report())
     monkeypatch.setattr(
         pension_selection_module,
@@ -87,7 +88,7 @@ def test_pension_selection_command_fails_closed_on_data_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Pension data errors return one and expose the typed CLI failure event."""
-    monkeypatch.setattr(campaign_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
+    monkeypatch.setattr(campaign_pension_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
 
     def fail(*_args: object, **_kwargs: object) -> object:
         raise PensionDataError("missing certified panel")
@@ -117,7 +118,7 @@ def test_selection_digest_changes_with_historical_campaign_bytes(
     config = tmp_path / "selection.json"
     config.write_text(json.dumps(document), encoding="utf-8")
     captured: list[tuple[str, dict[str, str]]] = []
-    monkeypatch.setattr(campaign_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
+    monkeypatch.setattr(campaign_pension_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
     monkeypatch.setattr(pension_selection_module, "run_pension_selection", lambda *_args, **_kwargs: _stub_report())
     monkeypatch.setattr(
         pension_selection_module,
@@ -165,7 +166,7 @@ def test_selection_digest_pins_consumed_manifest_identity(tmp_path: Path, monkey
     """The experiment id is derived from manifests the run consumed, not a later catalog lookup."""
     captured: list[tuple[str, dict[str, str]]] = []
     consumed: dict[str, str | None] = dict(_CONSUMED)
-    monkeypatch.setattr(campaign_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
+    monkeypatch.setattr(campaign_pension_mod, "_resolve_git_commit", lambda: _GIT_COMMIT)
     monkeypatch.setattr(
         pension_selection_module,
         "run_pension_selection",

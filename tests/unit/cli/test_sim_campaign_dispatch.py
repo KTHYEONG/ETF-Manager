@@ -147,7 +147,7 @@ def test_cli_w1_ablation_dispatch(
     ]
     assert len({config.monthly_contribution_krw for config in captured}) == 1
     assert captured[0].monthly_contribution_krw == pytest.approx(1_000_000.0)
-    assert list((data_root / "results" / "m0_m1_strategic").glob("ablation_*.json"))
+    assert list((data_root / "runs" / "m0_m1_strategic").glob("ablation_*.json"))
 
     assert main(["run", "ablation"]) == 2
 
@@ -204,12 +204,12 @@ def test_cli_wf_dispatch(
     exit_code = main(["run", "walk-forward", "--config", str(wf_path)])
 
     assert exit_code == 0
-    reports = list((data_root / "results").rglob("walk_forward_*.json"))
+    reports = list((data_root / "runs").rglob("walk_forward_*.json"))
     assert len(reports) == 1
     written = json.loads(reports[0].read_text(encoding="utf-8"))
     assert "process_adopted_vs_baseline" in written
 
-    assert main(["run", "walk-forward", "--config", "experiments/m0_m1.json"]) == 1
+    assert main(["run", "walk-forward", "--config", "configs/research/m0_m1.json"]) == 1
 
 
 def test_after_tax_campaign_dispatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -244,7 +244,7 @@ def test_shipped_after_tax_configs_load() -> None:
         "after_tax_campaign_taa_v1.json",
         "after_tax_campaign_japan_v1.json",
     ):
-        spec = load_after_tax_campaign_spec(f"experiments/{name}")
+        spec = load_after_tax_campaign_spec(f"configs/research/{name}")
         baselines = [arm for arm in spec.arms if arm.role is ArmRole.BASELINE]
         candidates = [arm for arm in spec.arms if arm.role is ArmRole.OPERATIONAL_CANDIDATE]
         assert len(baselines) == 1
@@ -299,10 +299,10 @@ def test_after_tax_campaign_command_runs_once(tmp_path: Path, monkeypatch: pytes
     data_root = tmp_path / "data"
     monkeypatch.setattr(camp_mod, "DataSettings", lambda: DataSettings(data_root=data_root))
     exit_code = camp_mod.run_after_tax_campaign_command(
-        config_path="experiments/after_tax_campaign_japan_v1.json",
+        config_path="configs/research/after_tax_campaign_japan_v1.json",
         settings=DataSettings(data_root=data_root),
         seed=7,
     )
     assert exit_code == 0
-    reports = list((data_root / "results").rglob("*after_tax_*.json"))
+    reports = list((data_root / "runs").rglob("*after_tax_*.json"))
     assert len(reports) >= 1
