@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from src.analytics.metrics import XirrError
 from src.cli_commands.parser import _UsageError, _resolve_git_commit
@@ -36,6 +37,9 @@ from src.validation.windows import rolling_cohorts
 
 _ = freeze_prospective_bundle
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from src.validation.pension_decision import PensionDecisionReport
 _VALIDATE_GAMMAS: tuple[float, ...] = (2.0, 5.0, 10.0)
 _VALIDATE_BASELINE_TICKER: str = "VT"
 _ERRORS = (AllocationDataError, BaselineDataError, PolicyError, ThesisError, UntrustedDatasetError, XirrError, ValueError, OSError)
@@ -475,5 +479,269 @@ def run_pension_selection_command(*, config_path: str, settings: DataSettings, s
         report.status,
         report.selected_arm_id or "NONE",
         report_path,
+    )
+    return 0
+
+
+def _read_incumbent_id(record_path: str) -> str:
+    """Read the held candidate id from a frozen decision record file."""
+    import json
+
+    try:
+        document = json.loads(Path(record_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"pension incumbent record is unreadable: {record_path}") from exc
+    if not isinstance(document, dict):
+        raise ValueError(f"pension incumbent record lacks an incumbent_id string: {record_path}")
+    raw_id = document.get("incumbent_id")
+    if not isinstance(raw_id, str) or not raw_id.strip():
+        raise ValueError(f"pension incumbent record lacks an incumbent_id string: {record_path}")
+    return raw_id.strip()
+
+
+def _read_record_id(record_path: str) -> str | None:
+    """Read the frozen record id from a decision record file, if present."""
+    import json
+
+    try:
+        document = json.loads(Path(record_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"pension incumbent record is unreadable: {record_path}") from exc
+    if not isinstance(document, dict):
+        raise ValueError(f"pension incumbent record lacks a record_id string: {record_path}")
+    raw_id = document.get("record_id")
+    if raw_id is None:
+        return None
+    if not isinstance(raw_id, str) or not raw_id.strip():
+        raise ValueError(f"pension incumbent record lacks a record_id string: {record_path}")
+    return raw_id.strip()
+
+
+def run_pension_review_command(*, record_path: str, as_of: date, settings: DataSettings) -> int:
+    """Report post-cutoff tracking state for a frozen pension decision.
+
+    Returns: 0 for HOLD or INSUFFICIENT_DATA, 3 for REVIEW_DUE, 1 on invalid data.
+    """
+    from datetime import UTC as _UTC
+    from datetime import datetime as _datetime
+
+    from src.data.catalog import load_snapshot_visible, resolve_snapshot
+    from src.data.schema import Dataset as _Dataset
+    from src.validation.pension_decision_record import (
+        evaluate_pension_review,
+        load_pension_decision_record,
+    )
+
+    try:
+        record = load_pension_decision_record(record_path)
+        as_of_ts = _datetime(as_of.year, as_of.month, as_of.day, 23, 59, tzinfo=_UTC)
+        snapshot = resolve_snapshot(settings, (_Dataset.PRICES,))
+        prices = load_snapshot_visible(snapshot, _Dataset.PRICES, as_of_ts)
+        status = evaluate_pension_review(record, prices, as_of_ts)
+    except (*_ERRORS, UntrustedDatasetError) as exc:
+        logger.error(
+            "[PORTFOLIO] event=pension_review_cli_failed reason_type=%s reason=%s",
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
+        return 1
+    logger.info(
+        "[PORTFOLIO] event=pension_review_cli_done record=%s as_of=%s state=%s months=%d ratio=%s",
+        status.record_id,
+        status.as_of.isoformat(),
+        status.state,
+        status.months_observed,
+        f"{status.incumbent_over_benchmark:.6f}" if status.incumbent_over_benchmark is not None else "NONE",
+    )
+    return 3 if status.state == "REVIEW_DUE" else 0
+
+
+def _decision_markdown(report: PensionDecisionReport, trial_count: int) -> str:
+    """Render a Korean human summary of the pension decision verdict."""
+    lines = [
+        f"# 연금 결정 {report.name}",
+        "",
+        f"- 상태: {report.status}",
+        f"- 선택: {report.selected_id or '없음'}",
+        f"- 동등 후보: {', '.join(report.equivalent_ids) if report.equivalent_ids else '없음'}",
+        f"- 사유: {', '.join(report.reasons) if report.reasons else '없음'}",
+        f"- 시행 횟수: {trial_count}",
+        "",
+        "## 후보 강건 점수",
+        "",
+        "| 후보 | 강건 점수 | 부트스트랩 승률 |",
+        "| --- | --- | --- |",
+    ]
+    for candidate_id, score in sorted(report.robust_scores.items()):
+        share = report.bootstrap_win_share.get(candidate_id)
+        share_text = f"{share:.3f}" if share is not None else "없음"
+        lines.append(f"| {candidate_id} | {score:.6f} | {share_text} |")
+    lines += ["", f"세후 순위 일치: {'예' if report.tax_rank_agreement else '아니오'}"]
+    return "\n".join(lines) + "\n"
+
+
+def run_pension_decision_command(*, config_path: str, settings: DataSettings, seed: int, incumbent_record: str | None = None, freeze: bool = False) -> int:
+    """Run the pre-registered robust pension holding decision and persist its evidence.
+
+    Returns: Zero after a reproducible report is written, nonzero on invalid data or policy.
+    Raises: No domain exception escapes the CLI boundary; failure is logged and returned.
+    """
+    from dataclasses import replace
+
+    import polars as pl
+
+    from src.data.catalog import load_snapshot_visible, resolve_snapshot
+    from src.data.result_store import ResultKind, write_result
+    from src.sim.pension_engine import PensionDataError
+    from src.sim.pension_monthly import panel_from_prices, panel_from_research
+    from src.validation.pension_campaign import load_pension_campaign_spec, run_pension_campaign
+    from src.validation.pension_decision import assert_tax_rank_neutrality, evaluate_pension_decision
+    from src.validation.pension_decision_config import load_pension_decision_spec
+
+    try:
+        import hashlib
+        from datetime import UTC, datetime
+
+        spec = load_pension_decision_spec(config_path)
+        config_bytes = Path(config_path).read_bytes()
+        incumbent_id = _read_incumbent_id(incumbent_record) if incumbent_record else None
+        snapshot = resolve_snapshot(settings, (Dataset.PRICES, Dataset.RESEARCH_MONTHLY))
+        modern_as_of = datetime(spec.modern_end.year, spec.modern_end.month, spec.modern_end.day, 23, 59, tzinfo=UTC)
+        # 두 근거층 모두 같은 결정 시점(modern_end)에 공개된 행만 읽는다; 이후 공개분은 미래 정보다.
+        modern_frame = load_snapshot_visible(snapshot, Dataset.PRICES, modern_as_of)
+        century_frame = load_snapshot_visible(snapshot, Dataset.RESEARCH_MONTHLY, modern_as_of).filter(
+            pl.col("period_end").is_between(spec.century_start, spec.century_end)
+        )
+        sleeves = sorted({sleeve for schedule in spec.candidates.values() for sleeve in schedule.start_weights})
+        modern = panel_from_prices(modern_frame, sleeves, modern_as_of, spec.modern_start, spec.modern_end)
+        century = panel_from_research(century_frame, spec.century_series, modern_as_of)
+        if century.months[0] != spec.century_start or century.months[-1] != spec.century_end:
+            raise ValueError(
+                f"pension century panel spans {century.months[0].isoformat()}..{century.months[-1].isoformat()}, "
+                f"config requires {spec.century_start.isoformat()}..{spec.century_end.isoformat()} "
+                f"visible at {modern_as_of.isoformat()}"
+            )
+        report = evaluate_pension_decision(spec, modern, century, seed=seed, incumbent_id=incumbent_id)
+        consumed = {
+            str(dataset): Path(snapshot.artifacts[dataset].manifest_path).stem
+            for dataset in (Dataset.PRICES, Dataset.RESEARCH_MONTHLY)
+        }
+        report = replace(report, manifest_hashes=consumed)
+        campaign_spec = load_pension_campaign_spec(spec.tax_crosscheck_campaign_path)
+        campaign_report = run_pension_campaign(campaign_spec, settings, seed=seed)
+        summaries = [
+            {
+                "arm_id": summary.arm_id,
+                "horizon_months": summary.horizon_months,
+                "median_wealth_ratio": summary.median_wealth_ratio,
+            }
+            for summary in campaign_report.summaries
+        ]
+        agreement = assert_tax_rank_neutrality(report, summaries, spec.tax_crosscheck_arm_map)
+        if agreement:
+            report = replace(report, tax_rank_agreement=True)
+        else:
+            logger.warning(
+                "[PORTFOLIO] event=pension_decision_tax_disagreement status=%s selected=%s",
+                report.status,
+                report.selected_id or "NONE",
+            )
+            report = replace(
+                report,
+                status="NO_DECISION",
+                selected_id=None,
+                reasons=(*report.reasons, "TAX_RANK_DISAGREEMENT"),
+                tax_rank_agreement=False,
+            )
+        campaign_bytes = Path(spec.tax_crosscheck_campaign_path).read_bytes()
+        git_commit = _resolve_git_commit()
+        digest = hashlib.sha256(
+            config_bytes + git_commit.encode() + "".join(consumed.values()).encode()
+            + campaign_bytes + str(seed).encode()
+        ).hexdigest()[:16]
+        provenance: dict[str, str] = {
+            "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
+            "tax_crosscheck_config_sha256": hashlib.sha256(campaign_bytes).hexdigest(),
+            "git_commit": git_commit,
+            "seed": str(seed),
+            "freeze": str(freeze),
+        }
+        if incumbent_record:
+            provenance["incumbent_record"] = incumbent_record
+        payload: dict[str, object] = {
+            "name": report.name,
+            "status": report.status,
+            "selected_id": report.selected_id,
+            "equivalent_ids": list(report.equivalent_ids),
+            "reasons": list(report.reasons),
+            "trial_count": report.trial_count,
+            "robust_scores": dict(report.robust_scores),
+            "sensitivity_robust_scores": {
+                str(gamma): dict(scores) for gamma, scores in report.sensitivity_robust_scores.items()
+            },
+            "bootstrap_win_share": dict(report.bootstrap_win_share),
+            "tax_rank_agreement": report.tax_rank_agreement,
+            "manifest_hashes": dict(report.manifest_hashes),
+            "scores": [
+                {
+                    "candidate_id": score.candidate_id,
+                    "tier": score.tier,
+                    "horizon_years": score.horizon_years,
+                    "gamma": score.gamma,
+                    "ce_ratio": score.ce_ratio,
+                    "median_ratio": score.median_ratio,
+                    "worst_ratio": score.worst_ratio,
+                    "cohort_count": score.cohort_count,
+                    "median_pre_retirement_drawdown": score.median_pre_retirement_drawdown,
+                }
+                for score in report.scores
+            ],
+        }
+        ref = write_result(
+            settings,
+            experiment=spec.name,
+            kind=ResultKind.PENSION_DECISION,
+            run_id=digest,
+            payload=payload,
+            markdown=_decision_markdown(report, report.trial_count),
+        )
+        if freeze and report.status != "NO_DECISION":
+            from src.data.paths import resolve_repository_paths
+            from src.validation.pension_decision_record import freeze_pension_decision
+
+            previous_id: str | None = None
+            if incumbent_record:
+                previous_id = _read_record_id(incumbent_record)
+            record_path = freeze_pension_decision(
+                report,
+                spec,
+                output_dir=resolve_repository_paths(settings).root / "records" / "pension_decisions",
+                frozen_at=datetime.now(UTC),
+                git_commit=git_commit,
+                config_sha256=hashlib.sha256(config_bytes).hexdigest(),
+                previous_record_id=previous_id,
+            )
+            logger.info(
+                "[PORTFOLIO] event=pension_decision_frozen record=%s report=%s",
+                record_path.as_posix(),
+                ref.json_path.as_posix(),
+            )
+    except (*_ERRORS, PensionDataError, UntrustedDatasetError) as exc:
+        logger.error(
+            "[PORTFOLIO] event=pension_decision_cli_failed reason_type=%s reason=%s",
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
+        return 1
+    logger.info(
+        "[PORTFOLIO] event=pension_decision_cli_done experiment=%s experiment_id=%s status=%s selected=%s freeze=%s report=%s",
+        spec.name,
+        digest,
+        report.status,
+        report.selected_id or "NONE",
+        freeze,
+        ref.json_path.as_posix(),
     )
     return 0

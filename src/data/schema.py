@@ -23,6 +23,7 @@ class Dataset(StrEnum):
     FACTORS = "factors"
     ETF_METADATA = "etf_metadata"
     RESEARCH_RETURNS = "research_returns"
+    RESEARCH_MONTHLY = "research_monthly"
     ETF_HOLDINGS = "etf_holdings"
     FX_KRW_BASE = "fx_krw_base"
     RATES = "rates"
@@ -260,6 +261,25 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         total_return_source=TotalReturnSource.NOT_APPLICABLE,
         schema_version="1",
     )
+    research_monthly = DatasetSpec(
+        dataset=Dataset.RESEARCH_MONTHLY,
+        # Research-only month-end series: never a PRICES splice, never a sleeve ticker.
+        columns={
+            "series_id": pl.String(),
+            "period_end": pl.Date(),
+            "simple_return": pl.Float64(),
+            "label": pl.String(),
+            "source": pl.String(),
+            "retrieved_at": TS_DTYPE,
+        },
+        key=("series_id", "period_end"),
+        observation_column="period_end",
+        availability=AvailabilityRule(kind=AvailabilityKind.FIXED_LAG, lag=timedelta(days=60)),
+        missing_policy=MissingPolicy.FAIL,
+        revisable=False,
+        total_return_source=TotalReturnSource.NOT_APPLICABLE,
+        schema_version="1",
+    )
     etf_holdings = DatasetSpec(
         dataset=Dataset.ETF_HOLDINGS,
         columns={
@@ -352,6 +372,7 @@ def _build_specs() -> dict[Dataset, DatasetSpec]:
         Dataset.FACTORS: factors,
         Dataset.ETF_METADATA: etf_metadata,
         Dataset.RESEARCH_RETURNS: research_returns,
+        Dataset.RESEARCH_MONTHLY: research_monthly,
         Dataset.ETF_HOLDINGS: etf_holdings,
         Dataset.FX_KRW_BASE: fx_krw_base,
         Dataset.RATES: rates,

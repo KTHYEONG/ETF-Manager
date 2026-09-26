@@ -25,3 +25,41 @@ def test_thesis_incremental_accepts_physical_automation(scenario_id: str) -> Non
 
     with pytest.raises(ValueError, match="unknown"):
         ThesisId("unknown_thesis_xyz")
+
+
+def test_cli_dispatches_research_monthly(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The research-monthly ingest command forwards both dates and requires the window."""
+    from datetime import date
+
+    from src import cli
+    from src.cli import main
+
+    received: list[tuple[object, object]] = []
+
+    def fake_fetch(start: object, end: object, **kwargs: object) -> None:
+        received.append((start, end))
+
+    monkeypatch.setattr(cli, "fetch_and_persist_research_monthly", fake_fetch)
+
+    with caplog.at_level("INFO"):
+        code = main(
+            [
+                "ingest",
+                "research-monthly",
+                "--start",
+                "1926-07-31",
+                "--end",
+                "2026-07-31",
+            ]
+        )
+
+    assert code == 0
+    assert received == [(date(1926, 7, 31), date(2026, 7, 31))]
+    assert any(
+        "event=cli_ingest_done" in record.message and "dataset=research_monthly" in record.message
+        for record in caplog.records
+    )
+    assert main(["ingest", "research-monthly", "--start", "1926-07-31"]) == 2
+    assert len(received) == 1

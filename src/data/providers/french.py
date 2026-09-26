@@ -22,18 +22,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_KEN_FRENCH_BASE_URL: Final[str] = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
+_FACTOR_FILE_NAME: Final[str] = "F-F_Research_Data_Factors_CSV.zip"
+_INDUSTRY_FILE_NAME: Final[str] = "10_Industry_Portfolios_CSV.zip"
 _FIVE_FACTOR_URL: Final[str] = (
-    "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_5_Factors_2x3_CSV.zip"
+    f"{_KEN_FRENCH_BASE_URL}F-F_Research_Data_5_Factors_2x3_CSV.zip"
 )
 _DAILY_FIVE_FACTOR_URL: Final[str] = (
-    "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_5_Factors_2x3_daily_CSV.zip"
+    f"{_KEN_FRENCH_BASE_URL}F-F_Research_Data_5_Factors_2x3_daily_CSV.zip"
 )
-_MOMENTUM_URL: Final[str] = (
-    "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Momentum_Factor_CSV.zip"
-)
+_MOMENTUM_URL: Final[str] = f"{_KEN_FRENCH_BASE_URL}F-F_Momentum_Factor_CSV.zip"
+_MONTHLY_FACTOR_URL: Final[str] = f"{_KEN_FRENCH_BASE_URL}{_FACTOR_FILE_NAME}"
+_INDUSTRY_URL: Final[str] = f"{_KEN_FRENCH_BASE_URL}{_INDUSTRY_FILE_NAME}"
 _PROVIDER: Final[str] = "ken_french"
 _RESEARCH_SERIES_ID: Final[str] = "us_mkt_ff_daily"
 _RESEARCH_LABEL: Final[str] = "research_proxy"
+_MONTHLY_MARKET_SERIES_ID: Final[str] = "ff_mkt_monthly"
+_MONTHLY_HITEC_SERIES_ID: Final[str] = "ff_hitec_monthly"
 _FACTOR_NAMES: Final[tuple[str, ...]] = ("mkt_rf", "smb", "hml", "rmw", "cma")
 _COLUMN_NAMES: Final[tuple[str, ...]] = ("period_end", *_FACTOR_NAMES, "rf")
 # Ken French marks unavailable cells with these sentinel percentages.
@@ -41,7 +46,7 @@ _MISSING_SENTINELS: Final[frozenset[float]] = frozenset({-99.99, -999.0})
 
 
 class FrenchClient:
-    """Maps Ken French 5F+Mom monthly ZIP files onto Dataset.FACTORS."""
+    """Map Ken French archives onto registered research datasets."""
 
     def __init__(self, client: httpx.Client) -> None:
         self._client = client
@@ -127,6 +132,102 @@ class FrenchClient:
             frame,
         )
 
+    def fetch_monthly_research_returns(self, start: date, end: date) -> tuple[RawPayload, pl.DataFrame]:
+        """Download century-length monthly market and HiTec returns as research rows.
+
+        The market series is Mkt-RF plus RF from the Fama/French 3-factor file; the
+        HiTec series is the value-weighted HiTec column of the 10-industry file. Both
+        are research proxies used only for paired relative-wealth comparisons.
+
+        Args:
+            start: First month-end to keep.
+            end: Last month-end to keep.
+
+        Returns:
+            Raw payload and rows for ``ff_mkt_monthly`` and ``ff_hitec_monthly``.
+
+        Raises:
+            ProviderError: On HTTP failure, a missing expected column, a sentinel value,
+                mismatched month sets between the two series, or an empty parse.
+        """
+        retrieved_at = datetime.now(UTC)
+        factor_bytes = _get_zip(self._client, _MONTHLY_FACTOR_URL)
+        industry_bytes = _get_zip(self._client, _INDUSTRY_URL)
+        market_by_month = _parse_named_monthly_block(
+            _csv_text(factor_bytes),
+            ("Mkt-RF", "RF"),
+            section_title=None,
+            stop_title="Annual Factors",
+        )
+        hitec_by_month = _parse_named_monthly_block(
+            _csv_text(industry_bytes),
+            ("HiTec",),
+            section_title="Average Value Weighted Returns -- Monthly",
+            stop_title="Average Equal Weighted Returns -- Monthly",
+        )
+        market_months = {month for month in market_by_month if start <= month <= end}
+        hitec_months = {month for month in hitec_by_month if start <= month <= end}
+        if market_months != hitec_months:
+            market_only = sorted(market_months - hitec_months)
+            hitec_only = sorted(hitec_months - market_months)
+            raise ProviderError(
+                "ken_french monthly research month sets differ: "
+                f"market_only={market_only[:3]} hitec_only={hitec_only[:3]}"
+            )
+        records: list[dict[str, object]] = []
+        for month_end in sorted(market_months):
+            market = market_by_month[month_end]
+            records.extend(
+                (
+                    {
+                        "series_id": _MONTHLY_MARKET_SERIES_ID,
+                        "period_end": month_end,
+                        "simple_return": market["Mkt-RF"] + market["RF"],
+                        "label": _RESEARCH_LABEL,
+                    },
+                    {
+                        "series_id": _MONTHLY_HITEC_SERIES_ID,
+                        "period_end": month_end,
+                        "simple_return": hitec_by_month[month_end]["HiTec"],
+                        "label": _RESEARCH_LABEL,
+                    },
+                )
+            )
+        if not records:
+            raise ProviderError("ken_french payload contains no monthly rows in the requested window")
+        spec = spec_for(Dataset.RESEARCH_MONTHLY)
+        frame = (
+            pl.DataFrame(records)
+            .with_columns(
+                pl.lit(_PROVIDER, dtype=pl.String()).alias("source"),
+                pl.lit(retrieved_at, dtype=TS_DTYPE).alias("retrieved_at"),
+            )
+            .select(*spec.columns)
+            .cast(pl.Schema(dict(spec.columns)))
+        )
+        logger.info(
+            "[DATA] event=fetch dataset=%s provider=%s rows=%d",
+            str(Dataset.RESEARCH_MONTHLY),
+            _PROVIDER,
+            frame.height,
+        )
+        return (
+            RawPayload(
+                provider=_PROVIDER,
+                endpoint="ken_french/monthly_research_returns",
+                request_params={
+                    "factor_file": _FACTOR_FILE_NAME,
+                    "industry_file": _INDUSTRY_FILE_NAME,
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                },
+                retrieved_at=retrieved_at,
+                extension="zip",
+                content=factor_bytes + b"\n" + industry_bytes,
+            ),
+            frame,
+        )
+
 
 def _get_zip(client: httpx.Client, url: str) -> bytes:
     """GET one ZIP document with the shared vendor retry policy (429/5xx only)."""
@@ -180,6 +281,65 @@ def _parse_monthly_rows(text: str, value_count: int) -> list[tuple[date, list[fl
     return rows
 
 
+def _parse_named_monthly_block(
+    text: str,
+    required_columns: tuple[str, ...],
+    *,
+    section_title: str | None,
+    stop_title: str,
+) -> dict[date, dict[str, float]]:
+    lines = text.splitlines()
+    start = 0
+    if section_title is not None:
+        section_index = next(
+            (index for index, line in enumerate(lines) if section_title in line),
+            None,
+        )
+        if section_index is None:
+            raise ProviderError(f"ken_french payload is missing section {section_title!r}")
+        start = section_index + 1
+    stop_index = next(
+        (index for index in range(start, len(lines)) if stop_title in lines[index]),
+        len(lines),
+    )
+    header_index = next(
+        (
+            index
+            for index in range(start, stop_index)
+            if set(required_columns).issubset(_csv_parts(lines[index]))
+        ),
+        None,
+    )
+    if header_index is None:
+        raise ProviderError(f"ken_french payload is missing expected columns {required_columns!r}")
+    header = _csv_parts(lines[header_index])
+    column_indices = {column: header.index(column) for column in required_columns}
+    values_by_month: dict[date, dict[str, float]] = {}
+    for line in lines[header_index + 1 : stop_index]:
+        parts = _csv_parts(line)
+        if len(parts) < 2 or len(parts[0]) != 6 or not parts[0].isdigit():
+            if values_by_month:
+                break
+            continue
+        month_end = _month_end(int(parts[0][:4]), int(parts[0][4:]))
+        values_by_month[month_end] = {
+            column: _required_decimal(parts[column_index], period_end=month_end, column=column)
+            for column, column_index in column_indices.items()
+        }
+    if not values_by_month:
+        raise ProviderError("ken_french payload contains no monthly rows")
+    return values_by_month
+
+
+def _required_decimal(raw: str, *, period_end: date, column: str) -> float:
+    value = _decimal(raw)
+    if value is None:
+        raise ProviderError(
+            f"ken_french sentinel cell period_end={period_end.isoformat()} column={column!r} raw={raw!r}"
+        )
+    return value
+
+
 def _parse_daily_rows(text: str, start: date, end: date) -> list[dict[str, object]]:
     """Parse ``YYYYMMDD`` percent rows into research-return records within the window.
 
@@ -212,6 +372,10 @@ def _parse_daily_rows(text: str, start: date, end: date) -> list[dict[str, objec
     if not rows:
         raise ProviderError("ken_french payload contains no daily rows")
     return rows
+
+
+def _csv_parts(line: str) -> list[str]:
+    return [part.strip() for part in line.split(",")]
 
 
 def _numeric_lines(text: str) -> Iterator[list[str]]:
