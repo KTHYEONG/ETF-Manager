@@ -1,0 +1,362 @@
+{
+  "name": "pension_decision_v2",
+  "benchmark_id": "spy100_qqq0",
+  "dominance_reference_id": "spy20_qqq80",
+  "candidates": {
+    "spy100_qqq0": {
+      "start_weights": {
+        "SPY": 1.0,
+        "QQQ": 0.0
+      },
+      "end_weights": {
+        "SPY": 1.0,
+        "QQQ": 0.0
+      },
+      "glide_years": 0
+    },
+    "spy90_qqq10": {
+      "start_weights": {
+        "SPY": 0.9,
+        "QQQ": 0.1
+      },
+      "end_weights": {
+        "SPY": 0.9,
+        "QQQ": 0.1
+      },
+      "glide_years": 0
+    },
+    "spy80_qqq20": {
+      "start_weights": {
+        "SPY": 0.8,
+        "QQQ": 0.2
+      },
+      "end_weights": {
+        "SPY": 0.8,
+        "QQQ": 0.2
+      },
+      "glide_years": 0
+    },
+    "spy70_qqq30": {
+      "start_weights": {
+        "SPY": 0.7,
+        "QQQ": 0.3
+      },
+      "end_weights": {
+        "SPY": 0.7,
+        "QQQ": 0.3
+      },
+      "glide_years": 0
+    },
+    "spy60_qqq40": {
+      "start_weights": {
+        "SPY": 0.6,
+        "QQQ": 0.4
+      },
+      "end_weights": {
+        "SPY": 0.6,
+        "QQQ": 0.4
+      },
+      "glide_years": 0
+    },
+    "spy50_qqq50": {
+      "start_weights": {
+        "SPY": 0.5,
+        "QQQ": 0.5
+      },
+      "end_weights": {
+        "SPY": 0.5,
+        "QQQ": 0.5
+      },
+      "glide_years": 0
+    },
+    "spy40_qqq60": {
+      "start_weights": {
+        "SPY": 0.4,
+        "QQQ": 0.6
+      },
+      "end_weights": {
+        "SPY": 0.4,
+        "QQQ": 0.6
+      },
+      "glide_years": 0
+    },
+    "spy30_qqq70": {
+      "start_weights": {
+        "SPY": 0.3,
+        "QQQ": 0.7
+      },
+      "end_weights": {
+        "SPY": 0.3,
+        "QQQ": 0.7
+      },
+      "glide_years": 0
+    },
+    "spy20_qqq80": {
+      "start_weights": {
+        "SPY": 0.2,
+        "QQQ": 0.8
+      },
+      "end_weights": {
+        "SPY": 0.2,
+        "QQQ": 0.8
+      },
+      "glide_years": 0
+    },
+    "spy10_qqq90": {
+      "start_weights": {
+        "SPY": 0.1,
+        "QQQ": 0.9
+      },
+      "end_weights": {
+        "SPY": 0.1,
+        "QQQ": 0.9
+      },
+      "glide_years": 0
+    },
+    "spy0_qqq100": {
+      "start_weights": {
+        "SPY": 0.0,
+        "QQQ": 1.0
+      },
+      "end_weights": {
+        "SPY": 0.0,
+        "QQQ": 1.0
+      },
+      "glide_years": 0
+    },
+    "schd10_qqq90": {
+      "start_weights": {
+        "SCHD": 0.1,
+        "QQQ": 0.9
+      },
+      "end_weights": {
+        "SCHD": 0.1,
+        "QQQ": 0.9
+      },
+      "glide_years": 0
+    },
+    "schd20_qqq80": {
+      "start_weights": {
+        "SCHD": 0.2,
+        "QQQ": 0.8
+      },
+      "end_weights": {
+        "SCHD": 0.2,
+        "QQQ": 0.8
+      },
+      "glide_years": 0
+    },
+    "schd30_qqq70": {
+      "start_weights": {
+        "SCHD": 0.3,
+        "QQQ": 0.7
+      },
+      "end_weights": {
+        "SCHD": 0.3,
+        "QQQ": 0.7
+      },
+      "glide_years": 0
+    },
+    "schd40_qqq60": {
+      "start_weights": {
+        "SCHD": 0.4,
+        "QQQ": 0.6
+      },
+      "end_weights": {
+        "SCHD": 0.4,
+        "QQQ": 0.6
+      },
+      "glide_years": 0
+    }
+  },
+  "neighbors": {
+    "spy100_qqq0": [
+      "spy90_qqq10"
+    ],
+    "spy90_qqq10": [
+      "spy100_qqq0",
+      "spy80_qqq20"
+    ],
+    "spy80_qqq20": [
+      "spy90_qqq10",
+      "spy70_qqq30"
+    ],
+    "spy70_qqq30": [
+      "spy80_qqq20",
+      "spy60_qqq40"
+    ],
+    "spy60_qqq40": [
+      "spy70_qqq30",
+      "spy50_qqq50"
+    ],
+    "spy50_qqq50": [
+      "spy60_qqq40",
+      "spy40_qqq60"
+    ],
+    "spy40_qqq60": [
+      "spy50_qqq50",
+      "spy30_qqq70"
+    ],
+    "spy30_qqq70": [
+      "spy40_qqq60",
+      "spy20_qqq80"
+    ],
+    "spy20_qqq80": [
+      "spy30_qqq70",
+      "spy10_qqq90"
+    ],
+    "spy10_qqq90": [
+      "spy20_qqq80",
+      "spy0_qqq100"
+    ],
+    "spy0_qqq100": [
+      "spy10_qqq90"
+    ],
+    "schd10_qqq90": [
+      "schd20_qqq80",
+      "spy10_qqq90"
+    ],
+    "schd20_qqq80": [
+      "schd10_qqq90",
+      "schd30_qqq70",
+      "spy20_qqq80"
+    ],
+    "schd30_qqq70": [
+      "schd20_qqq80",
+      "schd40_qqq60",
+      "spy30_qqq70"
+    ],
+    "schd40_qqq60": [
+      "schd30_qqq70",
+      "spy40_qqq60"
+    ]
+  },
+  "controls": {
+    "vt20_qqq80": {
+      "start_weights": {
+        "VT": 0.2,
+        "QQQ": 0.8
+      },
+      "end_weights": {
+        "VT": 0.2,
+        "QQQ": 0.8
+      },
+      "glide_years": 0
+    },
+    "vt100": {
+      "start_weights": {
+        "VT": 1.0
+      },
+      "end_weights": {
+        "VT": 1.0
+      },
+      "glide_years": 0
+    }
+  },
+  "century_series": {
+    "SPY": "ff_mkt_monthly",
+    "QQQ": "ff_hitec_monthly",
+    "SCHD": "ff_dp_hi30_monthly"
+  },
+  "modern_start": "1999-04-30",
+  "modern_end": "2026-08-31",
+  "century_start": "1927-07-31",
+  "century_end": "2026-06-30",
+  "horizons_years": [
+    20,
+    30
+  ],
+  "step_months": 12,
+  "pre_retirement_months": 60,
+  "primary_gamma": 1.0,
+  "sensitivity_gammas": [
+    2.0,
+    3.0
+  ],
+  "equivalence_band": 0.005,
+  "min_bootstrap_win_share": 0.6,
+  "bootstrap_paths": 2000,
+  "bootstrap_block_months": 24,
+  "annual_drag_by_sleeve": {
+    "SPY": 6.2e-05,
+    "QQQ": 6.2e-05,
+    "SCHD": 0.0001,
+    "VT": 0.0025
+  },
+  "sleeve_products": {
+    "SPY": {
+      "krx_code": "379800",
+      "name": "KODEX 미국S&P500",
+      "listing_date": "2021-04-09",
+      "total_expense_ratio": 6.2e-05,
+      "currency_hedged": false,
+      "source_url": "https://m.samsungfund.com/etf/product/view.do?id=2ETFE4",
+      "source_checked_date": "2026-09-26"
+    },
+    "QQQ": {
+      "krx_code": "379810",
+      "name": "KODEX 미국나스닥100",
+      "listing_date": "2021-04-09",
+      "total_expense_ratio": 6.2e-05,
+      "currency_hedged": false,
+      "source_url": "https://m.samsungfund.com/etf/product/view.do?id=2ETFE3",
+      "source_checked_date": "2026-09-26"
+    },
+    "SCHD": {
+      "krx_code": "458730",
+      "name": "TIGER 미국배당다우존스",
+      "listing_date": "2023-06-20",
+      "total_expense_ratio": 0.0001,
+      "currency_hedged": false,
+      "source_url": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR7458730009",
+      "source_checked_date": "2026-09-26"
+    },
+    "VT": {
+      "krx_code": "0060H0",
+      "name": "TIGER 토탈월드스탁액티브",
+      "listing_date": "2025-06-24",
+      "total_expense_ratio": 0.0025,
+      "currency_hedged": false,
+      "source_url": "https://investments.miraeasset.com/tigeretf/ko/product/search/detail/index.do?ksdFund=KR70060H0002",
+      "source_checked_date": "2026-09-26"
+    }
+  },
+  "modern_splices": {
+    "SCHD": {
+      "proxy_weights": {
+        "ff_dp_hi30_monthly": 1.0
+      },
+      "etf_first_month": "2011-11-30"
+    },
+    "VT": {
+      "proxy_weights": {
+        "ff_mkt_monthly": 0.55,
+        "ff_dev_ex_us_mkt_monthly": 0.35,
+        "ff_em_mkt_monthly": 0.1
+      },
+      "etf_first_month": "2008-07-31"
+    }
+  },
+  "tax_crosscheck_campaign_path": "experiments/pension_campaign_v2_dotcom.json",
+  "tax_crosscheck_arm_map": {
+    "sp500_100": "spy100_qqq0",
+    "nasdaq_100": "spy0_qqq100",
+    "sp50_nq50": "spy50_qqq50",
+    "sp70_nq30": "spy70_qqq30"
+  },
+  "review_every_months": 12,
+  "lineage": {
+    "related_trial_count": 17,
+    "related_trials": [
+      "pension_selection_v1",
+      "pension_campaign_v1",
+      "pension_campaign_v2_dotcom",
+      "pension_campaign_v2_semis",
+      "pension_decision_v1",
+      "probe_pension_universe_2026_09_26"
+    ],
+    "first_test_date": "2026-09-24",
+    "post_hoc_disclosure": "dominance guard and SCHD line were specified after a probe showed century-only dividend advantage; safe assets (bonds, T-bills, gold) excluded after the same probe showed 0–31% cohort win share over 1928–2025 and 0% in the KRW ETF era; pre-retirement de-risking deferred to the review at five years before withdrawals"
+  },
+  "notes": "The VT modern splice blends ff_mkt_monthly 0.55, ff_dev_ex_us_mkt_monthly 0.35 and ff_em_mkt_monthly 0.10 to approximate the global all-cap US/developed/emerging split over 1999-2008 before the first VT-sourced month."
+}

@@ -56,6 +56,10 @@ def _spec(cutoff: date = date(2020, 1, 31)) -> PensionDecisionSpec:
         tax_crosscheck_arm_map={},
         review_every_months=12,
         lineage={"related_trial_count": 1},
+        modern_splices={},
+        sleeve_products={},
+        dominance_reference_id=None,
+        controls={},
     )
 
 
@@ -73,6 +77,10 @@ def _report(status: str = "ADOPT_CANDIDATE", selected: str | None = _INC) -> Pen
         tax_rank_agreement=True,
         manifest_hashes={"prices": "p", "research_monthly": "r"},
         trial_count=3,
+        dominance_min_ratio={},
+        guard_excluded_ids=(),
+        control_scores={},
+        control_vs_reference={},
     )
 
 

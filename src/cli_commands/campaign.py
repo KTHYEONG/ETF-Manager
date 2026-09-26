@@ -557,7 +557,7 @@ def run_pension_review_command(*, record_path: str, as_of: date, settings: DataS
     return 3 if status.state == "REVIEW_DUE" else 0
 
 
-def _decision_markdown(report: PensionDecisionReport, trial_count: int) -> str:
+def _decision_markdown(report: PensionDecisionReport, trial_count: int, dominance_reference_id: str | None) -> str:
     """Render a Korean human summary of the pension decision verdict."""
     lines = [
         f"# 연금 결정 {report.name}",
@@ -578,6 +578,29 @@ def _decision_markdown(report: PensionDecisionReport, trial_count: int) -> str:
         share_text = f"{share:.3f}" if share is not None else "없음"
         lines.append(f"| {candidate_id} | {score:.6f} | {share_text} |")
     lines += ["", f"세후 순위 일치: {'예' if report.tax_rank_agreement else '아니오'}"]
+    lines += [
+        "",
+        "## 도미넌스 가드",
+        "",
+        f"- 기준 후보: {dominance_reference_id or '없음'}",
+        f"- 제외 후보: {', '.join(report.guard_excluded_ids) if report.guard_excluded_ids else '없음'}",
+        "",
+        "| 후보 | 기준 대비 최소 비율 |",
+        "| --- | --- |",
+    ]
+    for candidate_id in sorted(report.dominance_min_ratio):
+        lines.append(f"| {candidate_id} | {report.dominance_min_ratio[candidate_id]:.6f} |")
+    lines += [
+        "",
+        "## 컨트롤",
+        "",
+        "| 컨트롤 | 현대 점수 | 기준 대비 |",
+        "| --- | --- | --- |",
+    ]
+    for control_id in sorted(report.control_scores):
+        versus = report.control_vs_reference.get(control_id)
+        versus_text = f"{versus:.6f}" if versus is not None else "없음"
+        lines.append(f"| {control_id} | {report.control_scores[control_id]:.6f} | {versus_text} |")
     return "\n".join(lines) + "\n"
 
 
@@ -594,7 +617,8 @@ def run_pension_decision_command(*, config_path: str, settings: DataSettings, se
     from src.data.catalog import load_snapshot_visible, resolve_snapshot
     from src.data.result_store import ResultKind, write_result
     from src.sim.pension_engine import PensionDataError
-    from src.sim.pension_monthly import panel_from_prices, panel_from_research
+    from src.sim.pension_monthly import panel_from_research
+    from src.sim.pension_splice import splice_modern_panel
     from src.validation.pension_campaign import load_pension_campaign_spec, run_pension_campaign
     from src.validation.pension_decision import assert_tax_rank_neutrality, evaluate_pension_decision
     from src.validation.pension_decision_config import load_pension_decision_spec
@@ -610,11 +634,23 @@ def run_pension_decision_command(*, config_path: str, settings: DataSettings, se
         modern_as_of = datetime(spec.modern_end.year, spec.modern_end.month, spec.modern_end.day, 23, 59, tzinfo=UTC)
         # 두 근거층 모두 같은 결정 시점(modern_end)에 공개된 행만 읽는다; 이후 공개분은 미래 정보다.
         modern_frame = load_snapshot_visible(snapshot, Dataset.PRICES, modern_as_of)
-        century_frame = load_snapshot_visible(snapshot, Dataset.RESEARCH_MONTHLY, modern_as_of).filter(
+        research_frame_at_as_of = load_snapshot_visible(snapshot, Dataset.RESEARCH_MONTHLY, modern_as_of)
+        century_frame = research_frame_at_as_of.filter(
             pl.col("period_end").is_between(spec.century_start, spec.century_end)
         )
-        sleeves = sorted({sleeve for schedule in spec.candidates.values() for sleeve in schedule.start_weights})
-        modern = panel_from_prices(modern_frame, sleeves, modern_as_of, spec.modern_start, spec.modern_end)
+        sleeves = sorted(
+            {sleeve for schedule in spec.candidates.values() for sleeve in schedule.start_weights}
+            | {sleeve for schedule in spec.controls.values() for sleeve in schedule.start_weights}
+        )
+        modern, splice_records = splice_modern_panel(
+            modern_frame,
+            research_frame_at_as_of,
+            sleeves,
+            spec.modern_splices,
+            modern_as_of,
+            spec.modern_start,
+            spec.modern_end,
+        )
         century = panel_from_research(century_frame, spec.century_series, modern_as_of)
         if century.months[0] != spec.century_start or century.months[-1] != spec.century_end:
             raise ValueError(
@@ -683,6 +719,33 @@ def run_pension_decision_command(*, config_path: str, settings: DataSettings, se
             "bootstrap_win_share": dict(report.bootstrap_win_share),
             "tax_rank_agreement": report.tax_rank_agreement,
             "manifest_hashes": dict(report.manifest_hashes),
+            "dominance_reference_id": spec.dominance_reference_id,
+            "dominance_min_ratio": dict(report.dominance_min_ratio),
+            "guard_excluded_ids": list(report.guard_excluded_ids),
+            "control_scores": dict(report.control_scores),
+            "control_vs_reference": dict(report.control_vs_reference),
+            "modern_splices": [
+                {
+                    "sleeve": record.sleeve,
+                    "proxy_first_month": record.proxy_first_month.isoformat(),
+                    "proxy_last_month": record.proxy_last_month.isoformat(),
+                    "etf_first_month": record.etf_first_month.isoformat(),
+                    "proxy_weights": dict(record.proxy_weights),
+                }
+                for record in splice_records
+            ],
+            "sleeve_products": {
+                sleeve: {
+                    "krx_code": product.krx_code,
+                    "name": product.name,
+                    "listing_date": product.listing_date.isoformat(),
+                    "total_expense_ratio": product.total_expense_ratio,
+                    "currency_hedged": product.currency_hedged,
+                    "source_url": product.source_url,
+                    "source_checked_date": product.source_checked_date.isoformat(),
+                }
+                for sleeve, product in spec.sleeve_products.items()
+            },
             "scores": [
                 {
                     "candidate_id": score.candidate_id,
@@ -704,7 +767,7 @@ def run_pension_decision_command(*, config_path: str, settings: DataSettings, se
             kind=ResultKind.PENSION_DECISION,
             run_id=digest,
             payload=payload,
-            markdown=_decision_markdown(report, report.trial_count),
+            markdown=_decision_markdown(report, report.trial_count, spec.dominance_reference_id),
         )
         if freeze and report.status != "NO_DECISION":
             from src.data.paths import resolve_repository_paths

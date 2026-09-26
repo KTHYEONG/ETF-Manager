@@ -7,6 +7,7 @@ import io
 import logging
 import zipfile
 from datetime import UTC, date, datetime
+from itertools import pairwise as _pairwise
 from typing import TYPE_CHECKING, Final
 
 import httpx
@@ -39,6 +40,15 @@ _RESEARCH_SERIES_ID: Final[str] = "us_mkt_ff_daily"
 _RESEARCH_LABEL: Final[str] = "research_proxy"
 _MONTHLY_MARKET_SERIES_ID: Final[str] = "ff_mkt_monthly"
 _MONTHLY_HITEC_SERIES_ID: Final[str] = "ff_hitec_monthly"
+_MONTHLY_DIVIDEND_HI30_SERIES_ID: Final[str] = "ff_dp_hi30_monthly"
+_MONTHLY_DEV_EX_US_SERIES_ID: Final[str] = "ff_dev_ex_us_mkt_monthly"
+_MONTHLY_EMERGING_SERIES_ID: Final[str] = "ff_em_mkt_monthly"
+_DIVIDEND_FILE_NAME: Final[str] = "Portfolios_Formed_on_D-P_CSV.zip"
+_DEV_EX_US_FILE_NAME: Final[str] = "Developed_ex_US_3_Factors_CSV.zip"
+_EMERGING_FILE_NAME: Final[str] = "Emerging_5_Factors_CSV.zip"
+_DIVIDEND_URL: Final[str] = f"{_KEN_FRENCH_BASE_URL}{_DIVIDEND_FILE_NAME}"
+_DEV_EX_US_URL: Final[str] = f"{_KEN_FRENCH_BASE_URL}{_DEV_EX_US_FILE_NAME}"
+_EMERGING_URL: Final[str] = f"{_KEN_FRENCH_BASE_URL}{_EMERGING_FILE_NAME}"
 _FACTOR_NAMES: Final[tuple[str, ...]] = ("mkt_rf", "smb", "hml", "rmw", "cma")
 _COLUMN_NAMES: Final[tuple[str, ...]] = ("period_end", *_FACTOR_NAMES, "rf")
 # Ken French marks unavailable cells with these sentinel percentages.
@@ -133,26 +143,34 @@ class FrenchClient:
         )
 
     def fetch_monthly_research_returns(self, start: date, end: date) -> tuple[RawPayload, pl.DataFrame]:
-        """Download century-length monthly market and HiTec returns as research rows.
+        """Download monthly research proxies used by the pension decision tiers.
 
-        The market series is Mkt-RF plus RF from the Fama/French 3-factor file; the
-        HiTec series is the value-weighted HiTec column of the 10-industry file. Both
-        are research proxies used only for paired relative-wealth comparisons.
+        Series: ``ff_mkt_monthly`` (Mkt-RF plus RF) and ``ff_hitec_monthly`` (value-weighted
+        HiTec industry) share one month set; ``ff_dp_hi30_monthly`` is the value-weighted top
+        30% dividend-yield portfolio (a century proxy for a US dividend sleeve);
+        ``ff_dev_ex_us_mkt_monthly`` and ``ff_em_mkt_monthly`` are USD developed ex-US and
+        emerging market returns (Mkt-RF plus RF) that start around 1990 and only proxy a world
+        sleeve before its ETF inception. Each extra series keeps its own coverage because the
+        source files start in different years; none is forward-filled or back-extended.
 
         Args:
             start: First month-end to keep.
             end: Last month-end to keep.
 
         Returns:
-            Raw payload and rows for ``ff_mkt_monthly`` and ``ff_hitec_monthly``.
+            Raw payload and rows for all five series.
 
         Raises:
-            ProviderError: On HTTP failure, a missing expected column, a sentinel value,
-                mismatched month sets between the two series, or an empty parse.
+            ProviderError: On HTTP failure, a missing expected section or column, a sentinel in a
+                used column, mismatched month sets between the market and HiTec series, a gap inside
+                any series' coverage, or an extra series with no row in the window.
         """
         retrieved_at = datetime.now(UTC)
         factor_bytes = _get_zip(self._client, _MONTHLY_FACTOR_URL)
         industry_bytes = _get_zip(self._client, _INDUSTRY_URL)
+        dividend_bytes = _get_zip(self._client, _DIVIDEND_URL)
+        dev_ex_us_bytes = _get_zip(self._client, _DEV_EX_US_URL)
+        emerging_bytes = _get_zip(self._client, _EMERGING_URL)
         market_by_month = _parse_named_monthly_block(
             _csv_text(factor_bytes),
             ("Mkt-RF", "RF"),
@@ -174,6 +192,33 @@ class FrenchClient:
                 "ken_french monthly research month sets differ: "
                 f"market_only={market_only[:3]} hitec_only={hitec_only[:3]}"
             )
+        dividend_by_month = _parse_named_monthly_block(
+            _csv_text(dividend_bytes),
+            ("Hi 30",),
+            section_title="Value Weight Returns -- Monthly",
+            stop_title="Equal Weight Returns -- Monthly",
+        )
+        dev_ex_us_by_month = _parse_named_monthly_block(
+            _csv_text(dev_ex_us_bytes),
+            ("Mkt-RF", "RF"),
+            section_title=None,
+            stop_title="Annual Factors",
+        )
+        emerging_by_month = _parse_named_monthly_block(
+            _csv_text(emerging_bytes),
+            ("Mkt-RF", "RF"),
+            section_title=None,
+            stop_title="Annual Factors",
+        )
+        dividend_months = _windowed_contiguous_months(
+            _MONTHLY_DIVIDEND_HI30_SERIES_ID, dividend_by_month, start, end
+        )
+        dev_ex_us_months = _windowed_contiguous_months(
+            _MONTHLY_DEV_EX_US_SERIES_ID, dev_ex_us_by_month, start, end
+        )
+        emerging_months = _windowed_contiguous_months(
+            _MONTHLY_EMERGING_SERIES_ID, emerging_by_month, start, end
+        )
         records: list[dict[str, object]] = []
         for month_end in sorted(market_months):
             market = market_by_month[month_end]
@@ -193,8 +238,38 @@ class FrenchClient:
                     },
                 )
             )
+        records.extend(
+            {
+                "series_id": _MONTHLY_DIVIDEND_HI30_SERIES_ID,
+                "period_end": month_end,
+                "simple_return": dividend_by_month[month_end]["Hi 30"],
+                "label": _RESEARCH_LABEL,
+            }
+            for month_end in dividend_months
+        )
+        records.extend(
+            {
+                "series_id": _MONTHLY_DEV_EX_US_SERIES_ID,
+                "period_end": month_end,
+                "simple_return": dev_ex_us_by_month[month_end]["Mkt-RF"]
+                + dev_ex_us_by_month[month_end]["RF"],
+                "label": _RESEARCH_LABEL,
+            }
+            for month_end in dev_ex_us_months
+        )
+        records.extend(
+            {
+                "series_id": _MONTHLY_EMERGING_SERIES_ID,
+                "period_end": month_end,
+                "simple_return": emerging_by_month[month_end]["Mkt-RF"]
+                + emerging_by_month[month_end]["RF"],
+                "label": _RESEARCH_LABEL,
+            }
+            for month_end in emerging_months
+        )
         if not records:
             raise ProviderError("ken_french payload contains no monthly rows in the requested window")
+        records.sort(key=lambda record: (str(record["series_id"]), str(record["period_end"])))
         spec = spec_for(Dataset.RESEARCH_MONTHLY)
         frame = (
             pl.DataFrame(records)
@@ -218,15 +293,47 @@ class FrenchClient:
                 request_params={
                     "factor_file": _FACTOR_FILE_NAME,
                     "industry_file": _INDUSTRY_FILE_NAME,
+                    "dividend_file": _DIVIDEND_FILE_NAME,
+                    "dev_ex_us_file": _DEV_EX_US_FILE_NAME,
+                    "emerging_file": _EMERGING_FILE_NAME,
                     "start": start.isoformat(),
                     "end": end.isoformat(),
                 },
                 retrieved_at=retrieved_at,
                 extension="zip",
-                content=factor_bytes + b"\n" + industry_bytes,
+                content=factor_bytes + b"\n" + industry_bytes + b"\n" + dividend_bytes + b"\n" + dev_ex_us_bytes + b"\n" + emerging_bytes,
             ),
             frame,
         )
+
+
+def _windowed_contiguous_months(
+    series_id: str,
+    by_month: dict[date, dict[str, float]],
+    start: date,
+    end: date,
+) -> list[date]:
+    """Filter an extra series to ``[start, end]`` and require month contiguity."""
+    months = sorted(month for month in by_month if start <= month <= end)
+    if not months:
+        raise ProviderError(
+            f"ken_french {series_id} payload contains no monthly rows in the requested window "
+            f"start={start.isoformat()} end={end.isoformat()}"
+        )
+    for current, nxt in _pairwise(months):
+        expected = _next_month_end(current)
+        if nxt != expected:
+            raise ProviderError(
+                f"ken_french {series_id} has a gap: missing month {expected.isoformat()}"
+            )
+    return months
+
+
+def _next_month_end(month_end: date) -> date:
+    """Return the month-end following ``month_end``."""
+    year = month_end.year + (1 if month_end.month == 12 else 0)
+    month = 1 if month_end.month == 12 else month_end.month + 1
+    return date(year, month, _calendar.monthrange(year, month)[1])
 
 
 def _get_zip(client: httpx.Client, url: str) -> bytes:
