@@ -90,8 +90,6 @@ exclude = [
 module = ["tests.*"]
 ignore_errors = true
 
-[tool.uv]
-cache-dir = "scratch/uv-cache"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
