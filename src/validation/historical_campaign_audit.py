@@ -313,7 +313,7 @@ def build_trial_lineage_census(
     Raises:
         ValueError: If the index is malformed or required evidence is inconsistent.
     """
-    # experiments_dir is noted but not strictly required; keep for wiring spec
+    # experiments_dir is accepted for interface compatibility but not directly read.
     _ = experiments_dir
     try:
         text = index_path.read_text(encoding="utf-8")

@@ -127,7 +127,7 @@ class PensionCohortRow:
 
 @dataclass(frozen=True, slots=True)
 class PensionArmSummary:
-    """Median/worst paired outcomes over cohorts with a defined ratio, plus how many cohorts were excluded and the count of independent windows that carry information."""
+    """Summary of paired cohort outcomes and independent window statistics for a pension arm."""
 
     arm_id: str
     horizon_months: int

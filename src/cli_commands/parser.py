@@ -109,7 +109,7 @@ def _build_parser() -> _Parser:
         "--rebalance-band",
         type=float,
         default=None,
-        help="Buy-only rebalance band in [0, 1); omit for Phase 3 mix",
+        help="Buy-only rebalance band in [0, 1); omit for baseline mix",
     )
     policy.add_argument(
         "--overlay-max-tilt",

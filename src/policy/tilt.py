@@ -1,4 +1,4 @@
-"""Fixed long-only factor tilt over Phase 3 strategic weights."""
+"""Fixed long-only factor tilt over baseline strategic weights."""
 
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ def resolve_tilted_targets(
 ) -> dict[str, float]:
     """Base policy targets at ``signal_at``, overlaid with ``tilt`` when present.
 
-    A ``None`` tilt is the exact Phase 3 identity path.
+    A ``None`` tilt preserves the base policy targets unchanged.
     """
     targets = resolve_targets(policy, prices, signal_at)
     if tilt is None:

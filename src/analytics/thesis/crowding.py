@@ -33,9 +33,7 @@ def holdings_concentration_metrics(*, snapshot: pl.DataFrame, top_n: int) -> dic
     hhi = float(sum(f * f for f in fractions))
     top_n_weights = weights[:top_n] if len(weights) >= top_n else weights
     top_sum = float(sum(float(w) for w in top_n_weights))
-    # For consistency with spec top5, if top_n !=5 but spec asks 5, caller passes 5, so top5 sum equals top_n sum.
-    # But metrics key is top5_weight_pct even if top_n differs? Requirement says top5_weight_pct.
-    # Use top5_weight_pct key always.
+    # Emit top5_weight_pct key as canonical concentration metric.
     effective_n = float(1.0 / hhi) if hhi > 0 else float("inf")
     holdings_count = float(len(weights))
     return {
