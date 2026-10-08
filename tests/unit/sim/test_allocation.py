@@ -242,7 +242,7 @@ def test_sim_h04_tilt_none_identity(scenario_id: str) -> None:
         cpi,
     )
 
-    # A None tilt must reproduce the Phase 3 path exactly, factors frame or not.
+    # A None tilt must reproduce the baseline path exactly, factors frame or not.
     assert with_factors_frame.terminal_wealth_krw == pytest.approx(reference.terminal_wealth_krw, rel=1e-6)
     assert reference.terminal_wealth_krw == pytest.approx(baseline.terminal_wealth_krw, rel=1e-6)
 
@@ -359,7 +359,7 @@ def test_sim_i04_allocation_band_path(scenario_id: str) -> None:
     )
     default = run_allocation(_allocation_config(PolicyId.WORLD_SPLIT), prices, fx, cpi)
 
-    # Explicit None must reproduce the Phase 3 spend path exactly.
+    # Explicit None must reproduce the baseline spend path exactly.
     assert identity.terminal_wealth_krw == pytest.approx(default.terminal_wealth_krw, rel=1e-6)
 
     for result in (banded, identity):

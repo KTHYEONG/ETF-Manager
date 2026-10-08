@@ -60,10 +60,7 @@ def satellite_risk_budget_weight(
         raise PolicyError(f"rho must be finite, got {rho!r}")
     if not math.isfinite(th):
         raise PolicyError(f"theta must be finite, got {theta!r}")
-    # also rho outside [-1,1] could be clipping overflow but non-finite already handled
-    # allow rho slightly beyond due to overflow but treat as error if far?
-    # Spec says rho clipped only for overflow, so we accept values but algorithm will still work.
-    # However degenerate rho nan already caught; infinite already.
+    # Correlation rho is accepted beyond [-1, 1] if finite to tolerate upstream numerical noise.
     a = ss * ss
     b = sc * sc
     c = r * sc * ss

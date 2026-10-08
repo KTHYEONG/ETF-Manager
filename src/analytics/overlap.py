@@ -124,8 +124,7 @@ def pairwise_overlap(
 
     shared = joined.filter((pl.col("w_a") > 0) & (pl.col("w_b") > 0))
     overlap = float(shared.select((pl.min_horizontal("w_a", "w_b")).sum()).item() or 0.0)
-    # overlap_pct is sum min /100 already? Requirement: min(w_a,w_b)/100 summed. So if w in pct (0-100), min/100 sums to fraction*100? Actually requirement says min(w_a,w_b)/100 summed => result in 0-100 scale? We'll return overlap as sum(min)/? The spec OVL-A expects A={X:60,Y:40}, B={X:50,Z:50} => overlap 50. That matches sum min =50. So return sum(min) directly (since division by 100? But 50 already is?). To match, sum(min) =50.
-    # If we did /100 would get 0.5. So we keep sum(min).
+    # Weights are on a 0-100 percentage scale, so sum(min(w_a, w_b)) yields percentage directly.
     overlap_pct = float(overlap)
 
     shared_count = int(shared.height)

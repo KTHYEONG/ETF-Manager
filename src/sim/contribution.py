@@ -21,7 +21,7 @@ def allocate_contribution(
 ) -> dict[str, float]:
     """Split one month's investable KRW into buy-only spend fractions per sleeve.
 
-    ``rebalance_band is None`` returns the targets unchanged (Phase 3 identity).
+    ``rebalance_band is None`` returns the targets unchanged.
     Otherwise eligible sleeves are those underweight beyond the band
     (``w_cur < w_tgt - band``, missing marks count as 0), falling back to any
     underweight sleeve, then to the plain target mix when nothing is underweight.
